@@ -20,3 +20,14 @@ Controls: WASD to move, mouse to look, left click to break, right click to place
 
 A top-down medieval RPG: hunger and stamina, a day/night cycle with torches and campfires,
 melee combat with blocking, a village with traders, an inn and a three-part quest line.
+
+## Rio Bravo Run (`rio-bravo/`)
+
+A 3D western chase in raw WebGL. You just robbed the Dry Gulch bank: ride your horse
+1,000 metres north to the Rio Bravo while the sheriff and his deputies chase you and shoot.
+
+- Gallop (Shift) to outrun them, but it tires the horse
+- Six-shot revolver: click to fire, R to reload; headshots drop a lawman in one hit
+- Shoot a lawman's horse to slow him down
+- Q for Dead Eye, which slows time; it refills when you take down lawmen
+- Mesas block bullets, cacti slow you down, and the posse grows the farther you ride
