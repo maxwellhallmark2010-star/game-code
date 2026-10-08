@@ -407,7 +407,7 @@ void main() {
   gl_FragColor = vec4(c, 1.0);
 }`, ['aPos']);
 const post = prog(FS_QUAD, `precision mediump float;
-uniform sampler2D uScene, uBloom; uniform float uTime, uFear, uFade; uniform vec2 uRes; varying vec2 vUV;
+uniform sampler2D uScene, uBloom; uniform float uTime, uFear, uFade, uFlash; uniform vec2 uRes; varying vec2 vUV;
 float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 void main() {
   vec2 c = vUV - 0.5; float r2 = dot(c, c);
@@ -428,7 +428,7 @@ void main() {
   col += g * (0.075 + 0.16 * uFear);                                          // grain
   if (h(vec2(floor(uTime * 30.0), line)) > 0.997) col += 0.25;                // dropouts
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) col = vec3(0.0);
-  gl_FragColor = vec4(col * uFade, 1.0);
+  gl_FragColor = vec4((col + uFlash) * uFade, 1.0);
 }`, ['aPos']);
 
 const quadBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
@@ -580,16 +580,16 @@ function ik(a, t, l1, l2, hint) {
   return v3.add(v3.add(a, v3.mul(dir, x)), v3.mul(pole, h));
 }
 const SKIN = [.024, .021, .025], WISP = [.035, .032, .036], EYE = [1, 1, .96], TOOTH = [.95, .92, .82];
-const CR = { limbs: [], wisps: [], face: 0, x: 0, z: 0, speed: 0, twitchT: 1, tw: [0, 0], tilt: .3, t: 0 };
-const LIMBS = [
-  { leg: true, side: -1, lat: .24, fwd: -.2, group: 0 }, { leg: true, side: 1, lat: .24, fwd: -.2, group: 1 },
-  { leg: false, side: -1, lat: .58, fwd: .95, group: 1 }, { leg: false, side: 1, lat: .58, fwd: .95, group: 0 },
-];
+// It walks upright on two legs. The right leg is broken: the knee caves inward and the foot drags.
+const CR = { legs: [], armS: {}, wisps: [], face: 0, x: 0, z: 0, speed: 0, twitchT: 1, tw: [0, 0], tilt: .3, t: 0,
+             gait: 1, lean: 0, dip: 0, hitch: 0, mouth: 0, scare: false, head: [0, 0, 0], spasm: 0, spasmSide: -1, spasmT: 3 };
+const LEGS = [{ side: -1, lat: .17, group: 0, bad: false }, { side: 1, lat: .17, group: 1, bad: true }];
 const crF = f => [-Math.sin(f), 0, -Math.cos(f)], crR = f => [Math.cos(f), 0, -Math.sin(f)];
-function crRest(L, lead) { const F = crF(CR.face), R = crR(CR.face); return [CR.x + R[0] * L.side * L.lat + F[0] * (L.fwd + lead), 0, CR.z + R[2] * L.side * L.lat + F[2] * (L.fwd + lead)]; }
+function crRest(L, lead) { const F = crF(CR.face), R = crR(CR.face); return [CR.x + R[0] * L.side * L.lat + F[0] * lead, 0, CR.z + R[2] * L.side * L.lat + F[2] * lead]; }
 function crReset(x, z, face) {
-  CR.x = x; CR.z = z; CR.face = face; CR.speed = 0;
-  CR.limbs = LIMBS.map(L => ({ ...L, pos: crRest(L, 0), from: null, to: null, t: 1, dur: .3 }));
+  CR.x = x; CR.z = z; CR.face = face; CR.speed = 0; CR.mouth = 0; CR.scare = false; CR.lean = 0; CR.dip = 0; CR.hitch = 0;
+  CR.legs = LEGS.map(L => ({ ...L, pos: crRest(L, 0), from: null, to: null, t: 1, dur: .3 }));
+  CR.armS = {};
   CR.wisps = [];
   // hair from the back of the skull, rags from the shoulders, threads hanging off the forearms
   for (let i = 0; i < 16; i++) CR.wisps.push({ at: 'head', k: i / 15 - .5, row: i % 2, n: 8, seg: .1 + (i % 3) * .025, lift: .9, r: .02 });
@@ -602,103 +602,127 @@ function crUpdate(dt, mx, mz, speed, onStep) {
   CR.x += mx; CR.z += mz;
   CR.speed += (speed - CR.speed) * Math.min(1, dt * 4);
   if (speed > .1) { const want = Math.atan2(-mx, -mz); let d = want - CR.face; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; CR.face += d * Math.min(1, dt * 4); }
-  const stepping = g => CR.limbs.some(L => L.group === g && L.t < 1);
-  for (const L of CR.limbs) {
-    const want = crRest(L, CR.speed * .26);
+  const stepping = g => CR.legs.some(L => L.group === g && L.t < 1);
+  for (const L of CR.legs) {
+    const want = crRest(L, CR.speed * .24);
     if (L.t < 1) {
       L.t = Math.min(1, L.t + dt / L.dur);
       const e = L.t * L.t * (3 - 2 * L.t);
-      L.pos = v3.lerp(L.from, L.to, e); L.pos[1] = Math.sin(L.t * Math.PI) * (L.leg ? .2 : .34);
-      if (L.t >= 1) { L.pos[1] = 0; onStep(L); }
+      L.pos = v3.lerp(L.from, L.to, e);
+      L.pos[1] = Math.sin(L.t * Math.PI) * (L.bad ? .03 : .24);          // the bad foot barely leaves the floor
+      if (L.t >= 1) { L.pos[1] = 0; onStep(L, 'plant'); }
       continue;
     }
     const d = Math.hypot(L.pos[0] - want[0], L.pos[2] - want[2]);
-    if (d > 2.6) { L.pos = want; continue; }
-    if ((d > (L.leg ? .42 : .55) && !stepping(1 - L.group)) || d > 1.1) {
-      const over = v3.mul(v3.norm([want[0] - L.pos[0], 0, want[2] - L.pos[2]]), .14);
-      L.from = L.pos.slice(); L.to = v3.add(want, over); L.t = 0; L.dur = clamp(.36 - CR.speed * .045, .15, .36);
+    if (d > 2.8) { L.pos = want; continue; }
+    if ((d > (L.bad ? .5 : .34) && !stepping(1 - L.group)) || d > 1.8) {
+      const over = v3.mul(v3.norm([want[0] - L.pos[0], 0, want[2] - L.pos[2]]), L.bad ? .03 : .22);
+      L.from = L.pos.slice(); L.to = v3.add(want, over); L.t = 0;
+      const base = clamp(.42 - CR.speed * .05, .16, .42);
+      L.dur = L.bad ? base * 1.6 : base * .72;                            // quick hop on the good leg, slow drag on the bad one
+      if (L.bad) onStep(L, 'drag');
     }
   }
+  // the limp: surge while the good leg swings, stall while the broken one drags, sag when weight lands on it
+  const good = CR.legs[0], bad = CR.legs[1];
+  CR.gait = good.t < 1 ? 1.4 : bad.t < 1 ? .6 : 1;
+  CR.dip = good.t < 1 ? Math.sin(good.t * Math.PI) * .15 : 0;
+  CR.hitch = bad.t < 1 ? Math.sin(bad.t * Math.PI) * .07 : 0;
+  CR.lean += ((good.t < 1 ? .2 : bad.t < 1 ? -.1 : .06) - CR.lean) * Math.min(1, dt * 9);
   // head twitches: sudden snaps to a new angle, then holds
   CR.twitchT -= dt;
-  if (CR.twitchT <= 0) { CR.twitchT = rand(.25, 2.4); CR.tw = Math.random() < .55 ? [rand(-.5, .5), rand(-.35, .3)] : [0, 0]; CR.tilt = rand(-.6, .6); }
+  if (CR.twitchT <= 0) { CR.twitchT = rand(.25, 2.4); CR.tw = Math.random() < .55 ? [rand(-.5, .5), rand(-.35, .3)] : [0, 0]; CR.tilt = rand(-.2, .75); }
+  // now and then an arm jerks up on its own
+  CR.spasmT -= dt; CR.spasm = Math.max(0, CR.spasm - dt);
+  if (CR.spasmT <= 0) { CR.spasmT = rand(2, 6); CR.spasm = rand(.18, .35); CR.spasmSide = Math.random() < .5 ? -1 : 1; }
 }
 // build the mesh for this frame
-function crBuild(eye) {
+function crBuild(eye, dt) {
   entMesh.n = 0;
-  const t = CR.t, F = crF(CR.face), R = crR(CR.face), U = [0, 1, 0], sp = CR.speed;
-  const close = Math.hypot(eye[0] - CR.x, eye[2] - CR.z) < 6 ? 1 : 0;
-  const crouch = 1 - close * .12 - (CR.limbs.filter(L => L.t < 1).length ? .03 : 0);
-  const breathe = Math.sin(t * 2.1) * .015, sway = Math.sin(t * sp * 1.6) * .05;
-  const base = (f, r, u) => [CR.x + F[0] * f + R[0] * r, u, CR.z + F[2] * f + R[2] * r];
-  const pelvis = base(-.18, sway, .98 * crouch + Math.abs(Math.sin(t * sp * 1.6)) * .04);
-  const belly = v3.add(pelvis, [F[0] * .12, .3 * crouch, F[2] * .12]);
-  const chest = v3.add(pelvis, [F[0] * .34 + R[0] * sway * .5, .58 * crouch + breathe, F[2] * .34 + R[2] * sway * .5]);
-  const shoulders = v3.add(pelvis, [F[0] * .58, .78 * crouch + breathe, F[2] * .58]);
-  const neck1 = v3.add(shoulders, [F[0] * .2, .1, F[2] * .2]);
-  const neck2 = v3.add(shoulders, [F[0] * .36, .16, F[2] * .36]);
-  // head: looks at you, plus twitch offsets and a crooked tilt
-  let look = v3.norm(v3.sub(eye, neck2));
-  let yaw = Math.atan2(-look[0], -look[2]) + CR.tw[0], pitch = Math.asin(clamp(look[1], -1, 1)) + CR.tw[1];
-  const fy = CR.face; let dy = yaw - fy; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI; yaw = fy + clamp(dy, -1.5, 1.5);
+  const t = CR.t, F = crF(CR.face), R = crR(CR.face), U = [0, 1, 0], sp = CR.speed, sc = CR.scare;
+  const off = (p, f, r, u) => [p[0] + F[0] * f + R[0] * r, p[1] + u, p[2] + F[2] * f + R[2] * r];
+  const breathe = Math.sin(t * (sc ? 9 : 2.1)) * (sc ? .03 : .015), lean = CR.lean;
+  const pelvis = off([CR.x, 0, CR.z], 0, lean * .5 + Math.sin(t * 1.3) * .02, 1.3 - CR.dip + CR.hitch);
+  const belly = off(pelvis, .05, lean * .25, .3);
+  const chest = off(pelvis, .13, lean * .6, .57 + breathe);
+  const shoulders = off(pelvis, .22 + (sc ? .1 : 0), lean * .9, .77 + breathe - CR.dip * .3);
+  const neck1 = off(shoulders, .12, lean * .2, .1);
+  const neck2 = off(shoulders, .26, lean * .35, .13);
+  // head: looks at you, plus twitch offsets and a crooked tilt toward the broken side
+  const look = v3.norm(v3.sub(eye, neck2));
+  const tw = sc ? [rand(-.06, .06), rand(-.05, .05)] : CR.tw;
+  let yaw = Math.atan2(-look[0], -look[2]) + tw[0], pitch = Math.asin(clamp(look[1], -1, 1)) + tw[1];
+  let dy = yaw - CR.face; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI; yaw = CR.face + clamp(dy, -1.5, 1.5);
   const hf = [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
   let hr = v3.norm(v3.cross(hf, U)), hu = v3.cross(hr, hf);
-  const tl = CR.tilt + Math.sin(t * .7) * .1, ct = Math.cos(tl), st = Math.sin(tl);
+  const tl = (sc ? rand(-.15, .15) : CR.tilt + Math.sin(t * .7) * .1) + lean * .6, ct = Math.cos(tl), st = Math.sin(tl);
   [hr, hu] = [v3.add(v3.mul(hr, ct), v3.mul(hu, st)), v3.sub(v3.mul(hu, ct), v3.mul(hr, st))];
-  const head = v3.add(neck2, v3.add(v3.mul(hf, .2), v3.mul(hu, .17)));
+  let head = v3.add(neck2, v3.add(v3.mul(hf, .2), v3.mul(hu, .12)));
+  if (sc) head = v3.add(head, [rand(-.012, .012), rand(-.012, .012), rand(-.012, .012)]);
+  CR.head = head;
 
-  // torso: thin, ribbed, hunched
-  const spine = [pelvis, belly, chest, shoulders, neck1, neck2, v3.add(head, v3.mul(hu, -.12))];
-  tube(spine, [.15, .13, .19, .17, .085, .07, .07], 12, SKIN);
-  for (let i = 0; i < 4; i++) {        // ribs pressing through the skin
+  // torso: thin, ribbed, stooped
+  tube([pelvis, belly, chest, shoulders, neck1, neck2, v3.add(head, v3.mul(hu, -.12))], [.15, .13, .19, .17, .085, .07, .07], 12, SKIN);
+  for (let i = 0; i < 4; i++) {
     const c = v3.lerp(belly, shoulders, .25 + i * .2);
     tube([v3.madd(c, R, -.15), v3.add(c, v3.mul(F, .14 - i * .01)), v3.madd(c, R, .15)], [.02, .028, .02], 5, SKIN);
   }
-  // legs: reverse-bent knees, clawed feet
-  CR.limbs.filter(L => L.leg).forEach(L => {
-    const hip = v3.madd(pelvis, R, L.side * .12);
+  // legs: the good one bends backwards, the broken one caves inward and drags a twisted foot
+  for (const L of CR.legs) {
+    const hip = off(pelvis, 0, L.side * .13, 0);
     let ankle = v3.add(L.pos, [0, .1, 0]);
-    if (v3.len(v3.sub(ankle, hip)) > 1.2) ankle = v3.madd(hip, v3.norm(v3.sub(ankle, hip)), 1.2);
-    const knee = ik(hip, ankle, .6, .62, v3.add(v3.mul(F, -1), v3.mul(R, L.side * .4)));
-    tube([hip, v3.lerp(hip, knee, .5), knee, v3.lerp(knee, ankle, .5), ankle], [.085, .06, .05, .04, .035], 8, SKIN);
+    if (v3.len(v3.sub(ankle, hip)) > 1.5) ankle = v3.madd(hip, v3.norm(v3.sub(ankle, hip)), 1.5);
+    const hint = L.bad ? v3.add(v3.mul(F, .5), v3.mul(R, -L.side * .9)) : v3.add(v3.mul(F, -1), v3.mul(R, L.side * .35));
+    const knee = ik(hip, ankle, .76, .78, hint);
+    tube([hip, v3.lerp(hip, knee, .5), knee, v3.lerp(knee, ankle, .5), ankle], [.09, .065, .05, .04, .035], 8, SKIN);
     for (let k = -1; k <= 1; k++) {
-      const d = v3.norm(v3.add(F, v3.mul(R, k * .35)));
-      const lift = L.t < 1 ? .05 : 0;
+      const d = L.bad ? v3.norm(v3.add(v3.mul(F, .35), v3.mul(R, L.side * (.9 + k * .3)))) : v3.norm(v3.add(F, v3.mul(R, k * .35)));
+      const lift = !L.bad && L.t < 1 ? .05 : 0;
       tube([ankle, v3.add(v3.madd(ankle, d, .12), [0, -.06 + lift, 0]), v3.add(v3.madd(ankle, d, .24), [0, -.09 + lift, 0]), v3.add(v3.madd(ankle, d, .3), [0, -.1 + lift * 2, 0])], [.03, .02, .012, 0], 5, SKIN);
     }
-  });
-  // arms: long, spidery elbows held high, hooked claws dragged across the carpet
+  }
+  // arms: dead weight hanging past the knees, swinging on damped springs; the broken side swings loosest
   const forearms = {};
-  CR.limbs.filter(L => !L.leg).forEach(L => {
-    const sh = v3.madd(shoulders, R, L.side * .2);
-    let wrist = v3.add(L.pos, [0, .08, 0]);
-    if (v3.len(v3.sub(wrist, sh)) > 1.6) wrist = v3.madd(sh, v3.norm(v3.sub(wrist, sh)), 1.6);
-    const elbow = ik(sh, wrist, .78, .84, v3.add(v3.add(v3.mul(R, L.side * 1.2), [0, 1, 0]), v3.mul(F, -.3)));
+  for (const side of [-1, 1]) {
+    const sh = off(shoulders, 0, side * .21, 0);
+    const swing = Math.sin(t * (1.6 + sp * 1.3) + (side > 0 ? Math.PI : 0)) * .3 * Math.min(1, sp / 2.5) * (side > 0 ? 1.5 : 1);
+    let target = off(sh, .08 + swing, side * .12, side > 0 ? -1.5 : -1.42);
+    if (CR.spasm > 0 && side === CR.spasmSide) target = off(sh, .75, side * .35, -.15);
+    if (sc) target = off(sh, .95, side * .38, .05);                       // both claws reach for the lens
+    const s = CR.armS[side] || (CR.armS[side] = { p: target, v: [0, 0, 0] });
+    const k = sc ? 300 : side > 0 ? 22 : 40, damp = side > 0 ? 3.5 : 6;
+    const acc = v3.sub(v3.mul(v3.sub(target, s.p), k), v3.mul(s.v, damp));
+    s.v = v3.madd(s.v, acc, dt); s.p = v3.madd(s.p, s.v, dt);
+    if (v3.len(v3.sub(s.p, sh)) > 1.6) s.p = v3.madd(sh, v3.norm(v3.sub(s.p, sh)), 1.6);
+    const wrist = s.p;
+    const elbow = ik(sh, wrist, .78, .84, v3.add(v3.mul(F, sc ? .2 : -1), v3.add(v3.mul(R, side * .45), [0, sc ? 1 : 0, 0])));
     tube([sh, v3.lerp(sh, elbow, .5), elbow, v3.lerp(elbow, wrist, .5), wrist], [.07, .05, .04, .032, .028], 8, SKIN);
-    forearms[L.side < 0 ? 'larm' : 'rarm'] = [elbow, wrist];
-    const reach = v3.norm([wrist[0] - sh[0], 0, wrist[2] - sh[2]]);
-    for (let k = 0; k < 4; k++) {
-      const a = (k - 1.5) * .32, d = v3.norm(v3.add(v3.mul(reach, Math.cos(a)), v3.mul(R, Math.sin(a) * L.side)));
-      const curl = L.t < 1 ? .1 : 0;
-      tube([wrist, v3.add(v3.madd(wrist, d, .14), [0, .02 - curl * .3, 0]), v3.add(v3.madd(wrist, d, .3), [0, -.03 - curl, 0]),
-            v3.add(v3.madd(wrist, d, .42 - curl), [0, -.075 - curl * .6, 0]), v3.add(v3.madd(wrist, d, .46 - curl * 1.5), [0, -.07 - curl * .2, 0])], [.024, .02, .014, .007, 0], 5, SKIN);
+    forearms[side < 0 ? 'larm' : 'rarm'] = [elbow, wrist];
+    for (let c = 0; c < 4; c++) {
+      const a = (c - 1.5) * .35;
+      const d = sc ? v3.norm(v3.add(v3.add(v3.mul(F, .9), v3.mul(R, Math.sin(a) * .7)), [0, (c - 1.5) * .18, 0]))
+                   : v3.norm(v3.add(v3.add([0, -.8, 0], v3.mul(F, .35)), v3.mul(R, Math.sin(a) * side * .45)));
+      tube([wrist, v3.madd(wrist, d, .14), v3.add(v3.madd(wrist, d, .28), v3.mul(F, .04)),
+            v3.add(v3.madd(wrist, d, .4), v3.mul(F, .1)), v3.add(v3.madd(wrist, d, .44), v3.mul(F, .15))], [.024, .02, .014, .007, 0], 5, SKIN);
     }
-  });
+  }
   // skull: a lumpy, too-round head
   blob(head, v3.mul(hr, .25), v3.mul(hu, .27), v3.mul(hf, .26), 14, 18, SKIN, 3, u => 1 + .05 * Math.sin(u[0] * 9 + u[1] * 5) * Math.sin(u[2] * 7));
   // one enormous white eye with a pinpoint pupil
   const eyeC = v3.add(head, v3.add(v3.add(v3.mul(hf, .19), v3.mul(hr, -.07)), v3.mul(hu, .07)));
   blob(eyeC, v3.mul(hr, .105), v3.mul(hu, .1), v3.mul(hf, .07), 8, 12, EYE, 5);
-  const pv = v3.norm(v3.sub(eye, eyeC));
-  blob(v3.madd(eyeC, v3.norm(v3.add(hf, v3.mul(pv, .4))), .068), v3.mul(hr, .016), v3.mul(hu, .016), v3.mul(hf, .01), 4, 6, [.01, .01, .01], 3);
-  // the grin: two rows of teeth around the lower face, corners pulled high
+  const pv = v3.norm(v3.sub(eye, eyeC)), ps = sc ? .008 : .016;
+  blob(v3.madd(eyeC, v3.norm(v3.add(hf, v3.mul(pv, .4))), .068), v3.mul(hr, ps), v3.mul(hu, ps), v3.mul(hf, .01), 4, 6, [.01, .01, .01], 3);
+  // the grin: two rows of teeth around the lower face, corners pulled high; the jaw drops when it screams
+  const jaw = CR.mouth;
   for (let i = 0; i < 15; i++) {
     const th = (i / 14 - .5) * 2.1, d = v3.norm(v3.add(v3.mul(hf, Math.cos(th)), v3.mul(hr, Math.sin(th))));
     const yv = -.11 + .085 * (th / 1.05) ** 2, tan = v3.norm(v3.add(v3.mul(hf, -Math.sin(th)), v3.mul(hr, Math.cos(th))));
     const p = v3.add(v3.madd(head, d, .245), v3.mul(hu, yv));
-    blob(v3.madd(p, hu, .02), v3.mul(tan, .017), v3.mul(hu, .026), v3.mul(d, .012), 3, 5, TOOTH, 5);
-    blob(v3.madd(p, hu, -.021), v3.mul(tan, .016), v3.mul(hu, .022), v3.mul(d, .012), 3, 5, TOOTH, 5);
+    blob(v3.madd(p, hu, .02 + jaw * .02), v3.mul(tan, .017), v3.mul(hu, .026 + jaw * .01), v3.mul(d, .012), 3, 5, TOOTH, 5);
+    blob(v3.madd(p, hu, -.021 - jaw * .085 * Math.cos(th * .8)), v3.mul(tan, .016), v3.mul(hu, .022 + jaw * .012), v3.mul(d, .012), 3, 5, TOOTH, 5);
   }
+  if (jaw > .05) blob(v3.add(v3.madd(head, hf, .2), v3.mul(hu, -.15)), v3.mul(hr, .17), v3.mul(hu, .045 * jaw + .01), v3.mul(hf, .06), 6, 10, [0, 0, 0], 5);
   // wisps: rope chains, follow-the-leader with drift, gravity and flutter
   for (const w of CR.wisps) {
     let root;
@@ -711,10 +735,9 @@ function crBuild(eye) {
     for (let i = 1; i < w.n; i++) {
       const fl = Math.sin(t * 2.3 + i * .9 + w.k * 11) * .6 + Math.sin(t * 4.7 + i * 1.7 + w.k * 5) * .3;
       const fu = Math.sin(t * 1.9 + i * 1.1 + w.k * 7) * .5;
-      const push = v3.add(v3.add(v3.mul(back, .004 + sp * .003), v3.mul(side, fl * .02)), [0, w.lift * .005 + fu * .012 - .004, 0]);
+      const push = v3.add(v3.add(v3.mul(back, .004 + sp * .003 + (sc ? .03 : 0)), v3.mul(side, fl * .02)), [0, w.lift * .005 + fu * .012 - .004, 0]);
       w.p[i] = v3.add(w.p[i], push);
-      const dir = v3.norm(v3.sub(w.p[i], w.p[i - 1]));
-      w.p[i] = v3.madd(w.p[i - 1], dir, w.seg);
+      w.p[i] = v3.madd(w.p[i - 1], v3.norm(v3.sub(w.p[i], w.p[i - 1])), w.seg);
       if (w.p[i][1] < .02) w.p[i][1] = .02;
     }
     tube(w.p, w.p.map((_, i) => w.r * (1 - i / (w.n - 1)) + .002), 4, WISP);
@@ -787,7 +810,7 @@ function updatePlayer(dt) {
   const sy = Math.sin(G.yaw), cy = Math.cos(G.yaw);
   let wx = -sy * f + cy * s, wz = -cy * f - sy * s; const wl = Math.hypot(wx, wz); if (wl > 1) { wx /= wl; wz /= wl; }
   const run = (keys.has('shift') || tflags.run) && wl > .1 && G.stam > 1;
-  const sp = run ? 4.4 : 2.1;
+  const sp = run ? 4.8 : 2.1;
   G.vx += (wx * sp - G.vx) * Math.min(1, dt * 8); G.vz += (wz * sp - G.vz) * Math.min(1, dt * 8);
   G.stam = clamp(G.stam + (run ? -15 : 10) * dt, 0, 100);
   if (G.stam < 1 && run) say('You need to catch your breath.', 1.5);
@@ -850,15 +873,17 @@ function updateEntity(dt) {
       else { const ez = Math.max(nz, ecz), t = edgeType(ecx, ez, 1); tz = ez * CELL + (nz > ecz ? .6 : -.6); tx = ecx * CELL + OPENING[t]; if (Math.abs(E.x - tx) > .3) tz = ez * CELL + (nz > ecz ? -.6 : .6); }
     }
   }
-  const sp = (G.running ? 3.3 : 2.6) * (d < 6 ? 1.15 : 1);
+  // fast: it out-walks you, and only a sprint keeps you ahead; it lurches in bursts because of the limp
+  const sp = (G.running ? 4.1 : 3.4) * (d < 7 ? 1.15 : 1) * CR.gait;
   const dx = tx - E.x, dz = tz - E.z, dl = Math.hypot(dx, dz) || 1;
   const mx = dx / dl * Math.min(sp * dt, dl), mz = dz / dl * Math.min(sp * dt, dl);
   E.x += mx; E.z += mz;
-  crUpdate(dt, mx, mz, Math.hypot(mx, mz) / Math.max(dt, 1e-4), L => {
+  crUpdate(dt, mx, mz, Math.hypot(mx, mz) / Math.max(dt, 1e-4), (L, kind) => {
     const vol = clamp(1.1 - d / 22, 0, .9);
-    if (L.leg) sfxStep(vol, true); else noiseHit(vol * .35, 2600, .06, 'highpass');   // claws ticking on the carpet
+    if (kind === 'drag') noiseHit(vol * .5, 900, L.dur * .9, 'bandpass');          // the broken foot scraping the carpet
+    else sfxStep(vol * (L.bad ? .6 : 1), true);
   });
-  if (d < .9) end('caught');
+  if (d < 1.05) end('caught');
 }
 
 // ===================== audio =====================
@@ -906,6 +931,20 @@ function noiseHit(vol, freq, dur, type = 'lowpass') {
 }
 function sfxStep(vol, heavy) { noiseHit(vol * (heavy ? .9 : .35), heavy ? 160 : 520, heavy ? .3 : .12); }
 function sfxKnock(vol) { if (!AC) return; [0, .18, .36].forEach(dt => setTimeout(() => noiseHit(vol, 200, .25), dt * 1000)); }
+function sfxScream() {
+  if (!AC) return;
+  const t = AC.currentTime, out = AC.createGain(), shaper = AC.createWaveShaper(), curve = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) { const x = i / 511.5 - 1; curve[i] = Math.tanh(x * 6); }
+  shaper.curve = curve; shaper.connect(out); out.connect(OUT);
+  out.gain.setValueAtTime(0, t); out.gain.linearRampToValueAtTime(.55, t + .03); out.gain.setValueAtTime(.55, t + 1.2); out.gain.exponentialRampToValueAtTime(.001, t + 1.9);
+  const vib = AC.createOscillator(), vg = AC.createGain(); vib.frequency.value = 27; vg.gain.value = 45; vib.connect(vg); vib.start(t); vib.stop(t + 2);
+  [480, 571, 733, 1010, 1390].forEach((f, i) => {
+    const o = AC.createOscillator(), g = AC.createGain(); o.type = i % 2 ? 'sawtooth' : 'square';
+    o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * .52, t + 1.8); vg.connect(o.frequency);
+    g.gain.value = .18; o.connect(g); g.connect(shaper); o.start(t); o.stop(t + 2);
+  });
+  noiseHit(.9, 2200, 1.4, 'bandpass'); noiseHit(1, 90, .8);                          // shriek hiss and a body-hit thump
+}
 function sfxDrink() {
   if (!AC) return; const t = AC.currentTime;
   [0, .2, .4].forEach(d => { const o = AC.createOscillator(), g = AC.createGain(); o.frequency.setValueAtTime(220, t + d); o.frequency.exponentialRampToValueAtTime(120, t + d + .12); g.gain.setValueAtTime(.12, t + d); g.gain.exponentialRampToValueAtTime(.001, t + d + .14); o.connect(g); g.connect(OUT); o.start(t + d); o.stop(t + d + .15); });
@@ -946,7 +985,8 @@ function render(now) {
   const swayY = (Math.sin(t * .7) * .004 + Math.sin(t * 1.9) * .002) * (1 + G.fear * 3), swayP = Math.sin(t * .53) * .004 + Math.sin(t * 2.3) * .0015;
   const roll = Math.sin(t * .41) * .006 + Math.cos(G.phase * .5) * .008 * bobA;
   const ex = G.x + Math.cos(G.yaw) * bobX, ey = 1.6 + bobY, ez = G.z - Math.sin(G.yaw) * bobX;
-  const view = mul(rotZ(-roll), mul(rotX(-(G.pitch + swayP)), mul(rotY(-(G.yaw + swayY)), T(-ex, -ey, -ez))));
+  const shk = G.state === 'caught' ? .035 : 0;
+  const view = mul(rotZ(-roll + rand(-shk, shk)), mul(rotX(-(G.pitch + swayP + rand(-shk, shk))), mul(rotY(-(G.yaw + swayY + rand(-shk, shk))), T(-ex, -ey, -ez))));
   VP = mul(persp(1.12, rt.scene.w / rt.scene.h, .05, 120), view);
 
   gl.bindFramebuffer(gl.FRAMEBUFFER, rt.scene.f); gl.viewport(0, 0, rt.scene.w, rt.scene.h);
@@ -964,7 +1004,7 @@ function render(now) {
   });
   bindWorldAttribs(worldMesh.b); gl.drawArrays(gl.TRIANGLES, 0, worldMesh.n);
   if (G.ent.on && Math.hypot(G.ent.x - G.x, G.ent.z - G.z) < 45) {
-    crBuild([ex, ey, ez]);
+    crBuild([ex, ey, ez], Math.min(FRAME_DT, 1 / 30));
     gl.bindBuffer(gl.ARRAY_BUFFER, entMesh.b); gl.bufferSubData(gl.ARRAY_BUFFER, 0, entArr.subarray(0, entMesh.n * 10));
     bindWorldAttribs(entMesh.b); gl.drawArrays(gl.TRIANGLES, 0, entMesh.n);
   }
@@ -983,7 +1023,7 @@ function render(now) {
   gl.useProgram(post.p);
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, rt.scene.t); gl.uniform1i(post.u.uScene, 0);
   gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, rt.a.t); gl.uniform1i(post.u.uBloom, 1);
-  gl.uniform1f(post.u.uTime, t); gl.uniform1f(post.u.uFear, G.fear); gl.uniform1f(post.u.uFade, G.fade);
+  gl.uniform1f(post.u.uTime, t); gl.uniform1f(post.u.uFear, G.fear); gl.uniform1f(post.u.uFade, G.fade); gl.uniform1f(post.u.uFlash, G.flash || 0);
   gl.uniform2f(post.u.uRes, canvas.width, canvas.height);
   drawQuad();
 }
@@ -1129,7 +1169,7 @@ function pauseGame() { if (!running || G.state !== 'play') return; running = fal
 function end(kind) {
   if (G.state !== 'play') return;
   G.state = kind; G.endT = kind === 'win' ? 2 : 2.4;
-  if (kind === 'caught') { G.fear = 1; sfxKnock(1); noiseHit(.9, 3000, 1.2, 'highpass'); }
+  if (kind === 'caught') { G.fear = 1; G.scare = 0; G.flash = .9; G.endT = 2.1; G.vx = G.vz = 0; CR.scare = true; CR.tw = [0, 0]; sfxScream(); }
   if (kind === 'win') say('The door opens.', 2);
 }
 
@@ -1171,12 +1211,25 @@ canvas.addEventListener('touchend', le); canvas.addEventListener('touchcancel', 
 $('tRun').addEventListener('pointerdown', e => { e.preventDefault(); tflags.run = !tflags.run; $('tRun').classList.toggle('on', tflags.run); });
 
 // ===================== loop =====================
-let last = performance.now(), osdT = 0;
+let last = performance.now(), osdT = 0, FRAME_DT = 1 / 60;
 function frame(now) {
-  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  const dt = Math.min(.05, (now - last) / 1000); last = now; FRAME_DT = dt;
+  if (G) G.flash = Math.max(0, (G.flash || 0) - dt * 2.5);
   if (running && G) {
     G.t += dt;
     if (G.state === 'play') { updatePlayer(dt); updateEntity(dt); G.fade = Math.min(1, G.fade + dt * .6); }
+    else if (G.state === 'caught') {
+      // jumpscare: it lunges into the lens, jaw open, claws spread; then the tape cuts
+      G.scare += dt; G.endT -= dt; CR.mouth = Math.min(1, CR.mouth + dt * 7);
+      let dx = CR.x - G.x, dz = CR.z - G.z; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+      const headOff = Math.hypot(CR.head[0] - CR.x, CR.head[2] - CR.z), want = 1.3 - .82 * clamp(G.scare / .22, 0, 1);
+      CR.x = G.x + dx * (want + headOff); CR.z = G.z + dz * (want + headOff); CR.face = Math.atan2(dx, dz);
+      G.ent.x = CR.x; G.ent.z = CR.z;
+      crUpdate(dt, 0, 0, 0, () => {});
+      G.yaw = Math.atan2(-dx, -dz); G.pitch = Math.atan2(CR.head[1] - 1.6, want);
+      G.fade = G.endT < .12 ? 0 : 1;
+      if (G.endT <= 0) { running = false; if (document.pointerLockElement) document.exitPointerLock(); showMenu(G.state); }
+    }
     else { G.endT -= dt; G.fade = Math.max(0, G.fade - dt * (G.state === 'win' ? .8 : .45)); if (G.endT <= 0) { running = false; if (document.pointerLockElement) document.exitPointerLock(); showMenu(G.state); } }
     const dEnt = G.ent.on ? Math.hypot(G.ent.x - G.x, G.ent.z - G.z) : 99;
     const target = G.state === 'caught' ? 1 : Math.max(clamp(1 - dEnt / 14, 0, 1), (1 - G.sanity / 100) * .6);

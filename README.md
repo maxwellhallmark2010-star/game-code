@@ -42,9 +42,11 @@ pipeline: bloom, lens distortion, chromatic aberration, film grain, scanlines an
 - An endless procedural maze: open halls with pillars, tight corridors and dark zones
 - Find the exit door; the SIGNAL bars rise as you get closer
 - The battery icon is your sanity. Darkness drains it; almond water restores it
-- When the lights around you start to flicker, the Grinning One is hunting you. Run (Shift).
-  Its body is a procedural 3D model rebuilt every frame: limbs plant and step with inverse
-  kinematics, knees bend backwards, the head twitches and tracks you, and its wisps are rope-simulated
+- When the lights around you start to flicker, the Grinning One is hunting you. It is faster than
+  you walk, so sprint (Shift). Its body is a procedural 3D model rebuilt every frame: it walks
+  upright on a broken right leg, lurching on the good leg and dragging the twisted foot, with
+  dead-weight arms on springs, a twitching head that tracks you, and rope-simulated wisps
+- If it catches you: a jumpscare as it lunges into the lens screaming, jaw open, then the tape cuts
 - Minimap (top left) of the rooms you have explored; press M or tap it to expand
 - Pause (P or Esc) has settings: static volume and master volume, saved in the browser
 - Synthesised audio: fluorescent hum, footsteps on carpet, distant knocking
