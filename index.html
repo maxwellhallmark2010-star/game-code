@@ -1253,8 +1253,8 @@ function hurtHost() {
   if (T - player.lastHit < 0.25) return;
   player.lastHit = T;
   addShake(0.35); Sfx.hit();
-  if (counts[BODY] - 70 >= MIN_BODY) {
-    scatterBots(70);
+  if (counts[BODY] - 45 >= MIN_BODY) {
+    scatterBots(45);
     toast('Bots knocked loose. They will crawl back.', true);
   } else {
     player.health -= 22; Sfx.hurt(); flashHurt();
@@ -1690,7 +1690,7 @@ function updateBots(dt) {
       else {
         const dx = hx - B.px[i], dz = hz - B.pz[i], d = Math.hypot(dx, dz);
         if (d < catchR) { setRole(i, BODY, 5); counts[BODY]++; writeBot(arr, i, 1); continue; }
-        const stepL = Math.min(d, 3.2 * dt) / d;
+        const stepL = Math.min(d, (3.2 + d * 0.35) * dt) / d;
         B.px[i] += dx * stepL; B.pz[i] += dz * stepL;
         if ((i + frameNo) % 4 === 0) B.gy[i] = supportHeight(B.px[i], B.pz[i], B.py[i], 0) + 0.04;
         B.py[i] = lerp(B.py[i], B.gy[i], damp(12, dt));
@@ -1754,8 +1754,9 @@ function updateDrones(dt) {
     if (dist < 34 && d.cd <= 0) {
       const eye = d.pos.clone();
       const lead = chest.clone().addScaledVector(car.active ? car.vel : player.vel, dist / 16 * 0.5);
+      lead.x += rand(-1.2, 1.2); lead.y += rand(-0.6, 0.6); lead.z += rand(-1.2, 1.2);
       fireOrb(eye, lead);
-      d.cd = rand(2.2, 3.8);
+      d.cd = rand(3.5, 6);
       Sfx.zap();
     }
     d.group.position.set(d.pos.x, d.pos.y + Math.sin(d.t * 2.3) * 0.15, d.pos.z);
