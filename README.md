@@ -5,6 +5,27 @@ Open `index.html` to pick a game, or open a game's own `index.html` directly.
 Both games run in Chrome, Edge, Firefox or Safari. They need an internet connection
 the first time to load the Three.js 3D library.
 
+## Frontline (`frontline/index.html`)
+
+A third-person war game across two trench lines, a ruined village and the sea.
+The style is blocky with no blood: soldiers fall over when they're hit.
+
+- **Win** by capturing the Ruins in the middle, then the enemy's East Trench. Lose if they take all three.
+- **Your squad fights with you.** Teammates get hit and go down. A wounded soldier shows a red cross
+  and calls for a medic. Carry him (E) to a medic tent and he's healed back into the fight.
+  Carry a wounded *enemy* to your medic and he joins your side.
+- **Surrendering enemies** raise a white flag. You can recruit them (E), but watch for the hint:
+  "he looks relieved" usually means he's honest, "he keeps eyeing his rifle" usually means he'll betray you.
+- **Loot** bodies and supply crates for ammo, grenades, medkits, the enemy SMG and a rocket launcher.
+  Raiding the enemy's supply crate works too.
+- **Vehicles:** drive tanks (cannon + machine gun), fly jets (guns + bombs, the jet flies where you look,
+  E ejects with a parachute), and man anti-aircraft guns. Sneak behind enemy lines to steal their parked
+  tanks and jets or take over their AA guns. Enemy tank crews bail out of badly damaged tanks, and then you can steal those too.
+- **The sea:** warships from both sides shell each other and the trenches. Bomb the enemy fleet from a jet.
+
+Controls: WASD move, mouse aim, left click shoot, right click aim, E use, Shift sprint, C crouch,
+Space jump, R reload, G grenade, Q medkit, 1/2/3 weapons, H pause, M sound.
+
 ## Sneak Out (`sneak-out/index.html`)
 
 You're grounded and locked in your bedroom. Your friends are at Maple Park until the
