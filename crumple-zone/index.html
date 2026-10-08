@@ -44,6 +44,15 @@ body { background: var(--sky); color: var(--ink); font-family: var(--body); over
 .bar { height: 6px; background: rgba(255,255,255,0.12); border-radius: 1px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0%; background: var(--hazard); transition: width 0.15s linear, background 0.3s; }
 .bar i.bad { background: var(--danger); }
+.bar i.ok { background: #46c35a; }
+.bar i.warn { background: var(--hazard); }
+.engine-note { font: 700 12px/1 var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--hazard); }
+.engine-note.bad { color: var(--danger); }
+.prompt, .toast { position: absolute; z-index: 3; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; }
+.prompt { bottom: calc(66px + env(safe-area-inset-bottom, 0px)); background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 4px; padding: 8px 14px; font: 500 15px/1.2 var(--display); letter-spacing: 0.08em; text-transform: uppercase; }
+.prompt kbd { font: inherit; color: var(--hazard); }
+.toast { top: 22%; font: 700 clamp(22px, 5vw, 40px)/1.1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); text-shadow: 0 2px 12px rgba(0,0,0,0.6); transition: opacity 0.4s; }
+.toast small { display: block; font-size: 0.45em; letter-spacing: 0.16em; color: var(--hazard); margin-top: 6px; }
 .slow { font: 700 12px/1 var(--display); letter-spacing: 0.2em; color: var(--hazard-ink); background: var(--hazard); padding: 4px 6px; border-radius: 2px; justify-self: start; }
 
 .actions { top: 16px; right: 16px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: calc(100% - 220px); }
@@ -71,6 +80,7 @@ button.on { background: var(--hazard); color: var(--hazard-ink); border-color: v
 .pads button.held { filter: brightness(1.5); }
 @media (pointer: coarse) {
   .pads { display: flex; }
+  .prompt { bottom: calc(118px + env(safe-area-inset-bottom, 0px)); }
   .legend { display: none; }
   button kbd { display: none; }
 }
@@ -91,6 +101,9 @@ button.on { background: var(--hazard); color: var(--hazard-ink); border-color: v
     <div class="speed"><b id="spd">0</b><span>km/h<br><span id="mph">0 mph</span></span></div>
     <div class="dmg-row"><span>Damage</span><output id="dmgTxt">0%</output></div>
     <div class="bar"><i id="dmgBar"></i></div>
+    <div class="dmg-row"><span>Engine</span><output id="engTxt">100%</output></div>
+    <div class="bar"><i id="engBar" class="ok" style="width:100%"></i></div>
+    <div class="engine-note" id="engNote" hidden></div>
     <div class="slow" id="slowTag" hidden>Slow motion</div>
   </div>
 
@@ -99,9 +112,16 @@ button.on { background: var(--hazard); color: var(--hazard-ink); border-color: v
     <button id="bFlip" type="button">Flip upright<kbd>F</kbd></button>
     <button id="bSlow" type="button">Slow-mo<kbd>T</kbd></button>
     <button id="bCam" type="button">Chase cam<kbd>C</kbd></button>
+    <button id="bExit" type="button">Get out<kbd>G</kbd></button>
+    <button id="bDoor" type="button">Door<kbd>O</kbd></button>
+    <button id="bHood" type="button">Hood<kbd>H</kbd></button>
+    <button id="bTrunk" type="button">Trunk<kbd>B</kbd></button>
+    <button id="bUse" type="button" hidden>Open / close<kbd>E</kbd></button>
   </div>
+  <div class="prompt" id="prompt" hidden></div>
+  <div class="toast" id="toast" hidden></div>
 
-  <div class="legend"><kbd>W A S D</kbd> or arrows to drive &nbsp;·&nbsp; <kbd>Space</kbd> handbrake &nbsp;·&nbsp; <kbd>C</kbd> camera &nbsp;·&nbsp; drag to look, scroll or pinch to zoom</div>
+  <div class="legend" id="legend"><kbd>W A S D</kbd> or arrows to drive &nbsp;·&nbsp; <kbd>Space</kbd> handbrake &nbsp;·&nbsp; <kbd>G</kbd> get out &nbsp;·&nbsp; <kbd>C</kbd> camera &nbsp;·&nbsp; drag to look, scroll or pinch to zoom</div>
 
   <div class="pads">
     <div>
@@ -324,7 +344,7 @@ const Phys = (() => {
 
   const cf = [0, 0, 1], cr = [1, 0, 0], cu = [0, 1, 0], c = [0, 0, 0], vel = [0, 0, 0];
   const input = { thr: 0, steer: 0, hb: false };
-  const state = { steer: 0, speed: 0, damage: 0 };
+  const state = { steer: 0, speed: 0, damage: 0, engine: 1, dead: false }; // engine: 1 = healthy, 0 = blown up
   let scraping = 0;
 
   function frame() {
@@ -360,7 +380,18 @@ const Phys = (() => {
     frame();
     return top - bottom;
   }
-  function reset() { for (let b = 0; b < NB; b++) rest[b] = rest0[b]; state.damage = 0; place(0, 0, 0, local); }
+  function reset() { for (let b = 0; b < NB; b++) rest[b] = rest0[b]; state.damage = 0; state.engine = 1; state.dead = false; place(0, 0, 0, local); }
+
+  // An explosion: every node is thrown away from the blast (and upwards), harder the closer it is. Nodes near the blast
+  // move much more than far ones, so the beams between them bend and the bodywork bulges out around it.
+  function blast(x, y, z, power) {
+    frame();
+    for (let i = 0; i < N; i++) {
+      const dx = px[i] - x, dy = py[i] - y, dz = pz[i] - z, d = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.35;
+      const k = Math.min(power * 2, power / (d * d)) * DT;
+      ox[i] -= dx / d * k; oy[i] -= (dy / d + 0.8) * k; oz[i] -= dz / d * k;
+    }
+  }
   function flip() {
     frame();
     const L = [];
@@ -379,7 +410,7 @@ const Phys = (() => {
     const maxSteer = 0.58 / (1 + aspd * 0.055);
     state.steer += (input.steer * maxSteer - state.steer) * Math.min(1, DT * 9);
     for (let i = 0; i < N; i++) { ax[i] = 0; ay[i] = -G; az[i] = 0; }
-    const power = 1 - 0.6 * state.damage;
+    const power = state.dead ? 0 : (1 - 0.6 * state.damage) * (0.35 + 0.65 * state.engine);
 
     for (let w = 0; w < 4; w++) {
       const wh = wheels[w], m = wh.node;
@@ -527,7 +558,7 @@ const Phys = (() => {
   }
 
   reset();
-  return { nodeDamage, updateNodeDamage, spawn: (x, z, yaw) => { reset(); place(x, z, yaw, local); }, DT, WR, DROOP, N, local, px, py, pz, feats, baseH, H, wheels, cf, cr, cu, c, input, state, step, reset, flip, measureDamage, rest, rest0, NB };
+  return { nodeDamage, updateNodeDamage, blast, vel, spawn: (x, z, yaw) => { reset(); place(x, z, yaw, local); }, DT, WR, DROOP, N, local, px, py, pz, feats, baseH, H, wheels, cf, cr, cu, c, input, state, step, reset, flip, measureDamage, rest, rest0, NB };
 })();
 /*PHYS-END*/
 
@@ -601,19 +632,209 @@ const Phys = (() => {
     m.castShadow = m.receiveShadow = true; scene.add(m);
   }
 
-  // car skin
+  // ---- car skin. The body shell is one mesh, but the doors, bonnet and tailgate are cut out of it into meshes of their
+  // own. They are skinned to the same frame, so they still dent, and on top of that they swing open on their hinges.
+  const LIGHTS = ['161,48,49', '182,92,28', '173,168,165', '99,131,171'], INTERIOR = ['55,49,44', '45,47,50', '42,101,163'];
+  const door = s => ({
+    shell: v => v.x * s >= 0.74 && v.z >= -0.875 && v.z <= 0.72 && v.y >= 0.2 && v.y <= 1.585 && !INTERIOR.includes(v.c),
+    glass: v => v.x * s > 0 && v.z >= -0.85 && v.z <= 0.72,
+    hinge: [[s * 1.0, 0.25, 0.71], [s * 0.96, 0.9, 0.71]], swing: [s, 0, 0], test: [s, 0.6, -0.8], max: 1.15
+  });
+  const PANELS = {
+    doorL: { name: 'driver door', handle: [1.45, -0.35], ...door(1) }, // +x is the driver's side
+    doorR: { name: 'passenger door', handle: [-1.45, -0.35], ...door(-1) },
+    hood: {
+      name: 'hood', handle: [0, 2.5], shell: v => v.z >= 0.78 && v.y >= 0.66 && Math.abs(v.x) <= 0.935 && v.c === '53,85,46',
+      hinge: [[-0.88, 0.895, 0.79], [0.88, 0.895, 0.79]], swing: [0, 1, 0], test: [0, 0.68, 1.7], max: 1.1
+    },
+    trunk: {
+      name: 'trunk', handle: [0, -2.6], shell: v => v.z <= -1.54 && v.y >= 0.48 && !LIGHTS.includes(v.c), glass: v => v.z <= -1.54,
+      hinge: [[-0.75, 1.59, -1.55], [0.75, 1.59, -1.55]], swing: [0, 1, 0], test: [0, 0.6, -1.94], max: 1.25
+    },
+    wheel: { shell: v => v.c === '31,33,36' && v.z < 0.4 } // the steering wheel: it turns instead of swinging
+  };
+  // sort a model's triangles into the panels above (a triangle belongs to a panel only if all three corners do)
+  function split(src, key) {
+    const out = { rest: [] }, at = k => ({ x: src.p[k * 3] / 1000, y: src.p[k * 3 + 1] / 1000, z: src.p[k * 3 + 2] / 1000, c: src.c[k * 3] + ',' + src.c[k * 3 + 1] + ',' + src.c[k * 3 + 2] });
+    for (const n in PANELS) out[n] = [];
+    for (let t = 0; t < src.i.length; t += 3) {
+      const tri = [src.i[t], src.i[t + 1], src.i[t + 2]], vs = tri.map(at);
+      let home = 'rest';
+      for (const n in PANELS) { const f = PANELS[n][key]; if (f && vs.every(f)) { home = n; break; } }
+      out[home].push(...tri);
+    }
+    for (const n in out) out[n] = { p: src.p, c: src.c, i: out[n] };
+    return out;
+  }
+  const bodyParts = split(CAR.body, 'shell'), glassParts = split(CAR.glass, 'glass');
+
   function skinned(src, mat, brittle) {
     const skin = makeSkin(src, 0.2, brittle), g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(skin.pos, 3));
     g.setAttribute('color', new THREE.BufferAttribute(skin.col, 3));
     g.setIndex(skin.index);
     const mesh = new THREE.Mesh(g, mat); mesh.frustumCulled = false; scene.add(mesh);
-    return { mesh, update() { skin.update(); g.attributes.position.needsUpdate = true; } };
+    return { mesh, skin, update(post) { skin.update(); if (post) post(skin.pos); g.attributes.position.needsUpdate = true; } };
   }
-  const body = skinned(CAR.body, new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide, shininess: 45, specular: 0x333333 }), false);
+  const bodyMat = new THREE.MeshPhongMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide, shininess: 45, specular: 0x333333 });
+  const glassMat = new THREE.MeshPhongMaterial({ color: 0x9cc3d6, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide, shininess: 90 });
+  const body = skinned(bodyParts.rest, bodyMat, false);
   body.mesh.castShadow = true;
-  const glass = skinned(CAR.glass, new THREE.MeshPhongMaterial({ color: 0x9cc3d6, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide, shininess: 90 }), true);
+  const glass = skinned(glassParts.rest, glassMat, true);
   const eyeBind = skinBind(0.45, 1.165, -0.3), eye = [0, 0, 0];
+
+  // ---- doors, hood and trunk
+  const vH = new THREE.Vector3(), vAx = new THREE.Vector3(), qH = new THREE.Quaternion(), hA = [0, 0, 0], hB = [0, 0, 0];
+  const panel = {}, panelList = [];
+  for (const key of ['doorL', 'doorR', 'hood', 'trunk']) {
+    const P = PANELS[key], p = { key, ...P, open: 0, target: 0, loose: null, bindA: skinBind(...P.hinge[0]), bindB: skinBind(...P.hinge[1]) };
+    p.parts = [skinned(bodyParts[key], bodyMat, false)];
+    p.parts[0].mesh.castShadow = true;
+    if (P.glass) p.parts.push(skinned(glassParts[key], glassMat, true));
+    // which way round the hinge "open" is: swing a point of the panel and see whether it went the right way
+    const a = new THREE.Vector3(...P.hinge[0]), t = new THREE.Vector3(...P.test);
+    const moved = t.clone().sub(a).applyAxisAngle(new THREE.Vector3(...P.hinge[1]).sub(a).normalize(), P.max).add(a).sub(t);
+    p.sign = moved.dot(new THREE.Vector3(...P.swing)) > 0 ? 1 : -1;
+    p.swingFn = pos => {
+      if (p.open < 0.002) return;
+      skinPoint(p.bindA, 0, hA); skinPoint(p.bindB, 0, hB);
+      vAx.set(hB[0] - hA[0], hB[1] - hA[1], hB[2] - hA[2]).normalize();
+      qH.setFromAxisAngle(vAx, p.sign * p.max * p.open * p.open * (3 - 2 * p.open));
+      for (let o = 0; o < pos.length; o += 3) {
+        vH.set(pos[o] - hA[0], pos[o + 1] - hA[1], pos[o + 2] - hA[2]).applyQuaternion(qH);
+        pos[o] = vH.x + hA[0]; pos[o + 1] = vH.y + hA[1]; pos[o + 2] = vH.z + hA[2];
+      }
+    };
+    panel[key] = p; panelList.push(p);
+  }
+  // an explosion can tear a panel off: freeze its shape and let it fly as one rigid piece
+  function blowOff(p, vel, spin) {
+    let cx = 0, cy = 0, cz = 0, n = 0;
+    for (const part of p.parts) { const a = part.skin.pos; for (let o = 0; o < a.length; o += 3) { cx += a[o]; cy += a[o + 1]; cz += a[o + 2]; n++; } }
+    if (!n) return;
+    const ctr = [cx / n, cy / n, cz / n];
+    p.loose = { pos: new THREE.Vector3(...ctr), vel, spin, q: new THREE.Quaternion(), base: p.parts.map(part => Float32Array.from(part.skin.pos, (v, k) => v - ctr[k % 3])) };
+  }
+  const qFlat = new THREE.Quaternion();
+  function flyLoose(p, dt) {
+    const L = p.loose;
+    L.vel.y -= 9.81 * dt; L.pos.addScaledVector(L.vel, dt);
+    const ang = L.spin.length();
+    if (ang > 1e-4) { qH.setFromAxisAngle(vAx.copy(L.spin).divideScalar(ang), ang * dt); L.q.premultiply(qH); }
+    const floor = Phys.H(L.pos.x, L.pos.z) + 0.06;
+    if (L.pos.y <= floor) { // skid to a stop lying flat
+      L.pos.y = floor; if (L.vel.y < 0) L.vel.y *= -0.2;
+      L.vel.x *= 1 - Math.min(1, dt * 4); L.vel.z *= 1 - Math.min(1, dt * 4); L.spin.multiplyScalar(1 - Math.min(1, dt * 6));
+      L.q.slerp(qFlat, Math.min(1, dt * 5));
+    }
+    p.parts.forEach((part, k) => {
+      const b = L.base[k], a = part.skin.pos;
+      for (let o = 0; o < a.length; o += 3) { vH.set(b[o], b[o + 1], b[o + 2]).applyQuaternion(L.q); a[o] = vH.x + L.pos.x; a[o + 1] = vH.y + L.pos.y; a[o + 2] = vH.z + L.pos.z; }
+      part.mesh.geometry.attributes.position.needsUpdate = true;
+    });
+  }
+
+  // ---- steering wheel: the model's own wheel, cut out of the dashboard and turned about its column
+  const steeringWheel = (() => {
+    const src = bodyParts.wheel, ids = [...new Set(src.i)], ctr = [0, 0, 0];
+    for (const k of ids) for (let a = 0; a < 3; a++) ctr[a] += src.p[k * 3 + a] / 1000 / ids.length;
+    const pos = [], col = [], idx = [], map = new Map();
+    for (const k of src.i) {
+      if (!map.has(k)) { map.set(k, pos.length / 3); for (let a = 0; a < 3; a++) { pos.push(src.p[k * 3 + a] / 1000 - ctr[a]); col.push(src.c[k * 3 + a] / 255); } }
+      idx.push(map.get(k));
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx);
+    const grp = new THREE.Group(), spin = new THREE.Group(), m = new THREE.Mesh(g, bodyMat);
+    m.castShadow = true; spin.add(m); grp.add(spin); grp.matrixAutoUpdate = false; scene.add(grp);
+    // the column runs from the firewall (low, at the front) up to the wheel, so this axis points at the driver
+    const axis = new THREE.Vector3(0, ctr[1] - 0.39, ctr[2] - 0.96).normalize();
+    return { grp, spin, axis, bind: skinBind(...ctr) };
+  })();
+
+  // ---- engine: a block, radiator and battery under the hood, so there is something to see when it is open
+  const engineBay = (() => {
+    const grp = new THREE.Group(); grp.matrixAutoUpdate = false; scene.add(grp);
+    const metal = new THREE.MeshPhongMaterial({ color: 0x6a6e73, flatShading: true, shininess: 40 }), dark = new THREE.MeshPhongMaterial({ color: 0x26282c, flatShading: true });
+    const add = (w, h, d, x, y, z, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.castShadow = true; grp.add(m); };
+    add(0.62, 0.3, 0.5, 0, 0, 0, metal); add(0.66, 0.08, 0.5, 0, 0.19, 0, dark); add(0.72, 0.38, 0.06, 0, 0.04, 0.42, dark);
+    add(0.2, 0.17, 0.24, 0.48, 0.03, -0.1, dark); add(0.17, 0.13, 0.17, -0.44, 0.12, -0.12, metal);
+    return { grp, mats: [metal, dark], cols: [0x6a6e73, 0x26282c], bind: skinBind(0, 0.45, 1.2), top: skinBind(0, 0.75, 1.15) };
+  })();
+
+  // ---- crash test dummies: orange, with the black and yellow target markers on the head, chest and hips
+  const markerMat = (() => {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+    const x = cv.getContext('2d');
+    for (let q = 0; q < 4; q++) { x.fillStyle = q % 2 ? '#141414' : '#ffd21a'; x.beginPath(); x.moveTo(32, 32); x.arc(32, 32, 30, q * Math.PI / 2, (q + 1) * Math.PI / 2); x.closePath(); x.fill(); }
+    return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, alphaTest: 0.5, side: THREE.DoubleSide });
+  })();
+  const jointMat = new THREE.MeshPhongMaterial({ color: 0x2b2b2e, shininess: 20 });
+  const DUMMY = 0xff8a1e, CHARRED = 0x2e2622;
+  function makeDummy() {
+    const mat = new THREE.MeshPhongMaterial({ color: DUMMY, shininess: 40, specular: 0x332211 });
+    const root = new THREE.Group(); root.rotation.order = 'YXZ';
+    const mesh = (geo, m = mat) => { const o = new THREE.Mesh(geo, m); o.castShadow = true; return o; };
+    const limb = (r, len, parent) => { const c = mesh(new THREE.CylinderGeometry(r, r * 0.88, len, 10)); c.position.y = -len / 2; parent.add(c); };
+    const ball = (r, parent, y, m = jointMat) => { const b = mesh(new THREE.SphereGeometry(r, 10, 8), m); b.position.y = y; parent.add(b); };
+    const marker = (parent, x, y, z, ry, size) => { const p = new THREE.Mesh(new THREE.PlaneGeometry(size, size), markerMat); p.position.set(x, y, z); p.rotation.y = ry; parent.add(p); };
+    root.add(mesh(new THREE.BoxGeometry(0.32, 0.16, 0.2)));
+    marker(root, 0.162, 0, 0, Math.PI / 2, 0.1); marker(root, -0.162, 0, 0, -Math.PI / 2, 0.1);
+    const torso = new THREE.Group(); torso.position.y = 0.06; root.add(torso);
+    ball(0.1, torso, 0.03);
+    const chest = mesh(new THREE.BoxGeometry(0.36, 0.42, 0.22)); chest.position.y = 0.28; torso.add(chest);
+    marker(torso, 0, 0.33, 0.112, 0, 0.11);
+    const neck = new THREE.Group(); neck.position.y = 0.5; torso.add(neck);
+    const nk = mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.09, 8), jointMat); nk.position.y = 0.04; neck.add(nk);
+    const head = mesh(new THREE.SphereGeometry(0.11, 16, 12)); head.scale.set(0.92, 1.12, 1.02); head.position.y = 0.18; neck.add(head);
+    marker(neck, 0.103, 0.18, 0, Math.PI / 2, 0.09); marker(neck, -0.103, 0.18, 0, -Math.PI / 2, 0.09);
+    const arms = [1, -1].map(s => {
+      const sh = new THREE.Group(); sh.position.set(s * 0.22, 0.45, 0); torso.add(sh); ball(0.055, sh, 0); limb(0.045, 0.27, sh);
+      const el = new THREE.Group(); el.position.y = -0.28; sh.add(el); ball(0.045, el, 0); limb(0.04, 0.25, el); ball(0.048, el, -0.27, mat);
+      return { sh, el };
+    });
+    const legs = [1, -1].map(s => {
+      const hip = new THREE.Group(); hip.position.set(s * 0.1, -0.06, 0); root.add(hip); limb(0.065, 0.4, hip);
+      const kn = new THREE.Group(); kn.position.y = -0.41; hip.add(kn); ball(0.055, kn, 0); limb(0.055, 0.38, kn);
+      const foot = mesh(new THREE.BoxGeometry(0.1, 0.07, 0.22), jointMat); foot.position.set(0, -0.42, 0.05); kn.add(foot);
+      return { hip, kn };
+    });
+    scene.add(root);
+    return { root, mat, torso, neck, arms, legs, st: {} };
+  }
+  // seated dummies hang off a point of the frame (so a crushed cabin shoves them about) and flop with the car's jolts
+  function seated(x, driver) {
+    const d = makeDummy();
+    d.root.matrixAutoUpdate = false;
+    d.legs.forEach(l => { l.hip.rotation.x = -1.45; l.kn.rotation.x = 1.3; });
+    d.rest = driver ? { sh: -1.12, el: -0.12, spread: 0.1 } : { sh: -0.35, el: -0.9, spread: 0.06 };
+    d.bind = skinBind(x, 0.47, -0.4);
+    return d;
+  }
+  const driver = seated(0.48, true), passenger = seated(-0.48, false), riders = [driver, passenger];
+  function calm(d) { Object.assign(d.st, { p: 0, pv: 0, r: 0, rv: 0, hp: 0, hpv: 0, hr: 0, hrv: 0, a: 0, av: 0 }); }
+  riders.forEach(calm);
+  // dvF, dvS, dvU: how much the car's velocity changed this frame, along its forward, left and up axes.
+  // The dummy's body keeps going the old way, so it is thrown the opposite way to the change, then springs back.
+  function flop(d, dvF, dvS, dvU, dt) {
+    const s = d.st;
+    s.pv -= dvF * 1.0; s.hpv -= dvF * 1.8 + dvU * 0.5; s.av -= dvF * 2.2 - dvU * 0.8;
+    s.rv -= dvS * 1.0; s.hrv -= dvS * 1.6;
+    const sp = (x, v, k, c, lo, hi) => {
+      s[v] += (-k * s[x] - c * s[v]) * dt; s[x] += s[v] * dt;
+      if (s[x] > hi) { s[x] = hi; if (s[v] > 0) s[v] *= -0.3; } else if (s[x] < lo) { s[x] = lo; if (s[v] < 0) s[v] *= -0.3; }
+    };
+    sp('p', 'pv', 55, 6, -0.3, 0.85); sp('r', 'rv', 45, 5, -0.45, 0.45); sp('hp', 'hpv', 35, 3.5, -0.7, 1.0); sp('hr', 'hrv', 35, 3.5, -0.6, 0.6); sp('a', 'av', 18, 2.5, -0.6, 1.4);
+    d.torso.rotation.set(-0.18 + s.p, 0, -s.r);
+    d.neck.rotation.set(s.hp, 0, -s.hr);
+    d.arms.forEach((a, k) => { a.sh.rotation.set(d.rest.sh - s.a, 0, (k ? -1 : 1) * (d.rest.spread + Math.abs(s.r) * 0.4)); a.el.rotation.x = d.rest.el - s.a * 0.4; });
+  }
+
+  // ---- you, on foot: one more dummy, standing up
+  const walker = { d: makeDummy(), x: 0, y: 0, z: 0, yaw: 0, phase: 0, down: 0, kx: 0, kz: 0 };
+  walker.d.root.visible = false;
+  let onFoot = false;
+
 
   const wheelGeo = new THREE.BufferGeometry();
   wheelGeo.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(CAR.wheel.p, v => v / 1000), 3));
@@ -627,10 +848,20 @@ const Phys = (() => {
     return grp;
   });
 
-  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+  const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3(), vR = new THREE.Vector3(), vU = new THREE.Vector3(), vF = new THREE.Vector3();
+  const tmp = [0, 0, 0];
   function syncMeshes() {
     const { px, py, pz, cf, cr, cu } = Phys;
     Phys.updateNodeDamage(); body.update(); glass.update(); skinPoint(eyeBind, 0, eye);
+    for (const p of panelList) if (!p.loose) p.parts.forEach(part => part.update(p.swingFn));
+    vR.set(cr[0], cr[1], cr[2]); vU.set(cu[0], cu[1], cu[2]); vF.set(cf[0], cf[1], cf[2]);
+    skinPoint(steeringWheel.bind, 0, tmp);
+    steeringWheel.grp.matrix.makeBasis(vR, vU, vF).setPosition(tmp[0], tmp[1], tmp[2]);
+    steeringWheel.spin.quaternion.setFromAxisAngle(steeringWheel.axis, Phys.state.steer * 7.5);
+    skinPoint(engineBay.bind, 0, tmp);
+    engineBay.grp.matrix.makeBasis(vR, vU, vF).setPosition(tmp[0], tmp[1], tmp[2]);
+    for (const d of riders) { skinPoint(d.bind, 0, tmp); d.root.matrix.makeBasis(vR, vU, vF).setPosition(tmp[0], tmp[1], tmp[2]); }
+    driver.root.visible = !onFoot && camMode !== 1; // in the driver cam you are the driver: do not look out through your own head
     Phys.wheels.forEach((w, k) => {
       const m = w.node, off = Phys.DROOP - w.comp - Phys.WR, st = w.front ? Phys.state.steer : 0, cs = Math.cos(st), sn = Math.sin(st);
       const side = k % 2 ? 1 : -1, out = side * -0.09;
@@ -648,7 +879,7 @@ const Phys = (() => {
   let camMode = 0, timeScale = 1;
   const $ = id => document.getElementById(id);
   const actions = {
-    reset: () => Phys.reset(),
+    reset: () => repair(),
     flip: () => Phys.flip(),
     slow: () => { timeScale = timeScale === 1 ? 0.25 : 1; $('bSlow').classList.toggle('on', timeScale !== 1); $('slowTag').hidden = timeScale === 1; },
     cam: () => {
@@ -656,9 +887,14 @@ const Phys = (() => {
       $('bCam').firstChild.textContent = ['Chase cam', 'Driver cam', 'Far cam', 'Roof cam'][camMode];
       camera.near = camMode === 1 ? 0.05 : 0.3;
       view.lookYaw = view.lookPitch = 0; applyFov();
-    }
+    },
+    exit: () => { if (onFoot) getIn(); else getOut(); },
+    use: () => { if (onFoot) togglePanel(nearestPanel()); },
+    door: () => { if (onFoot) togglePanel(nearestPanel()); else togglePanel(panel.doorL); },
+    hood: () => { if (!onFoot) togglePanel(panel.hood); },
+    trunk: () => { if (!onFoot) togglePanel(panel.trunk); }
   };
-  const keyMap = { KeyR: 'reset', KeyF: 'flip', KeyT: 'slow', KeyC: 'cam' };
+  const keyMap = { KeyR: 'reset', KeyF: 'flip', KeyT: 'slow', KeyC: 'cam', KeyG: 'exit', KeyE: 'use', KeyO: 'door', KeyH: 'hood', KeyB: 'trunk' };
   addEventListener('keydown', e => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
@@ -667,7 +903,7 @@ const Phys = (() => {
   });
   addEventListener('keyup', e => { keys[e.code] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
-  [['bReset', 'reset'], ['bFlip', 'flip'], ['bSlow', 'slow'], ['bCam', 'cam']].forEach(([id, a]) =>
+  [['bReset', 'reset'], ['bFlip', 'flip'], ['bSlow', 'slow'], ['bCam', 'cam'], ['bExit', 'exit'], ['bUse', 'use'], ['bDoor', 'door'], ['bHood', 'hood'], ['bTrunk', 'trunk']].forEach(([id, a]) =>
     $(id).addEventListener('click', e => { actions[a](); e.currentTarget.blur(); }));
   [['pL', 'l'], ['pR', 'r'], ['pG', 'g'], ['pB', 'b']].forEach(([id, k]) => {
     const el = $(id), set = v => e => { e.preventDefault(); pad[k] = v; el.classList.toggle('held', !!v); };
@@ -676,12 +912,289 @@ const Phys = (() => {
     el.addEventListener('contextmenu', e => e.preventDefault());
   });
   function readInput() {
+    if (onFoot) { Phys.input.thr = 0; Phys.input.steer = 0; Phys.input.hb = true; return; } // parked while you walk about
     const up = keys.KeyW || keys.ArrowUp || pad.g, dn = keys.KeyS || keys.ArrowDown || pad.b;
     const lf = keys.KeyA || keys.ArrowLeft || pad.l, rt = keys.KeyD || keys.ArrowRight || pad.r;
     Phys.input.thr = (up ? 1 : 0) - (dn ? 1 : 0);
     Phys.input.steer = (lf ? 1 : 0) - (rt ? 1 : 0); // +x is screen-left from behind the car
     Phys.input.hb = !!keys.Space;
   }
+
+  // ---- particles: smoke, fire and sparks, all from one pool of camera-facing sprites
+  const FX = (() => {
+    const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+    const x = cv.getContext('2d'), gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.45, 'rgba(255,255,255,0.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(cv), list = [];
+    let next = 0;
+    for (let i = 0; i < 480; i++) {
+      const m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: true }), s = new THREE.Sprite(m);
+      s.visible = false; scene.add(s);
+      list.push({ s, m, kind: 0, t: 0, life: 1, v: new THREE.Vector3(), s0: 1, s1: 1, a: 1 });
+    }
+    const F0 = new THREE.Color(0xffe08a), F1 = new THREE.Color(0xff5a14), F2 = new THREE.Color(0x2a1a12);
+    // kind 0 = smoke (shade is its grey level), 1 = fire, 2 = spark (shade is its colour)
+    function spawn(kind, px, py, pz, vx, vy, vz, life, s0, s1, a, shade) {
+      const p = list[next]; next = (next + 1) % list.length;
+      Object.assign(p, { kind, t: 0, life, s0, s1, a });
+      p.v.set(vx, vy, vz); p.s.position.set(px, py, pz); p.s.scale.set(s0, s0, 1); p.s.visible = true;
+      p.m.blending = kind ? THREE.AdditiveBlending : THREE.NormalBlending;
+      p.m.rotation = Math.random() * 6.28; p.m.opacity = 0;
+      if (kind === 0) p.m.color.setScalar(shade); else if (kind === 2) p.m.color.set(shade);
+    }
+    function update(dt) {
+      for (const p of list) {
+        if (!p.s.visible) continue;
+        const k = (p.t += dt) / p.life;
+        if (k >= 1) { p.s.visible = false; continue; }
+        if (p.kind === 2) p.v.y -= 9.81 * dt;
+        else { const dr = Math.exp(-(p.kind ? 1.6 : 0.8) * dt); p.v.multiplyScalar(dr); p.v.y += (p.kind ? 3 : 0.8) * dt; }
+        p.s.position.addScaledVector(p.v, dt);
+        if (p.kind === 2) { const h = Phys.H(p.s.position.x, p.s.position.z); if (p.s.position.y < h) { p.s.position.y = h; p.v.y *= -0.35; p.v.x *= 0.5; p.v.z *= 0.5; } }
+        const sc = p.s0 + (p.s1 - p.s0) * Math.sqrt(k); p.s.scale.set(sc, sc, 1);
+        if (p.kind === 0) p.m.opacity = p.a * Math.min(1, k * 5) * (1 - k);
+        else if (p.kind === 1) { if (k < 0.35) p.m.color.copy(F0).lerp(F1, k / 0.35); else p.m.color.copy(F1).lerp(F2, (k - 0.35) / 0.65); p.m.opacity = p.a * Math.min(1, k * 10) * (1 - k); }
+        else p.m.opacity = p.a * (1 - k);
+      }
+    }
+    return { spawn, update, clear() { for (const p of list) p.s.visible = false; } };
+  })();
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const rndDir = () => { const v = new THREE.Vector3(rnd(-1, 1), rnd(-1, 1), rnd(-1, 1)); return v.lengthSq() > 1e-4 ? v.normalize() : v.set(0, 1, 0); };
+
+  // flying wreckage after an explosion
+  const chunkGeo = new THREE.BoxGeometry(1, 1, 1), chunkMats = [new THREE.MeshPhongMaterial({ color: 0x35552e, flatShading: true }), new THREE.MeshPhongMaterial({ color: 0x222326, flatShading: true })], chunks = [];
+  function chunk(x, y, z, v) {
+    const m = new THREE.Mesh(chunkGeo, chunkMats[chunks.length % 2]);
+    m.scale.set(rnd(0.06, 0.28), rnd(0.03, 0.08), rnd(0.06, 0.24)); m.position.set(x, y, z); m.castShadow = true; scene.add(m);
+    chunks.push({ m, v, w: rndDir().multiplyScalar(rnd(4, 14)) });
+  }
+  function updateChunks(dt) {
+    for (const c of chunks) {
+      c.v.y -= 9.81 * dt; c.m.position.addScaledVector(c.v, dt);
+      c.m.rotation.x += c.w.x * dt; c.m.rotation.y += c.w.y * dt; c.m.rotation.z += c.w.z * dt;
+      const h = Phys.H(c.m.position.x, c.m.position.z) + 0.03;
+      if (c.m.position.y < h) { c.m.position.y = h; if (c.v.y < 0) c.v.y *= -0.3; c.v.x *= 0.7; c.v.z *= 0.7; c.w.multiplyScalar(0.6); }
+    }
+  }
+
+  // ---- sound: a few noise bursts, made on the spot (no files to load)
+  let audio = null;
+  function ac() {
+    if (audio === null) { try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) { audio = false; } }
+    if (audio && audio.state === 'suspended') audio.resume();
+    return audio;
+  }
+  addEventListener('pointerdown', ac); addEventListener('keydown', ac);
+  function bang(dur, vol, freq) {
+    const a = ac(); if (!a || a.state !== 'running') return;
+    const n = Math.floor(a.sampleRate * dur), buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 2;
+    const src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+    src.buffer = buf; f.type = 'lowpass'; f.frequency.value = freq; g.gain.value = vol;
+    src.connect(f); f.connect(g); g.connect(a.destination); src.start();
+  }
+
+  // ---- engine health. It comes from how far the front of the frame has been pushed back towards the dashboard,
+  // so it is the crumple zone itself that decides: a light knock costs a little, a big hit can finish the engine.
+  const crushPairs = [];
+  Phys.local.forEach((l, i) => {
+    if (Math.abs(l[2] - 1.82) > 1e-6) return;
+    const j = Phys.local.findIndex(m => Math.abs(m[2] - 0.42) < 1e-6 && Math.abs(m[1] - l[1]) < 1e-6 && Math.abs(m[0] / 0.95 - l[0] / 0.86) < 1e-3);
+    if (j >= 0) crushPairs.push([i, j, Math.hypot(l[0] - Phys.local[j][0], l[1] - Phys.local[j][1], l[2] - Phys.local[j][2])]);
+  });
+  function frontCrush() {
+    const { px, py, pz } = Phys;
+    let s = 0;
+    for (const [i, j, d0] of crushPairs) s += d0 - Math.hypot(px[i] - px[j], py[i] - py[j], pz[i] - pz[j]);
+    return Math.max(0, s / crushPairs.length);
+  }
+  const bay = [0, 0, 0], light = new THREE.PointLight(0xff9a40, 0, 34, 1.6);
+  scene.add(light);
+  let flash = 0, burn = 0, charT = 0, shake = 0, glassGone = false, lastBent = 0;
+  function updateEngine(dt) {
+    const st = Phys.state;
+    if (st.dead) return;
+    const before = st.engine;
+    let e = Math.min(st.engine, 1 - frontCrush() / 0.62 - Math.max(0, st.damage - 0.35) * 0.5);
+    if (e < 0.3 && !onFoot && Phys.input.thr > 0) e -= 0.012 * dt; // flooring it on a dying engine finishes it off
+    st.engine = Math.max(0, e);
+    // it blows up when there is nothing left of it, or when an engine that is already in the red takes another hard hit
+    if (st.engine <= 0 || (before < 0.3 && before - st.engine > 0.08)) explode();
+    else if (st.engine < 0.3 && Math.random() < dt * 0.2) backfire();
+  }
+  function backfire() {
+    skinPoint(engineBay.top, 0, bay);
+    for (let i = 0; i < 12; i++) { const d = rndDir(); FX.spawn(1, bay[0], bay[1], bay[2], d.x * 2, Math.abs(d.y) * 3, d.z * 2, rnd(0.3, 0.6), 0.3, 1.2, 1); }
+    for (let i = 0; i < 10; i++) { const d = rndDir(); FX.spawn(2, bay[0], bay[1], bay[2], d.x * 5, Math.abs(d.y) * 5 + 2, d.z * 5, rnd(0.4, 0.8), 0.08, 0.04, 1, 0xffc060); }
+    flash = Math.max(flash, 0.35); bang(0.25, 0.5, 700);
+  }
+  function explode() {
+    const st = Phys.state, { cf, cu } = Phys;
+    if (st.dead) return;
+    st.dead = true; st.engine = 0; burn = 24; charT = 0.001; flash = 1; shake = 1.2; glassGone = true;
+    skinPoint(engineBay.top, 0, bay);
+    const [x, y, z] = bay;
+    Phys.blast(x, y - 0.3, z, 14);
+    for (let i = 0; i < 80; i++) { const d = rndDir(), s = rnd(2, 9); FX.spawn(1, x, y, z, d.x * s, d.y * s + 2, d.z * s, rnd(0.5, 1.2), 0.8, rnd(2.5, 4.5), 1); }
+    for (let i = 0; i < 45; i++) { const d = rndDir(), s = rnd(1, 4); FX.spawn(0, x, y + 0.3, z, d.x * s, rnd(2, 5), d.z * s, rnd(3, 5.5), 1.2, rnd(5, 8), 0.85, 0.1); }
+    for (let i = 0; i < 70; i++) { const d = rndDir(), s = rnd(5, 15); FX.spawn(2, x, y, z, d.x * s, Math.abs(d.y) * s + 4, d.z * s, rnd(0.6, 1.6), 0.12, 0.05, 1, i % 3 ? 0xffc060 : 0x9cc3d6); }
+    for (let i = 0; i < 18; i++) { const d = rndDir(); chunk(x, y, z, new THREE.Vector3(d.x * rnd(4, 11), Math.abs(d.y) * 9 + 4, d.z * rnd(4, 11))); }
+    if (!panel.hood.loose) blowOff(panel.hood, new THREE.Vector3(cu[0] * 10 + cf[0] * 2 + rnd(-2, 2), cu[1] * 10 + 3, cu[2] * 10 + cf[2] * 2 + rnd(-2, 2)), rndDir().multiplyScalar(rnd(5, 9)));
+    for (const p of panelList) if (!p.loose && Math.random() < 0.6) p.target = rnd(0.45, 1);
+    for (const d of riders) { const s = d.st; s.pv += rnd(-6, 10); s.hpv += rnd(-12, 14); s.rv += rnd(-8, 8); s.av += rnd(-6, 12); }
+    if (onFoot) { // the blast knocks you over if you are close
+      const dx = walker.x - x, dz = walker.z - z, d = Math.hypot(dx, dz) || 1;
+      if (d < 9) { const k = (9 - d) * 1.4; walker.kx = dx / d * k; walker.kz = dz / d * k; walker.down = 2.5; }
+    }
+    bang(1.6, 1.0, 380); bang(0.5, 0.8, 2500);
+    toast('Engine exploded', 'Press R to repair');
+  }
+  // smoke from a damaged engine, fire after an explosion
+  let smokeAcc = 0, fireAcc = 0;
+  function emit(dt) {
+    const st = Phys.state, v = Phys.vel;
+    skinPoint(engineBay.top, 0, bay);
+    let smoke = 0, shade = 0.75, size = 2.2, fire = 0;
+    if (st.dead) { if (burn > 0) { burn -= dt; smoke = 22; shade = 0.1; size = 4.5; fire = 40; } else { smoke = 7; shade = 0.22; size = 3.5; } }
+    else if (st.engine < 0.6) { const red = st.engine < 0.3; smoke = red ? 26 : 9; shade = red ? 0.3 : 0.78; size = red ? 3.2 : 2.2; if (st.engine < 0.12) fire = 8; }
+    if (panel.hood.open > 0.3 || panel.hood.loose) smoke *= 1.4;
+    for (smokeAcc += smoke * dt; smokeAcc >= 1; smokeAcc--)
+      FX.spawn(0, bay[0] + rnd(-0.35, 0.35), bay[1] + rnd(0, 0.1), bay[2] + rnd(-0.3, 0.3), v[0] * 0.45 + rnd(-0.3, 0.3), rnd(1, 1.8), v[2] * 0.45 + rnd(-0.3, 0.3), rnd(2.2, 3.6), 0.45, size, shade < 0.4 ? 0.8 : 0.55, shade + rnd(-0.05, 0.05));
+    for (fireAcc += fire * dt; fireAcc >= 1; fireAcc--)
+      FX.spawn(1, bay[0] + rnd(-0.4, 0.4), bay[1], bay[2] + rnd(-0.35, 0.35), v[0] * 0.5 + rnd(-0.4, 0.4), rnd(1, 2.5), v[2] * 0.5 + rnd(-0.4, 0.4), rnd(0.4, 0.9), fire > 20 ? 0.9 : 0.45, fire > 20 ? 2 : 1, 0.9);
+    // light, charring, broken glass
+    light.position.set(bay[0], bay[1] + 0.5, bay[2]);
+    light.intensity = flash * 7 + (fire ? (fire > 20 ? 1.6 : 0.6) * rnd(0.7, 1.2) : 0);
+    flash *= Math.exp(-5 * dt);
+    if (charT > 0 && charT < 1) {
+      charT = Math.min(1, charT + dt / 1.5);
+      bodyMat.color.setHex(0xffffff).lerp(new THREE.Color(0x3a3532), charT);
+      wheelMat.color.copy(bodyMat.color);
+      engineBay.mats.forEach(m => m.color.lerp(new THREE.Color(0x1d1b1a), charT));
+      riders.forEach(d => d.mat.color.setHex(DUMMY).lerp(new THREE.Color(CHARRED), charT));
+    }
+    glass.mesh.visible = !glassGone;
+    for (const p of panelList) if (p.parts[1]) p.parts[1].mesh.visible = !glassGone;
+  }
+
+  // ---- getting in and out
+  const worldOf = (x, y, z, out) => { const { c, cr, cu, cf } = Phys; for (let a = 0; a < 3; a++) out[a] = c[a] + cr[a] * x + cu[a] * y + cf[a] * z; return out; };
+  const hp = [0, 0, 0];
+  function nearestPanel() {
+    let best = null, bd = 1.4;
+    for (const p of panelList) {
+      if (p.loose) continue;
+      worldOf(p.handle[0], 0.5, p.handle[1], hp);
+      const d = Math.hypot(hp[0] - walker.x, hp[2] - walker.z);
+      if (d < bd && Math.abs(hp[1] - walker.y - 0.5) < 2) { bd = d; best = p; }
+    }
+    return best;
+  }
+  function togglePanel(p) {
+    if (!p || p.loose) return;
+    p.target = p.target > 0.5 ? 0 : 1;
+    bang(0.12, 0.25, p.target ? 1800 : 500);
+  }
+  function getOut() {
+    if (Math.abs(Phys.state.speed) > 2.5) { toast('Stop the car first'); return; }
+    const { cf } = Phys;
+    togglePanel(panel.doorL.target ? null : panel.doorL);
+    worldOf(1.55, 0, -0.15, hp);
+    Object.assign(walker, { x: hp[0], z: hp[2], y: Phys.H(hp[0], hp[2]), yaw: Math.atan2(cf[0], cf[2]), down: 0, kx: 0, kz: 0 });
+    onFoot = true; view.yaw = view.pitch = 0;
+  }
+  function getIn() {
+    const p = panel.doorL;
+    worldOf(p.handle[0], 0.5, p.handle[1], hp);
+    if (Math.hypot(hp[0] - walker.x, hp[2] - walker.z) > 1.6) { toast('Walk to the driver door'); return; }
+    if (!p.loose && p.open < 0.6) { toast('Open the door first', 'Press E'); return; }
+    onFoot = false; walker.d.root.visible = false;
+    if (!p.loose) p.target = 0;
+    driver.st.pv = 0; view.yaw = view.pitch = 0;
+  }
+  function updateWalker(dt) {
+    const w = walker, d = w.d;
+    d.root.visible = onFoot;
+    if (!onFoot) return;
+    let speed = 0;
+    if (w.down > 0) w.down -= dt;
+    else {
+      const up = keys.KeyW || keys.ArrowUp || pad.g, dn = keys.KeyS || keys.ArrowDown || pad.b;
+      const lf = keys.KeyA || keys.ArrowLeft || pad.l, rt = keys.KeyD || keys.ArrowRight || pad.r;
+      w.yaw += ((lf ? 1 : 0) - (rt ? 1 : 0)) * 2.6 * dt;
+      speed = ((up ? 1 : 0) - (dn ? 0.6 : 0)) * (keys.ShiftLeft || keys.ShiftRight ? 6.5 : 3.2);
+    }
+    const step = (dx, dz) => { const nx = w.x + dx, nz = w.z + dz; if (Phys.H(nx, nz) - w.y < 0.5) { w.x = nx; w.z = nz; } };
+    step((Math.sin(w.yaw) * speed + w.kx) * dt, 0); step(0, (Math.cos(w.yaw) * speed + w.kz) * dt);
+    const fade = Math.exp(-2.5 * dt); w.kx *= fade; w.kz *= fade;
+    // keep out of the car's body (treated as a box around its frame)
+    const { c, cf } = Phys, fl = Math.hypot(cf[0], cf[2]) || 1, fx = cf[0] / fl, fz = cf[2] / fl, rx = fz, rz = -fx;
+    const dx = w.x - c[0], dz = w.z - c[2], lx = dx * rx + dz * rz, lz = dx * fx + dz * fz, hx = 1.3, hf = 2.2, hr = 2.3;
+    if (w.y < c[1] + 1.2 && Math.abs(lx) < hx && lz < hf && lz > -hr) {
+      const ex = hx - Math.abs(lx), ef = hf - lz, er = lz + hr, m = Math.min(ex, ef, er);
+      if (m === ex) { const s = lx < 0 ? -1 : 1; w.x += rx * s * ex; w.z += rz * s * ex; }
+      else if (m === ef) { w.x += fx * ef; w.z += fz * ef; } else { w.x -= fx * er; w.z -= fz * er; }
+    }
+    w.y += (Phys.H(w.x, w.z) - w.y) * Math.min(1, dt * 14);
+    // walk cycle
+    const amt = Math.min(1, Math.abs(speed) / 3.2);
+    w.phase += speed * dt * 2.6;
+    const sw = Math.sin(w.phase) * 0.6 * amt;
+    d.legs[0].hip.rotation.x = sw; d.legs[1].hip.rotation.x = -sw;
+    d.legs[0].kn.rotation.x = Math.max(0, -Math.sin(w.phase)) * 0.9 * amt; d.legs[1].kn.rotation.x = Math.max(0, Math.sin(w.phase)) * 0.9 * amt;
+    d.arms[0].sh.rotation.set(-sw * 0.8, 0, 0.08); d.arms[1].sh.rotation.set(sw * 0.8, 0, -0.08);
+    d.arms[0].el.rotation.x = d.arms[1].el.rotation.x = -0.25 - 0.3 * amt;
+    d.torso.rotation.set(0.06 * amt, 0, 0); d.neck.rotation.set(0, 0, 0);
+    const lying = w.down > 0 ? Math.min(1, w.down * 2, (2.5 - w.down) * 6) : 0;
+    d.root.position.set(w.x, w.y + 0.93 - 0.75 * lying + Math.abs(Math.cos(w.phase)) * 0.03 * amt, w.z);
+    d.root.rotation.set(-Math.PI / 2 * lying, w.yaw, 0);
+  }
+
+  // ---- messages
+  let toastTimer = 0;
+  function toast(text, sub, ms = 2200) {
+    const el = $('toast');
+    el.textContent = text;
+    if (sub) { const s = document.createElement('small'); s.textContent = sub; el.appendChild(s); }
+    el.hidden = false; el.style.opacity = 1;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { el.style.opacity = 0; toastTimer = setTimeout(() => { el.hidden = true; }, 400); }, ms);
+  }
+  let promptText = '', footUI = null;
+  function updatePrompt() {
+    let t = '';
+    if (onFoot) {
+      const p = nearestPanel();
+      if (p === panel.doorL && (p.open > 0.6)) t = '<kbd>G</kbd> get in &nbsp;·&nbsp; <kbd>E</kbd> close door';
+      else if (p) t = '<kbd>E</kbd> ' + (p.target > 0.5 ? 'close ' : 'open ') + p.name;
+    } else if (Phys.state.dead) t = '<kbd>R</kbd> repair the car';
+    if (t !== promptText) { promptText = t; $('prompt').innerHTML = t; $('prompt').hidden = !t; }
+    if (footUI !== onFoot) {
+      footUI = onFoot;
+      $('bExit').firstChild.textContent = onFoot ? 'Get in' : 'Get out';
+      ['bDoor', 'bHood', 'bTrunk', 'bFlip', 'bCam'].forEach(id => { $(id).hidden = onFoot; });
+      $('bUse').hidden = !onFoot;
+      $('legend').innerHTML = onFoot
+        ? '<kbd>W S</kbd> walk &nbsp;·&nbsp; <kbd>A D</kbd> turn &nbsp;·&nbsp; <kbd>Shift</kbd> run &nbsp;·&nbsp; <kbd>E</kbd> open or close doors, hood and trunk &nbsp;·&nbsp; <kbd>G</kbd> get in'
+        : '<kbd>W A S D</kbd> or arrows to drive &nbsp;·&nbsp; <kbd>Space</kbd> handbrake &nbsp;·&nbsp; <kbd>G</kbd> get out &nbsp;·&nbsp; <kbd>C</kbd> camera &nbsp;·&nbsp; drag to look, scroll or pinch to zoom';
+    }
+  }
+
+  // ---- repair puts back everything the crash and the fire took
+  function repair() {
+    Phys.reset();
+    for (const p of panelList) { p.open = p.target = 0; p.loose = null; }
+    bodyMat.color.setHex(0xffffff); wheelMat.color.setHex(0xffffff);
+    engineBay.mats.forEach((m, k) => m.color.setHex(engineBay.cols[k]));
+    riders.forEach(d => { d.mat.color.setHex(DUMMY); calm(d); });
+    charT = 0; burn = 0; flash = 0; glassGone = false; lastBent = 0;
+    FX.clear();
+    for (const c of chunks) scene.remove(c.m);
+    chunks.length = 0;
+    prevVel[0] = prevVel[1] = prevVel[2] = 0;
+  }
+  const prevVel = [0, 0, 0];
 
   // ---- camera: drag to look around, scroll or pinch to zoom
   const view = { yaw: 0, pitch: 0, zoom: 1, lookYaw: 0, lookPitch: 0, fpZoom: 1, lastDrag: -1e9 };
@@ -729,6 +1242,16 @@ const Phys = (() => {
       view.yaw = Math.atan2(Math.sin(view.yaw), Math.cos(view.yaw)) * (1 - k); view.pitch *= 1 - k;
       view.lookYaw *= 1 - k; view.lookPitch *= 1 - k;
     }
+    if (onFoot) { // over your shoulder while you walk
+      const w = walker, dist = 4.2 * view.zoom, pitch = clamp(0.3 + view.pitch, -0.05, 1.3), yaw = w.yaw + view.yaw;
+      vB.set(w.x - Math.sin(yaw) * dist * Math.cos(pitch), w.y + 1.3 + dist * Math.sin(pitch), w.z - Math.cos(yaw) * dist * Math.cos(pitch));
+      camPos.lerp(vB, snap ? 1 : Math.min(1, dt * 8));
+      const floor = Phys.H(camPos.x, camPos.z) + 0.35;
+      if (camPos.y < floor) camPos.y = floor;
+      camera.position.copy(camPos); camera.up.set(0, 1, 0);
+      look.set(w.x, w.y + 1.25, w.z); camera.lookAt(look);
+      return;
+    }
     if (seat()) { // driver's seat, or on the roof
       const drv = camMode === 1;
       if (drv) camera.position.set(eye[0], eye[1], eye[2]);
@@ -764,7 +1287,7 @@ const Phys = (() => {
   }
   addEventListener('resize', resize); resize();
 
-  const spdEl = $('spd'), mphEl = $('mph'), dmgTxt = $('dmgTxt'), dmgBar = $('dmgBar');
+  const spdEl = $('spd'), mphEl = $('mph'), dmgTxt = $('dmgTxt'), dmgBar = $('dmgBar'), engTxt = $('engTxt'), engBar = $('engBar'), engNote = $('engNote');
   let last = performance.now(), acc = 0, tick = 0, first = true;
   function loop(now) {
     let dt = (now - last) / 1000; last = now;
@@ -775,15 +1298,36 @@ const Phys = (() => {
     while (acc >= Phys.DT && n < 16) { Phys.step(); acc -= Phys.DT; n++; }
     if (n === 16) acc = 0;
     syncMeshes();
+    const sdt = dt * timeScale, { cf, cr, cu } = Phys, vel = Phys.vel;
+    updateEngine(sdt);
+    { // jolts for the dummies: how the car's velocity changed this frame, in the car's own axes
+      const dx = vel[0] - prevVel[0], dy = vel[1] - prevVel[1], dz = vel[2] - prevVel[2], lim = v => clamp(v, -25, 25);
+      prevVel[0] = vel[0]; prevVel[1] = vel[1]; prevVel[2] = vel[2];
+      const f = lim(dx * cf[0] + dy * cf[1] + dz * cf[2]), s = lim(dx * cr[0] + dy * cr[1] + dz * cr[2]), u = lim(dx * cu[0] + dy * cu[1] + dz * cu[2]);
+      for (const d of riders) flop(d, f, s, u, Math.min(sdt, 0.05));
+    }
+    { // a crunch when the frame bends
+      let bent = 0; for (let i = 0; i < Phys.N; i++) bent += Phys.nodeDamage[i];
+      bent /= Phys.N;
+      if (bent - lastBent > 0.01) bang(0.35, Math.min(0.9, (bent - lastBent) * 9), 900);
+      lastBent = bent;
+    }
+    for (const p of panelList) { p.open += clamp(p.target - p.open, -sdt * 2.2, sdt * 2.2); if (p.loose) flyLoose(p, sdt); }
+    emit(sdt); FX.update(sdt); updateChunks(sdt); updateWalker(dt); updatePrompt();
     updateCamera(dt, first); first = false;
+    if (shake > 0.01) { camera.position.x += rnd(-1, 1) * shake * 0.3; camera.position.y += rnd(-1, 1) * shake * 0.3; camera.position.z += rnd(-1, 1) * shake * 0.3; shake *= Math.exp(-3.5 * dt); }
     const c = Phys.c;
     sun.position.set(c[0] + 60, c[1] + 95, c[2] + 35); sun.target.position.set(c[0], c[1], c[2]);
     if (++tick % 6 === 0) {
       const k = Math.abs(Phys.state.speed) * 3.6, d = Math.round(Phys.measureDamage() * 100);
       spdEl.textContent = Math.round(k); mphEl.textContent = Math.round(k * 0.6214) + ' mph';
       dmgTxt.textContent = d + '%'; dmgBar.style.width = d + '%'; dmgBar.classList.toggle('bad', d >= 60);
+      const st = Phys.state, e = Math.round(st.engine * 100), band = st.engine >= 0.6 ? 'ok' : st.engine >= 0.3 ? 'warn' : 'bad';
+      engTxt.textContent = e + '%'; engBar.style.width = Math.max(e, 2) + '%'; engBar.className = band;
+      const note = st.dead ? 'Engine destroyed' : band === 'bad' ? 'Engine critical' : band === 'warn' ? 'Engine smoking' : '';
+      engNote.textContent = note; engNote.hidden = !note; engNote.classList.toggle('bad', band === 'bad');
     }
-    if (c[1] < -80 || !isFinite(c[1])) Phys.reset();
+    if (c[1] < -80 || !isFinite(c[1])) repair();
     renderer.render(scene, camera);
     requestAnimationFrame(loop);
   }
