@@ -996,8 +996,10 @@ const Phys = (() => {
     src.connect(f); f.connect(g); g.connect(a.destination); src.start();
   }
 
-  // ---- engine health. It comes from how far the front of the frame has been pushed back towards the dashboard,
-  // so it is the crumple zone itself that decides: a light knock costs a little, a big hit can finish the engine.
+  // ---- engine health. It comes from how far the front of the frame has been pushed back towards the dashboard plus
+  // how bent the car is overall, so the crumple zone decides: one crash only hurts it, it takes a few big ones to kill it.
+  // (Measured against the crash wall: one 80 km/h hit leaves it in the red, three of them blow it up; 40 km/h hits only
+  // get it into the red after three.)
   const crushPairs = [];
   Phys.local.forEach((l, i) => {
     if (Math.abs(l[2] - 1.82) > 1e-6) return;
@@ -1012,16 +1014,17 @@ const Phys = (() => {
   }
   const bay = [0, 0, 0], light = new THREE.PointLight(0xff9a40, 0, 34, 1.6);
   scene.add(light);
-  let flash = 0, burn = 0, charT = 0, shake = 0, glassGone = false, lastBent = 0;
+  let flash = 0, burn = 0, charT = 0, shake = 0, glassGone = false, lastBent = 0, hardHit = false;
   function updateEngine(dt) {
     const st = Phys.state;
     if (st.dead) return;
     const before = st.engine;
-    let e = Math.min(st.engine, 1 - frontCrush() / 0.62 - Math.max(0, st.damage - 0.35) * 0.5);
-    if (e < 0.3 && !onFoot && Phys.input.thr > 0) e -= 0.012 * dt; // flooring it on a dying engine finishes it off
+    let e = Math.min(st.engine, 1 - (0.55 * frontCrush() + 0.6 * Math.max(0, st.damage - 0.1)) / 0.9);
+    if (e < 0.15 && !onFoot && Phys.input.thr > 0) e -= 0.005 * dt; // flooring it on a nearly dead engine slowly finishes it off
+    if (e < 0.2 && hardHit) e -= 0.06; // once the front is caved in, every further crash still hurts it
     st.engine = Math.max(0, e);
-    // it blows up when there is nothing left of it, or when an engine that is already in the red takes another hard hit
-    if (st.engine <= 0 || (before < 0.3 && before - st.engine > 0.08)) explode();
+    // it blows up when there is nothing left of it, or when an engine that is nearly dead takes another hard hit
+    if (st.engine <= 0 || (before < 0.15 && before - st.engine > 0.05)) explode();
     else if (st.engine < 0.3 && Math.random() < dt * 0.2) backfire();
   }
   function backfire() {
@@ -1299,18 +1302,19 @@ const Phys = (() => {
     if (n === 16) acc = 0;
     syncMeshes();
     const sdt = dt * timeScale, { cf, cr, cu } = Phys, vel = Phys.vel;
+    { // a crunch when the frame bends
+      let bent = 0; for (let i = 0; i < Phys.N; i++) bent += Phys.nodeDamage[i];
+      bent /= Phys.N;
+      hardHit = bent - lastBent > 0.01;
+      if (hardHit) bang(0.35, Math.min(0.9, (bent - lastBent) * 9), 900);
+      lastBent = bent;
+    }
     updateEngine(sdt);
     { // jolts for the dummies: how the car's velocity changed this frame, in the car's own axes
       const dx = vel[0] - prevVel[0], dy = vel[1] - prevVel[1], dz = vel[2] - prevVel[2], lim = v => clamp(v, -25, 25);
       prevVel[0] = vel[0]; prevVel[1] = vel[1]; prevVel[2] = vel[2];
       const f = lim(dx * cf[0] + dy * cf[1] + dz * cf[2]), s = lim(dx * cr[0] + dy * cr[1] + dz * cr[2]), u = lim(dx * cu[0] + dy * cu[1] + dz * cu[2]);
       for (const d of riders) flop(d, f, s, u, Math.min(sdt, 0.05));
-    }
-    { // a crunch when the frame bends
-      let bent = 0; for (let i = 0; i < Phys.N; i++) bent += Phys.nodeDamage[i];
-      bent /= Phys.N;
-      if (bent - lastBent > 0.01) bang(0.35, Math.min(0.9, (bent - lastBent) * 9), 900);
-      lastBent = bent;
     }
     for (const p of panelList) { p.open += clamp(p.target - p.open, -sdt * 2.2, sdt * 2.2); if (p.loose) flyLoose(p, sdt); }
     emit(sdt); FX.update(sdt); updateChunks(sdt); updateWalker(dt); updatePrompt();
