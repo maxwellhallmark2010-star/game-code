@@ -701,71 +701,252 @@ function toast(text, dur = 3) { const el = $('toast'); el.textContent = text; el
 // =====================================================================
 //  Soldiers
 // =====================================================================
+// Characters are built from many small parts merged into one mesh per body
+// segment (vertex colours instead of separate materials), so a detailed
+// soldier costs about a dozen draw calls.
 const SG = {
-  torso: new THREE.BoxGeometry(0.46, 0.6, 0.26), belt: new THREE.BoxGeometry(0.48, 0.07, 0.28), pack: new THREE.BoxGeometry(0.34, 0.38, 0.16),
-  head: new THREE.BoxGeometry(0.24, 0.26, 0.24), eye: new THREE.BoxGeometry(0.045, 0.03, 0.01),
-  helmet: (() => { const g = new THREE.SphereGeometry(0.19, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2); g.scale(1, 0.75, 1.08); return g; })(),
-  arm: new THREE.BoxGeometry(0.13, 0.58, 0.13), hand: new THREE.BoxGeometry(0.1, 0.11, 0.1), band: new THREE.BoxGeometry(0.145, 0.08, 0.145),
-  leg: new THREE.BoxGeometry(0.17, 0.84, 0.19), boot: new THREE.BoxGeometry(0.19, 0.14, 0.29),
-  rifle: new THREE.BoxGeometry(0.06, 0.09, 0.9), barrel: new THREE.BoxGeometry(0.035, 0.035, 0.5),
   chute: (() => { const g = new THREE.SphereGeometry(3.2, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2.4); g.scale(1, 0.55, 1); return g; })(),
+  band: new THREE.CylinderGeometry(0.069, 0.069, 0.06, 12),
 };
+const stdm = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
 Object.assign(SM, {
-  skin: [0xd9a27e, 0xb07a52, 0x8d5a3b, 0xf0c8a8].map((c) => lam(c)),
-  uni: [lam(0x5f6b3c), lam(0x6a6e78)], pants: [lam(0x4c5530), lam(0x50545c)], helm: [lam(0x47512e), lam(0x474b53)],
-  band: [lam(0x3a8bff), lam(0xd83a2e)], boot: lam(0x2a2620), dark: lam(0x151515), wood: lam(0x6b4a2e), metal: lam(0x2a2c30), white: lam(0xeeeeea), pack: lam(0x6b6040),
+  band: [stdm(0x3a8bff), stdm(0xd83a2e)], white: stdm(0xeeeeea),
   chute: new THREE.MeshLambertMaterial({ color: 0xe8e2cf, side: THREE.DoubleSide }),
+  body: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.84, metalness: 0.03 }),
+  gun: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.35 }),
 });
-function makeSoldierModel(team, o = {}) {
-  const root = new THREE.Group(); root.rotation.order = 'YXZ';
-  const hips = new THREE.Group(); hips.position.y = 0.88; root.add(hips);
-  const m = (geo, mat, parent, x, y, z, sh = false) => { const mesh = new THREE.Mesh(geo, mat); mesh.position.set(x, y, z); mesh.castShadow = sh; parent.add(mesh); return mesh; };
-  const uni = SM.uni[team], skin = SM.skin[o.skin ?? randi(0, 3)];
-  m(SG.torso, uni, hips, 0, 0.32, 0, true); m(SG.belt, SM.boot, hips, 0, 0.04, 0); m(SG.pack, SM.pack, hips, 0, 0.34, -0.2);
-  const neck = new THREE.Group(); neck.position.y = 0.63; hips.add(neck);
-  m(SG.head, skin, neck, 0, 0.13, 0, true); m(SG.helmet, SM.helm[team], neck, 0, 0.21, 0, true);
-  m(SG.eye, SM.dark, neck, 0.055, 0.15, 0.121); m(SG.eye, SM.dark, neck, -0.055, 0.15, 0.121);
-  const shL = new THREE.Group(); shL.position.set(0.3, 0.58, 0); hips.add(shL);
-  const shR = new THREE.Group(); shR.position.set(-0.3, 0.58, 0); hips.add(shR);
-  for (const sh of [shL, shR]) { m(SG.arm, uni, sh, 0, -0.28, 0); m(SG.hand, skin, sh, 0, -0.6, 0); }
-  const band = m(SG.band, o.medic ? SM.white : SM.band[team], shL, 0, -0.12, 0);
-  const rifle = new THREE.Group(); rifle.position.set(0, -0.62, 0.04); rifle.rotation.x = Math.PI / 2; shR.add(rifle);
-  m(SG.rifle, SM.wood, rifle, 0, 0, 0.2); m(SG.barrel, SM.metal, rifle, 0, 0.03, 0.82);
-  if (o.medic) rifle.visible = false;
-  const hipL = new THREE.Group(); hipL.position.set(0.11, 0, 0); hips.add(hipL);
-  const hipR = new THREE.Group(); hipR.position.set(-0.11, 0, 0); hips.add(hipR);
-  for (const hp of [hipL, hipR]) { m(SG.leg, SM.pants[team], hp, 0, -0.42, 0, true); m(SG.boot, SM.boot, hp, 0, -0.83, 0.04); }
-  return { root, hips, neck, shL, shR, hipL, hipR, rifle, band, phase: Math.random() * 6 };
+const PAL = [
+  { uni: 0x5c6a3a, uniD: 0x47522c, pants: 0x535e37, helm: 0x4a5530, web: 0x8c8462, putt: 0x6e6c54, pack: 0x6b6342 },
+  { uni: 0x666f78, uniD: 0x4f565d, pants: 0x596068, helm: 0x4b5259, web: 0x5e5446, putt: 0x5f6266, pack: 0x5a5448 },
+];
+const SKINS = [0xd9a27e, 0xb07a52, 0x8d5a3b, 0xf0c8a8];
+const LEATHER = 0x4a3524, BOOT = 0x2a211a, METAL = 0x2b2d31, WOOD = 0x6b4a2e, DARK = 0x16130f, BROW = 0x2e2216;
+const GP = { box: new THREE.BoxGeometry(1, 1, 1), sph: new THREE.SphereGeometry(1, 10, 7), lo: new THREE.SphereGeometry(1, 6, 4), hemi: new THREE.SphereGeometry(1, 12, 5, 0, Math.PI * 2, 0, Math.PI / 2), cyl: new THREE.CylinderGeometry(1, 1, 1, 10), caps: {} };
+const cap = (r, l) => GP.caps[r + ':' + l] || (GP.caps[r + ':' + l] = new THREE.CapsuleGeometry(r, l, 2, 8));
+const _pm = new THREE.Matrix4(), _pq = new THREE.Quaternion(), _pe = new THREE.Euler(), _ps = V(), _pp = V();
+function P(geo, color, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
+  _pm.compose(_pp.set(x, y, z), _pq.setFromEuler(_pe.set(rx, ry, rz)), _ps.set(sx, sy, sz));
+  return { geo, color, m: _pm.clone() };
 }
-function poseSoldier(md, dt, pose, speed = 0, aimPitch = 0) {
-  const k = damp(12, dt);
-  let lL = 0, lR = 0, aL = -0.55, aR = -0.45, azL = -0.2, azR = 0.05, lean = 0, hy = 0.88, bob = 0, gun = true;
-  switch (pose) {
-    case 'run': { md.phase += speed * dt * 2.4; const amt = Math.min(1, speed / 3), sw = Math.sin(md.phase); lL = sw * 0.8 * amt; lR = -lL; aR = -0.9; aL = -1.1; azL = -0.3; lean = 0.18 * amt; bob = Math.abs(Math.cos(md.phase)) * 0.06 * amt; break; }
-    case 'aim': aR = -1.5 - aimPitch; aL = -1.45 - aimPitch; azL = -0.45; azR = 0.02; break;
-    case 'crouchAim': aR = -1.5 - aimPitch; aL = -1.45 - aimPitch; azL = -0.45; hy = 0.55; lL = -1.35; lR = -0.25; lean = 0.1; break;
-    case 'crouch': hy = 0.55; lL = -1.35; lR = -0.25; aR = -0.9; aL = -1.1; azL = -0.3; break;
-    case 'surrender': aL = aR = -3.0; azL = 0.25; azR = -0.25; gun = false; break;
-    case 'down': aR = -2.2 + Math.sin(T * 3 + md.phase) * 0.5; aL = 0.2; lL = 0.15; lR = -0.25; gun = false; break;
-    case 'dead': aL = -2.6; aR = -2.8; azL = 0.5; azR = -0.5; gun = false; break;
-    case 'carried': aL = aR = 0.3; azL = 0.1; azR = -0.1; gun = false; break;
-    case 'kneel': hy = 0.55; lL = -1.4; lR = -0.2; aR = -1.1 + Math.sin(T * 4) * 0.2; aL = -1.0; azL = -0.2; gun = false; break;
-    case 'carry': { md.phase += speed * dt * 2.4; const amt = Math.min(1, speed / 3), sw = Math.sin(md.phase); lL = sw * 0.6 * amt; lR = -lL; aL = -2.9; azL = 0.15; aR = -0.4; gun = false; break; }
-    case 'throw': aR = -2.6; aL = -1.0; break;
-    case 'drive': hy = 0.6; lL = lR = -1.4; aL = aR = -1.2; gun = false; break;
-    case 'chute': aL = aR = -2.8; azL = 0.3; azR = -0.3; lL = 0.2; lR = -0.2; gun = false; break;
+function mergeParts(parts) {
+  let n = 0;
+  const gs = parts.map((p) => { const g = p.geo.index ? p.geo.toNonIndexed() : p.geo.clone(); g.applyMatrix4(p.m); n += g.attributes.position.count; return g; });
+  const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3), c = new THREE.Color();
+  let o = 0;
+  gs.forEach((g, i) => {
+    const cnt = g.attributes.position.count;
+    pos.set(g.attributes.position.array, o * 3); nor.set(g.attributes.normal.array, o * 3);
+    c.set(parts[i].color); for (let k = 0; k < cnt; k++) { col[(o + k) * 3] = c.r; col[(o + k) * 3 + 1] = c.g; col[(o + k) * 3 + 2] = c.b; }
+    o += cnt; g.dispose();
+  });
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3)); out.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  out.computeBoundingSphere();
+  return out;
+}
+const VARIANTS = new Map();
+function soldierGeos(team, skinI, medic) {
+  const key = `${team}-${skinI}-${medic ? 1 : 0}`;
+  if (VARIANTS.has(key)) return VARIANTS.get(key);
+  const p = PAL[team], skin = SKINS[skinI], B = GP.box, S = GP.sph, C = GP.cyl, glove = medic ? 0xd8d2c0 : LEATHER;
+  const thigh = (side) => mergeParts([P(cap(0.088, 0.26), p.pants, 0, -0.21, 0), P(B, p.uniD, side * 0.085, -0.25, 0.01, 0, 0, 0, 0.03, 0.13, 0.11), P(GP.lo, p.pants, 0, 0, 0, 0, 0, 0, 0.09, 0.09, 0.09)]);
+  const g = {
+    pelvis: mergeParts([
+      P(C, p.pants, 0, -0.02, 0, 0, 0, 0, 0.19, 0.24, 0.135), P(C, LEATHER, 0, 0.1, 0, 0, 0, 0, 0.198, 0.06, 0.142),
+      P(B, 0x9a8a5a, 0, 0.1, 0.142, 0, 0, 0, 0.05, 0.045, 0.012),
+      P(B, p.web, 0.1, 0.09, 0.128, 0, 0, 0, 0.07, 0.08, 0.05), P(B, p.web, -0.1, 0.09, 0.128, 0, 0, 0, 0.07, 0.08, 0.05),
+      P(C, 0x3d4a3a, 0.2, 0.02, -0.05, 0, 0, 0, 0.05, 0.13, 0.05),
+      ...(medic ? [P(B, 0xeeeae0, -0.2, 0.0, 0.0, 0, 0, 0, 0.06, 0.16, 0.2), P(B, 0xd82a2a, -0.232, 0.0, 0.0, 0, 0, 0, 0.005, 0.1, 0.03), P(B, 0xd82a2a, -0.232, 0.0, 0.0, 0, 0, 0, 0.005, 0.03, 0.1)] : []),
+    ]),
+    chest: mergeParts([
+      P(cap(0.17, 0.2), p.uni, 0, 0.27, 0, 0, 0, 0, 1.22, 1, 0.78),
+      P(S, p.uni, 0.2, 0.45, 0, 0, 0, 0, 0.088, 0.08, 0.088), P(S, p.uni, -0.2, 0.45, 0, 0, 0, 0, 0.088, 0.08, 0.088),
+      P(C, p.uniD, 0, 0.53, 0, 0, 0, 0, 0.088, 0.05, 0.085), P(C, skin, 0, 0.58, 0, 0, 0, 0, 0.055, 0.1, 0.055),
+      P(B, p.web, 0.1, 0.3, 0.128, 0, 0, 0.2, 0.045, 0.5, 0.02), P(B, p.web, -0.1, 0.3, 0.128, 0, 0, -0.2, 0.045, 0.5, 0.02),
+      P(B, p.web, 0.1, 0.3, -0.13, 0, 0, -0.2, 0.045, 0.5, 0.02), P(B, p.web, -0.1, 0.3, -0.13, 0, 0, 0.2, 0.045, 0.5, 0.02),
+      P(B, p.web, 0.09, 0.19, 0.14, 0.1, 0, 0, 0.09, 0.1, 0.05), P(B, p.web, -0.09, 0.19, 0.14, 0.1, 0, 0, 0.09, 0.1, 0.05),
+      P(B, p.uniD, 0.09, 0.39, 0.132, 0, 0, 0, 0.08, 0.025, 0.02), P(B, p.uniD, -0.09, 0.39, 0.132, 0, 0, 0, 0.08, 0.025, 0.02),
+      P(B, p.pack, 0, 0.3, -0.2, 0, 0, 0, 0.3, 0.32, 0.14), P(B, p.uniD, 0, 0.37, -0.272, 0, 0, 0, 0.26, 0.13, 0.02),
+      P(C, 0x5b5a48, 0, 0.5, -0.2, 0, 0, Math.PI / 2, 0.065, 0.36, 0.065),
+    ]),
+    head: mergeParts([
+      P(S, skin, 0, 0.13, 0.01, 0, 0, 0, 0.105, 0.125, 0.115), P(B, skin, 0, 0.066, 0.055, 0, 0, 0, 0.12, 0.065, 0.1),
+      P(B, skin, 0, 0.12, 0.124, 0.25, 0, 0, 0.03, 0.05, 0.035),
+      P(GP.lo, skin, 0.105, 0.12, 0, 0, 0, 0, 0.02, 0.035, 0.025), P(GP.lo, skin, -0.105, 0.12, 0, 0, 0, 0, 0.02, 0.035, 0.025),
+      P(GP.lo, 0xf2f0ea, 0.04, 0.15, 0.104, 0, 0, 0, 0.019, 0.013, 0.01), P(GP.lo, 0xf2f0ea, -0.04, 0.15, 0.104, 0, 0, 0, 0.019, 0.013, 0.01),
+      P(GP.lo, DARK, 0.04, 0.15, 0.112, 0, 0, 0, 0.009, 0.009, 0.006), P(GP.lo, DARK, -0.04, 0.15, 0.112, 0, 0, 0, 0.009, 0.009, 0.006),
+      P(B, BROW, 0.042, 0.175, 0.11, 0, 0, -0.1, 0.042, 0.011, 0.012), P(B, BROW, -0.042, 0.175, 0.11, 0, 0, 0.1, 0.042, 0.011, 0.012),
+      P(B, 0x8a5548, 0, 0.075, 0.106, 0, 0, 0, 0.045, 0.009, 0.01),
+      P(GP.hemi, p.helm, 0, 0.17, 0, 0, 0, 0, 0.148, 0.12, 0.158), P(C, p.helm, 0, 0.175, 0, 0, 0, 0, 0.178, 0.016, 0.188),
+      P(B, LEATHER, 0.1, 0.09, 0.02, 0, 0, 0.12, 0.012, 0.16, 0.015), P(B, LEATHER, -0.1, 0.09, 0.02, 0, 0, -0.12, 0.012, 0.16, 0.015),
+      P(B, LEATHER, 0, 0.03, 0.06, 0, 0, 0, 0.13, 0.012, 0.015),
+      ...(medic ? [P(B, 0xeeeae0, 0, 0.25, 0.12, 0, 0, 0, 0.07, 0.07, 0.02), P(B, 0xd82a2a, 0, 0.25, 0.131, 0, 0, 0, 0.018, 0.05, 0.004), P(B, 0xd82a2a, 0, 0.25, 0.131, 0, 0, 0, 0.05, 0.018, 0.004)] : []),
+    ]),
+    upperArm: mergeParts([P(cap(0.064, 0.17), p.uni, 0, -0.14, 0), P(GP.lo, p.uni, 0, 0, 0, 0, 0, 0, 0.078, 0.078, 0.078)]),
+    forearm: mergeParts([
+      P(cap(0.054, 0.16), p.uni, 0, -0.12, 0), P(C, p.uniD, 0, -0.215, 0, 0, 0, 0, 0.06, 0.045, 0.06), P(GP.lo, p.uni, 0, 0, 0, 0, 0, 0, 0.064, 0.064, 0.064),
+      P(B, glove, 0, -0.29, 0.005, 0, 0, 0, 0.07, 0.09, 0.085), P(B, glove, 0, -0.345, 0.02, 0.3, 0, 0, 0.064, 0.05, 0.07), P(B, glove, 0.035, -0.29, 0.04, 0, 0, -0.4, 0.022, 0.06, 0.025),
+    ]),
+    thighL: thigh(1), thighR: thigh(-1),
+    shin: mergeParts([P(cap(0.072, 0.24), p.pants, 0, -0.18, 0), P(C, p.putt, 0, -0.3, 0, 0, 0, 0, 0.076, 0.16, 0.076), P(GP.lo, p.pants, 0, 0, 0.01, 0, 0, 0, 0.08, 0.08, 0.08)]),
+    boot: mergeParts([P(B, BOOT, 0, -0.03, 0.045, 0, 0, 0, 0.105, 0.1, 0.24), P(B, 0x151210, 0, -0.085, 0.045, 0, 0, 0, 0.112, 0.026, 0.252), P(B, BOOT, 0, 0.025, -0.01, 0, 0, 0, 0.095, 0.07, 0.12)]),
+  };
+  VARIANTS.set(key, g);
+  return g;
+}
+const RIFLE_GEO = mergeParts([
+  P(GP.box, WOOD, 0, -0.01, -0.2, 0, 0, 0, 0.045, 0.1, 0.3), P(GP.box, WOOD, 0, -0.065, -0.04, -0.35, 0, 0, 0.04, 0.09, 0.05),
+  P(GP.box, METAL, 0, 0, 0.1, 0, 0, 0, 0.05, 0.075, 0.3), P(GP.box, WOOD, 0, -0.01, 0.34, 0, 0, 0, 0.048, 0.06, 0.24),
+  P(GP.cyl, METAL, 0, 0.02, 0.62, Math.PI / 2, 0, 0, 0.013, 0.36, 0.013), P(GP.box, METAL, 0, -0.085, 0.12, 0.15, 0, 0, 0.035, 0.11, 0.06),
+  P(GP.box, METAL, 0, 0.055, 0.16, 0, 0, 0, 0.012, 0.03, 0.012), P(GP.box, METAL, 0, 0.045, 0.77, 0, 0, 0, 0.01, 0.03, 0.01),
+  P(GP.box, LEATHER, 0, -0.07, 0.15, 0, 0, 0, 0.008, 0.012, 0.6),
+]);
+// skeleton proportions (metres)
+const HIPS_STAND = 0.95, HIPS_CROUCH = 0.6, ANKLE_H = 0.1, L_THIGH = 0.44, L_SHIN = 0.4, L_UP = 0.29, L_FORE = 0.33, SPINE_Y = 0.06;
+const RIFLE_GRIP = V(0, -0.07, -0.03), RIFLE_FORE = V(0, -0.045, 0.34), RIFLE_MUZZLE = V(0, 0.02, 0.8);
+function makeSoldierModel(team, o = {}) {
+  const geo = soldierGeos(team, o.skin ?? randi(0, 3), !!o.medic);
+  const mesh = (g, parent, x, y, z, mat = SM.body, sh = true) => { const m = new THREE.Mesh(g, mat); m.position.set(x, y, z); m.castShadow = sh; parent.add(m); return m; };
+  const grp = (parent, x, y, z) => { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return g; };
+  const root = new THREE.Group(); root.rotation.order = 'YXZ';
+  const hips = grp(root, 0, HIPS_STAND, 0); mesh(geo.pelvis, hips, 0, 0, 0);
+  const spine = grp(hips, 0, SPINE_Y, 0); mesh(geo.chest, spine, 0, 0, 0);
+  const neck = grp(spine, 0, 0.55, 0); mesh(geo.head, neck, 0, 0, 0);
+  const arm = (side) => {
+    const sh = grp(spine, side * 0.24, 0.45, 0); mesh(geo.upperArm, sh, 0, 0, 0, SM.body, false);
+    const el = grp(sh, 0, -L_UP, 0); mesh(geo.forearm, el, 0, 0, 0, SM.body, false);
+    return [sh, el];
+  };
+  const [shL, elL] = arm(1), [shR, elR] = arm(-1);
+  const band = mesh(SG.band, shL, 0, -0.09, 0, o.medic ? SM.white : SM.band[team], false);
+  const leg = (side) => {
+    const hp = grp(hips, side * 0.105, -0.04, 0); mesh(side > 0 ? geo.thighL : geo.thighR, hp, 0, 0, 0);
+    const kn = grp(hp, 0, -L_THIGH, 0); mesh(geo.shin, kn, 0, 0, 0);
+    const an = grp(kn, 0, -L_SHIN, 0); mesh(geo.boot, an, 0, 0, 0, SM.body, false);
+    return [hp, kn, an];
+  };
+  const [hipL, knL, anL] = leg(1), [hipR, knR, anR] = leg(-1);
+  const aimPivot = grp(spine, -0.12, 0.3, 0.14);
+  const rifle = grp(aimPivot, 0, -0.02, 0.34); mesh(RIFLE_GEO, rifle, 0, 0, 0, SM.gun, false);
+  if (o.medic) rifle.visible = false;
+  return { root, hips, spine, neck, shL, elL, shR, elR, hipL, knL, anL, hipR, knR, anR, aimPivot, rifle, band, medic: !!o.medic, phase: Math.random() * 6, gaitAmp: 0, flinch: 0, flinchSide: 1, lodT: 0 };
+}
+// --- inverse kinematics: place a two-bone limb so its end reaches a target, bending toward a pole
+const _ik = Array.from({ length: 8 }, () => V());
+const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion(), _qd = new THREE.Quaternion(), _ea = new THREE.Euler();
+const V_DOWN = V(0, -1, 0);
+function ik2(upper, lower, parentQ, base, target, L1, L2, pole) {
+  const d = _ik[0].subVectors(target, base); let dist = d.length();
+  if (dist < 1e-5) return;
+  d.divideScalar(dist); dist = clamp(dist, 0.08, L1 + L2 - 1e-3);
+  const a = Math.acos(clamp((L1 * L1 + dist * dist - L2 * L2) / (2 * L1 * dist), -1, 1));
+  const n = _ik[2].crossVectors(d, _ik[1].subVectors(pole, base));
+  if (n.lengthSq() < 1e-8) n.set(1, 0, 0);
+  n.normalize();
+  const perp = _ik[3].crossVectors(n, d);
+  const up = _ik[4].copy(d).multiplyScalar(Math.cos(a)).addScaledVector(perp, Math.sin(a));
+  const elbow = _ik[5].copy(base).addScaledVector(up, L1);
+  const fore = _ik[6].subVectors(target, elbow).normalize();
+  up.applyQuaternion(_qa.copy(parentQ).invert()); upper.quaternion.setFromUnitVectors(V_DOWN, up);
+  fore.applyQuaternion(_qb.multiplyQuaternions(parentQ, upper.quaternion).invert()); lower.quaternion.setFromUnitVectors(V_DOWN, fore);
+}
+function fk(j, x, y, z, k) { _qc.setFromEuler(_ea.set(x, y, z)); j.quaternion.slerp(_qc, k); }
+const GUN_POSE = {
+  aim: { p: V(-0.13, 0.43, 0.06), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0.28, 0)) },
+  ready: { p: V(-0.1, 0.3, 0.16), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(0.62, 0.55, 0.15, 'YXZ')) },
+  sprint: { p: V(-0.04, 0.34, 0.14), q: new THREE.Quaternion().setFromEuler(new THREE.Euler(1.0, 0.9, 0.3, 'YXZ')) },
+};
+const _gw = V(), _gw2 = V(), _sw = V(), _hq = new THREE.Quaternion(), _sq = new THREE.Quaternion(), _rq = new THREE.Quaternion(), _pole = V(), _fw = V();
+// One function poses every character: feet are planted with leg IK while a gait steps them one after the other;
+// hands hold the rifle with arm IK; the torso leans and the rifle tilts with the aim.
+function poseSoldier(md, dt, pose, speed = 0, aimPitch = 0, vel = null) {
+  if (camera.position.distanceToSquared(md.root.position) > 95 * 95 && md.root.parent === scene) {
+    md.lodT -= dt; if (md.lodT > 0) return; md.lodT = 0.2; dt = 0.2;
   }
-  md.hipL.rotation.x = lerp(md.hipL.rotation.x, lL, k); md.hipR.rotation.x = lerp(md.hipR.rotation.x, lR, k);
-  md.shL.rotation.x = lerp(md.shL.rotation.x, aL, k); md.shR.rotation.x = lerp(md.shR.rotation.x, aR, k);
-  md.shL.rotation.z = lerp(md.shL.rotation.z, azL, k); md.shR.rotation.z = lerp(md.shR.rotation.z, azR, k);
-  md.hips.rotation.x = lerp(md.hips.rotation.x, lean, k); md.hips.position.y = lerp(md.hips.position.y, hy, k) + bob;
-  md.rifle.visible = gun;
-  // hit flinch: jerk back and twist away from the bullet, then recover
-  if (md.flinch > 0) {
-    md.hips.rotation.x -= md.flinch * 0.55; md.hips.rotation.z = md.flinch * 0.35 * md.flinchSide;
-    md.neck.rotation.x = -md.flinch * 0.45; md.shR.rotation.x += md.flinch * 0.6;
-    md.flinch = Math.max(0, md.flinch - dt * 3.5);
-  } else { md.hips.rotation.z = 0; md.neck.rotation.x = lerp(md.neck.rotation.x, 0, k); }
+  const k = damp(12, dt), f = md.root.rotation.y;
+  let lx = 0, lz = 0;
+  if (vel) { const c = Math.cos(f), s = Math.sin(f); lx = vel.x * c - vel.z * s; lz = vel.x * s + vel.z * c; }
+  const sp = Math.hypot(lx, lz);
+  let crouch = false, gun = 'ready', hipsY = HIPS_STAND, legs = 'gait', arms = 'ik';
+  switch (pose) {
+    case 'aim': gun = 'aim'; break;
+    case 'crouchAim': gun = 'aim'; crouch = true; break;
+    case 'crouch': crouch = true; break;
+    case 'run': case 'idle': gun = sp > 4.6 ? 'sprint' : 'ready'; break;
+    case 'surrender': gun = null; arms = 'up'; break;
+    case 'carry': gun = null; arms = 'carry'; break;
+    case 'throw': gun = null; arms = 'throw'; break;
+    case 'kneel': gun = null; arms = 'work'; crouch = true; hipsY = 0.5; break;
+    case 'chute': gun = null; arms = 'up'; legs = 'dangle'; break;
+    case 'down': case 'dead': case 'carried': gun = null; arms = pose; legs = 'limp'; break;
+  }
+  if (crouch && hipsY === HIPS_STAND) hipsY = HIPS_CROUCH;
+  if (md.medic) gun = null;
+  // gait: each foot swings forward (lifted) while the other pushes back on the ground
+  const moveK = legs === 'gait' ? clamp(sp / 1.2, 0, 1) : 0;
+  const maxA = crouch ? 0.3 : sp > 4.6 ? 0.55 : 0.42;
+  md.gaitAmp = lerp(md.gaitAmp, clamp(sp * (crouch ? 0.14 : 0.12), 0, maxA) * moveK, damp(6, dt));
+  const A = Math.max(0.06, md.gaitAmp);
+  if (sp > 0.15) md.phase += dt * Math.PI * sp / (2 * A);
+  if (legs === 'gait') hipsY += Math.cos(2 * md.phase) * (crouch ? 0.02 : 0.03) * moveK - (crouch ? 0 : 0.02 * moveK);
+  let lean = crouch ? 0.42 : sp > 4.6 ? 0.25 : 0.06 * moveK;
+  if (gun === 'aim') lean *= 0.45;
+  if (arms === 'work') lean = 0.5;
+  md.hips.position.y = lerp(md.hips.position.y, hipsY, k);
+  md.hips.rotation.set(lerp(md.hips.rotation.x, lean, k), 0, 0);
+  // the chest straightens up to aim, then the rifle takes the rest of the pitch
+  const twist = gun === 'aim' ? -0.28 : 0;
+  const chestPitch = gun === 'aim' ? -aimPitch * 0.55 - lean * 0.75 : crouch ? -0.1 : 0;
+  md.spine.rotation.set(lerp(md.spine.rotation.x, chestPitch, k) - md.flinch * 0.5, lerp(md.spine.rotation.y, twist, k), md.flinch * 0.35 * md.flinchSide);
+  md.neck.rotation.set(-(gun === 'aim' ? aimPitch * 0.3 : 0) - lean * 0.6 - md.flinch * 0.4 + (arms === 'work' ? 0.5 : 0), 0, 0);
+  if (md.flinch > 0) md.flinch = Math.max(0, md.flinch - dt * 3.5);
+  if (gun) {
+    const gp = GUN_POSE[gun];
+    md.aimPivot.position.lerp(gp.p, damp(14, dt));
+    _qd.copy(gp.q); if (gun === 'aim') _qd.premultiply(_qc.setFromEuler(_ea.set(-aimPitch * 0.45, 0, 0)));
+    md.aimPivot.quaternion.slerp(_qd, damp(14, dt));
+  }
+  md.rifle.visible = !!gun;
+  md.root.updateMatrixWorld();
+  // legs
+  if (legs === 'gait') {
+    md.hips.getWorldQuaternion(_hq); md.root.getWorldQuaternion(_rq);
+    _fw.set(0, 0, 1).applyQuaternion(_rq);
+    const dx = sp > 0.15 ? lx / sp : 0, dz = sp > 0.15 ? lz / sp : 1;
+    const legsArr = [[md.hipL, md.knL, md.anL, 1], [md.hipR, md.knR, md.anR, -1]];
+    for (const [hp, kn, an, side] of legsArr) {
+      const ph = md.phase + (side > 0 ? 0 : Math.PI);
+      const stroke = Math.sin(ph) * md.gaitAmp, lift = Math.max(0, Math.cos(ph)) * (crouch ? 0.12 : 0.16) * moveK;
+      const stX = side * (crouch ? 0.15 : 0.11), stZ = crouch ? (side > 0 ? 0.24 : -0.2) * (1 - moveK * 0.6) + (arms === 'work' ? (side > 0 ? 0.1 : -0.1) : 0) : 0;
+      md.root.localToWorld(_gw.set(stX + dx * stroke, ANKLE_H + lift, stZ + dz * stroke));
+      hp.getWorldPosition(_sw);
+      ik2(hp, kn, _hq, _sw, _gw, L_THIGH, L_SHIN, _pole.copy(_sw).addScaledVector(_fw, 1.0));
+      // keep the boot flat on the ground
+      _qd.multiplyQuaternions(_hq, hp.quaternion).multiply(kn.quaternion).invert();
+      an.quaternion.copy(_qd.multiply(_rq));
+    }
+  } else {
+    const dangle = legs === 'dangle';
+    fk(md.hipL, dangle ? -0.2 : 0.1, 0, 0.05, k); fk(md.hipR, dangle ? 0.15 : -0.15, 0, -0.05, k);
+    fk(md.knL, dangle ? 0.3 : 0.15, 0, 0, k); fk(md.knR, dangle ? 0.5 : 0.3, 0, 0, k);
+    fk(md.anL, 0, 0, 0, k); fk(md.anR, 0, 0, 0, k);
+  }
+  // arms
+  if (gun) {
+    md.root.updateMatrixWorld();
+    md.spine.getWorldQuaternion(_sq);
+    const grip = md.rifle.localToWorld(_gw.copy(RIFLE_GRIP)), fore = md.rifle.localToWorld(_gw2.copy(RIFLE_FORE));
+    md.shR.getWorldPosition(_sw); ik2(md.shR, md.elR, _sq, _sw, grip, L_UP, L_FORE, md.spine.localToWorld(_pole.set(-0.6, 0.15, -0.3)));
+    md.shL.getWorldPosition(_sw); ik2(md.shL, md.elL, _sq, _sw, fore, L_UP, L_FORE, md.spine.localToWorld(_pole.set(0.55, 0.0, -0.1)));
+  } else {
+    const w = Math.sin(T * 3 + md.phase);
+    const A2 = {
+      up: [-2.85, 0, 0.3, -0.35, -2.85, 0, -0.3, -0.35], carry: [-2.6, 0, 0.25, -1.3, -0.3, 0, -0.1, -0.6],
+      throw: [-1.2, 0, 0.3, -0.6, -2.7, 0, -0.2, -0.9], work: [-1.1 + w * 0.15, 0, -0.2, -0.6, -1.0 - w * 0.15, 0, 0.2, -0.8],
+      down: [0.2, 0, 0.2, -0.2, -2.2 + w * 0.4, 0, -0.2, -0.5], dead: [-2.6, 0, 0.5, -0.2, -2.8, 0, -0.5, -0.3], carried: [0.3, 0, 0.1, -0.2, 0.3, 0, -0.1, -0.2],
+    }[arms] || [-0.2, 0, 0.1, -0.3, -0.2, 0, -0.1, -0.3];
+    fk(md.shL, A2[0], A2[1], A2[2], k); fk(md.elL, A2[3], 0, 0, k); fk(md.shR, A2[4], A2[5], A2[6], k); fk(md.elR, A2[7], 0, 0, k);
+  }
 }
 function flinch(md, dir, facing) {
   md.flinch = 1;
@@ -787,9 +968,9 @@ function startRagdoll(ent, o = {}) {
   const md = ent.model;
   md.root.updateMatrixWorld(true);
   const pts = [
-    md.neck.localToWorld(V(0, 0.13, 0)), md.hips.localToWorld(V(0, 0.58, 0)), md.hips.localToWorld(V(0, 0, 0)),
-    md.shL.localToWorld(V(0, 0, 0)), md.shL.localToWorld(V(0, -0.62, 0)), md.shR.localToWorld(V(0, 0, 0)), md.shR.localToWorld(V(0, -0.62, 0)),
-    md.hipL.localToWorld(V(0, 0, 0)), md.hipL.localToWorld(V(0, -0.86, 0)), md.hipR.localToWorld(V(0, 0, 0)), md.hipR.localToWorld(V(0, -0.86, 0)),
+    md.neck.localToWorld(V(0, 0.15, 0)), md.spine.localToWorld(V(0, 0.45, 0)), md.hips.localToWorld(V(0, 0, 0)),
+    md.shL.localToWorld(V(0, 0, 0)), md.elL.localToWorld(V(0, -L_FORE, 0)), md.shR.localToWorld(V(0, 0, 0)), md.elR.localToWorld(V(0, -L_FORE, 0)),
+    md.hipL.localToWorld(V(0, 0, 0)), md.knL.localToWorld(V(0, -L_SHIN, 0)), md.hipR.localToWorld(V(0, 0, 0)), md.knR.localToWorld(V(0, -L_SHIN, 0)),
   ];
   const rd = { p: new Float32Array(33), q: new Float32Array(33), len: new Float32Array(RD_LINKS.length), t: 0, still: 0, awake: true,
     mode: o.mode || 'drop', clutch: -1, clutchHand: RD.HAL, braceHand: RD.HAR, flailT: 0, flail: new Float32Array(12), writhe: !!o.writhe, phase: Math.random() * 6 };
@@ -906,21 +1087,29 @@ function poseFromRagdoll(md, rd) {
   _rz.crossVectors(_rx, _ry);
   _rm.makeBasis(_rx, _ry, _rz);
   md.root.quaternion.setFromRotationMatrix(_rm);
-  md.hips.position.set(0, 0.88, 0); md.hips.rotation.set(0, 0, 0);
-  md.root.position.copy(pel).addScaledVector(_ry, -0.88);
+  md.hips.position.set(0, HIPS_STAND, 0); md.hips.rotation.set(0, 0, 0); md.spine.rotation.set(0, 0, 0);
+  md.root.position.copy(pel).addScaledVector(_ry, -HIPS_STAND);
   _rinv.copy(md.root.quaternion).invert();
-  const limb = (joint, a, b, rest) => { _rv.set(P[b * 3] - P[a * 3], P[b * 3 + 1] - P[a * 3 + 1], P[b * 3 + 2] - P[a * 3 + 2]).applyQuaternion(_rinv).normalize(); joint.quaternion.setFromUnitVectors(rest, _rv); };
-  limb(md.shL, RD.SHL, RD.HAL, DOWNV); limb(md.shR, RD.SHR, RD.HAR, DOWNV);
-  limb(md.hipL, RD.HIPL, RD.FTL, DOWNV); limb(md.hipR, RD.HIPR, RD.FTR, DOWNV);
-  limb(md.neck, RD.CHEST, RD.HEAD, UPV);
+  _rv.set(P[RD.HEAD * 3] - P[RD.CHEST * 3], P[RD.HEAD * 3 + 1] - P[RD.CHEST * 3 + 1], P[RD.HEAD * 3 + 2] - P[RD.CHEST * 3 + 2]).applyQuaternion(_rinv).normalize();
+  md.neck.quaternion.setFromUnitVectors(UPV, _rv);
+  md.root.updateMatrixWorld(true);
+  // bend elbows and knees so hands and feet land on their physics points
+  const rq = md.root.quaternion, pt = (i, out) => out.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+  const limb = (up, low, joint, end, L1, L2, poleX, poleY, poleZ) => {
+    up.getWorldPosition(_rw); pt(end, _rv);
+    ik2(up, low, rq, _rw, _rv, L1, L2, _pole.copy(_rw).add(_gw2.set(poleX, poleY, poleZ).applyQuaternion(rq)));
+  };
+  limb(md.shL, md.elL, RD.SHL, RD.HAL, L_UP, L_FORE, 0.3, -0.4, -0.3); limb(md.shR, md.elR, RD.SHR, RD.HAR, L_UP, L_FORE, -0.3, -0.4, -0.3);
+  limb(md.hipL, md.knL, RD.HIPL, RD.FTL, L_THIGH, L_SHIN, 0, 0, 1); limb(md.hipR, md.knR, RD.HIPR, RD.FTR, L_THIGH, L_SHIN, 0, 0, 1);
+  md.anL.quaternion.identity(); md.anR.quaternion.identity();
   md.rifle.visible = false;
 }
 function endRagdoll(ent, facing) {
   ent.rd = null;
   const md = ent.model;
   md.root.quaternion.identity(); md.root.rotation.set(0, facing, 0);
-  for (const j of [md.shL, md.shR, md.hipL, md.hipR, md.neck, md.hips]) j.rotation.set(0, 0, 0);
-  md.hips.position.set(0, 0.88, 0);
+  for (const j of [md.shL, md.shR, md.elL, md.elR, md.hipL, md.hipR, md.knL, md.knR, md.anL, md.anR, md.neck, md.hips, md.spine]) j.rotation.set(0, 0, 0);
+  md.hips.position.set(0, HIPS_STAND, 0);
 }
 function ragdollGround(ent) {
   const P = ent.rd.p;
@@ -1028,8 +1217,9 @@ function aiShoot(s, tgt) {
   if (blocked) end = from.clone().addScaledVector(_ld, st.t);
   else if (hit) end = to;
   else end = to.clone().add(V(rand(-1, 1), rand(-0.5, 1), rand(-1, 1)).multiplyScalar(clamp(d * 0.04, 0.6, 3)));
-  tracer(from, end, s.team === BLUE ? 0xfff0b0 : 0xffc890);
-  muzzleFlash(from, 0.7); Sfx.shot(from);
+  const mz = s.model.rifle.visible && camera.position.distanceToSquared(s.pos) < 90 * 90 ? s.model.rifle.localToWorld(V().copy(RIFLE_MUZZLE)) : from;
+  tracer(mz, end, s.team === BLUE ? 0xfff0b0 : 0xffc890);
+  muzzleFlash(mz, 0.7); Sfx.shot(from);
   if (hit) {
     if (tgt.kind === 'soldier') damageSoldier(tgt, 24, s, { dir: _ld.clone(), point: to });
     else if (tgt.kind === 'player') damagePlayer(12, from);
@@ -1064,10 +1254,11 @@ function updateSoldier(s, dt) {
   if (s.rd) endRagdoll(s, s.facing);
   md.root.rotation.x = lerp(md.root.rotation.x, 0, damp(8, dt));
   if (s.state === 'surrender') {
-    s.surT -= dt; poseSoldier(md, dt, 'surrender');
+    s.surT -= dt;
     s.icon.position.set(s.pos.x, s.pos.y + 2.3, s.pos.z);
     s.vel.x *= 0.8; s.vel.z *= 0.8; moveBody(s.pos, s.vel, dt, 0.35, 1.8, s);
     md.root.position.copy(s.pos); md.root.rotation.y = s.facing;
+    poseSoldier(md, dt, 'surrender', 0, 0, s.vel);
     if (s.surT <= 0) { s.state = 'move'; setIcon(s, null); }
     return;
   }
@@ -1120,8 +1311,8 @@ function updateSoldier(s, dt) {
   for (const t of tanks) pushFromTank(s.pos, t, 0.4);
   const pose = tgt && !wantMove ? (s.crouch ? 'crouchAim' : 'aim') : hs > 0.4 ? 'run' : 'idle';
   const pitch = tgt ? clamp(Math.atan2(_c.y - (s.pos.y + 1.4), Math.max(1, h2(s.pos, _c))), -0.6, 0.6) : 0;
-  poseSoldier(md, dt, pose, hs, pitch);
   md.root.position.copy(s.pos); md.root.rotation.y = s.facing;
+  poseSoldier(md, dt, pose, hs, pitch, s.vel);
   if (s.ally) { s.icon.position.set(s.pos.x, s.pos.y + 2.25, s.pos.z); }
 }
 function damageSoldier(s, dmg, src, o = {}) {
@@ -1698,7 +1889,7 @@ function rayHit(o, d, maxT, opt = {}) {
   for (const s of soldiers) {
     if (s === opt.ignore || s.state === 'dead' || s.state === 'carried') continue;
     if (opt.skipTeamSoldiers != null && s.team === opt.skipTeamSoldiers) continue;
-    const lying = s.state === 'down' || s.state === 'heal', h = lying ? 0.45 : s.crouch ? 1.2 : 1.85, r = lying ? 0.8 : 0.36;
+    const lying = s.state === 'down' || s.state === 'heal', h = lying ? 0.45 : s.crouch ? 1.35 : 1.88, r = lying ? 0.8 : 0.36;
     consider(rayBox(o, d, s.pos.x - r, s.pos.y, s.pos.z - r, s.pos.x + r, s.pos.y + h, s.pos.z + r), 'soldier', s);
   }
   if (opt.player && player.alive && !player.vehicle) { const P = player.pos; consider(rayBox(o, d, P.x - 0.36, P.y, P.z - 0.36, P.x + 0.36, P.y + 1.85, P.z + 0.36), 'player', player); }
@@ -1735,7 +1926,7 @@ const player = {
 scene.add(player.model.root);
 const chute = new THREE.Mesh(SG.chute, SM.chute); chute.visible = false; scene.add(chute);
 const _cd = V(), _cp = V();
-function playerMuzzle(out = V()) { return player.model.rifle.localToWorld(out.set(0, 0.03, 1.05)); }
+function playerMuzzle(out = V()) { return player.model.rifle.localToWorld(out.copy(RIFLE_MUZZLE)); }
 function camRay(out = _cd) { camera.getWorldDirection(out); return out; }
 function camMinT() { return Math.max(0, camera.position.distanceTo(player.vehicle ? player.vehicle.pos : player.pos) - (player.vehicle ? 4 : 0.6)); }
 function aimTarget(maxT = 400, ignore = null) {
@@ -1763,7 +1954,7 @@ function updatePlayerFoot(dt) {
     chute.visible = true; chute.position.set(player.pos.x, player.pos.y + 5, player.pos.z);
     if (player.pos.z < SHORE && player.pos.y < SEA_Y + 0.2) { player.para = null; chute.visible = false; splash(player.pos, 0.8); toast('Splashdown! You swam back to the beach.'); player.pos.set(clamp(player.pos.x, -190, 190), LAND, SHORE + 3); player.vel.set(0, 0, 0); }
     else if (player.pos.y <= sup) { player.pos.y = sup; player.para = null; chute.visible = false; player.vel.set(0, 0, 0); toast('Boots on the ground.'); }
-    md.root.position.copy(player.pos); md.root.rotation.y = cam.yaw; poseSoldier(md, dt, 'chute');
+    md.root.position.copy(player.pos); md.root.rotation.y = cam.yaw; poseSoldier(md, dt, 'chute', 0, 0, null);
     return;
   }
   player.aiming = (mouse.r || touch.alt) && !player.carrying;
@@ -1787,8 +1978,8 @@ function updatePlayerFoot(dt) {
   // pose
   let pose = player.carrying ? 'carry' : player.throwT > 0 ? 'throw' : shooting ? (player.crouch ? 'crouchAim' : 'aim') : player.crouch ? 'crouch' : hs > 0.4 ? 'run' : 'idle';
   if (!player.onGround && !player.carrying) pose = 'run';
-  poseSoldier(md, dt, pose, hs, shooting ? -cam.pitch * 0.9 : 0);
   md.root.position.copy(player.pos); md.root.rotation.y = player.facing;
+  poseSoldier(md, dt, pose, hs, shooting ? cam.pitch : 0, player.vel);
   md.root.visible = !(isScoped() && cam.dist < 1.2);
 }
 const isScoped = () => playing && player.alive && !player.vehicle && !player.para && !player.carrying && player.aiming && WEAPONS[player.w].id === 'rifle';
@@ -1849,7 +2040,7 @@ function playerFire() {
 function bulletImpact(h, dmg, src, dir = null) {
   switch (h.kind) {
     case 'soldier': {
-      const s = h.ref, head = s.state !== 'down' && h.point.y > s.pos.y + (s.crouch ? 0.95 : 1.52);
+      const s = h.ref, head = s.state !== 'down' && h.point.y > s.pos.y + (s.crouch ? 1.08 : 1.56);
       const was = s.state;
       dust(h.point, 2, [0.45, 0.43, 0.38]);
       if (s.team !== BLUE) damageSoldier(s, head && dmg ? dmg * 2.3 : dmg, src, { dir: dir || undefined, point: h.point, force: head ? 4.5 : 3.2 });
@@ -1927,7 +2118,7 @@ function carry(s) {
   if (s.rd) endRagdoll(s, s.facing);
   player.carrying = s; s.state = 'carried'; s.icon.visible = false;
   player.model.hips.add(s.model.root);
-  s.model.root.position.set(1.0, 0.76, 0.02); s.model.root.rotation.set(0, 0, Math.PI / 2);
+  s.model.root.position.set(1.06, 0.66, 0.04); s.model.root.rotation.set(0, 0, Math.PI / 2);
   toast(s.team === BLUE || s.ally ? `Carrying ${s.name}. Get him to a medic tent (red cross).` : `Carrying wounded enemy ${s.name}. Your medic can save him.`, 3);
 }
 function dropCarried(medic) {
@@ -2151,7 +2342,7 @@ function updateCamera(dt) {
     dist = 0; shoulder = 0.12; fov = 22;
   } else {
     tgt = _v.set(player.pos.x, player.pos.y + (player.crouch ? 1.15 : 1.6), player.pos.z);
-    dist = player.aiming ? 1.8 : 3.4; shoulder = 0.6; fov = player.aiming ? 50 : 65;
+    dist = player.aiming ? 1.35 : 3.3; shoulder = player.aiming ? 0.48 : 0.6; fov = player.aiming ? 48 : 65;
   }
   camT.lerp(tgt, damp(v && v.kind === 'plane' ? 30 : 16, dt));
   if (v && v.kind === 'plane') camT.copy(tgt);

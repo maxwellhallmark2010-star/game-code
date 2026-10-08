@@ -22,6 +22,10 @@ The style is blocky with no blood: soldiers fall over when they're hit.
   E ejects with a parachute), and man anti-aircraft guns. Sneak behind enemy lines to steal their parked
   tanks and jets or take over their AA guns. Enemy tank crews bail out of badly damaged tanks, and then you can steal those too.
 - **The sea:** warships from both sides shell each other and the trenches. Bomb the enemy fleet from a jet.
+- **Soldiers** have real joints (knees, elbows, ankles, waist, neck) and detailed gear: helmets with chin straps,
+  webbing, pouches, backpacks with bedrolls, gloves, puttees and boots. Their feet are planted with leg IK and step
+  one after the other, and both hands hold the rifle with arm IK. Crouching (C) drops into a low crouch with a
+  staggered stance, and crouch-walking steps leg after leg with bent knees.
 - **Ragdolls:** soldiers flinch and stumble when hit. When they go down, they stagger, clutch the wound and throw an
   arm out to break the fall. Explosions send bodies flying with limbs flailing, and the wounded writhe and reach up for help.
 - **Aiming:** right click with the rifle looks through a zoomed scope. Guns kick up when fired, and the crosshair spreads
