@@ -548,7 +548,7 @@ function moveBody(pos, vel, dt, r, height, st, grav = G) {
   st.landed = 0;
   if (pos.y <= sup) {
     if (!st.onGround) st.landed = -vel.y;
-    const rise = (sup - prevY) / dt;
+    const rise = dt > 0 ? (sup - prevY) / dt : 0;
     pos.y = sup;
     vel.y = st.onGround ? clamp(rise, 0, 25) : 0;
     st.onGround = true;
@@ -1425,8 +1425,8 @@ addEventListener('contextmenu', (e) => e.preventDefault());
 addEventListener('mousemove', (e) => {
   if (!started || paused || isTouch) return;
   if (lockOK && document.pointerLockElement !== canvas) return;
-  cam.yaw -= e.movementX * 0.0024;
-  cam.pitch = clamp(cam.pitch - e.movementY * 0.0022, -1.25, 0.75);
+  cam.yaw -= (e.movementX || 0) * 0.0024;
+  cam.pitch = clamp(cam.pitch - (e.movementY || 0) * 0.0022, -1.25, 0.75);
   cam.lastMouse = T;
 });
 addEventListener('wheel', (e) => { if (started && build.on) setPiece(build.piece + (e.deltaY > 0 ? 1 : -1)); }, { passive: true });
@@ -2063,7 +2063,33 @@ for (let i = 0; i < B.n; i++) {
 for (let i = 0; i < 6; i++) spawnDrone();
 drones.forEach((d) => { d.pos.multiplyScalar(1.3); d.cd = rand(4, 7); });
 
+// Safety net: if any position ever stops being a real number, put everything back where it last was fine.
+const lastGood = V();
+const badVec = (v) => !Number.isFinite(v.x) || !Number.isFinite(v.y) || !Number.isFinite(v.z);
+function sanitize() {
+  if (!badVec(player.pos) && !badVec(player.vel) && !badVec(car.pos) && !badVec(car.vel) && !badVec(camT) && !badVec(pile.pos)
+      && Number.isFinite(cam.yaw) && Number.isFinite(cam.pitch) && Number.isFinite(car.yaw) && Number.isFinite(player.facing)) {
+    lastGood.copy(car.active ? car.pos : player.pos);
+    return;
+  }
+  player.pos.copy(lastGood); player.vel.set(0, 0, 0); player.grapple = null;
+  if (!Number.isFinite(player.facing)) player.facing = 0;
+  car.pos.copy(lastGood); car.vel.set(0, 0, 0); car.speed = 0; car.pitch = 0;
+  if (!Number.isFinite(car.yaw)) car.yaw = 0;
+  if (!Number.isFinite(cam.yaw)) cam.yaw = 0;
+  if (!Number.isFinite(cam.pitch)) cam.pitch = -0.2;
+  camT.copy(lastGood).y += 1.6;
+  pile.pos.copy(lastGood); pile.prev.copy(lastGood);
+  prevRoot.copy(lastGood); prevCar.copy(lastGood);
+  for (let i = 0; i < B.n; i++) {
+    if (!Number.isFinite(B.px[i] + B.py[i] + B.pz[i])) { B.px[i] = lastGood.x; B.py[i] = lastGood.y + 1; B.pz[i] = lastGood.z; B.settled[i] = 0; }
+  }
+  for (const d of drones) if (badVec(d.pos) || badVec(d.vel)) { d.pos.set(lastGood.x + rand(-30, 30), 12, lastGood.z + rand(-30, 30)); d.vel.set(0, 0, 0); d.knock.set(0, 0, 0); }
+  for (const c of crates) if (badVec(c.pos) || badVec(c.vel)) { c.pos.set(lastGood.x + 2, lastGood.y, lastGood.z); c.vel.set(0, 0, 0); c.ang.set(0, 0, 0); }
+}
+
 function update(dt) {
+  sanitize();
   T += dt; frameNo++;
   strikeCd -= dt; blastCd -= dt;
   // hunger, restlessness and the surge
@@ -2142,7 +2168,8 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (!paused) update(dt);
+  // Some browsers hand out two frames with the same timestamp; a zero-length step would divide by zero.
+  if (!paused && dt > 0.0005) update(dt);
   renderer.render(scene, camera);
 }
 requestAnimationFrame(frame);
