@@ -31,3 +31,16 @@ A 3D western chase in raw WebGL. You just robbed the Dry Gulch bank: ride your h
 - Shoot a lawman's horse to slow him down
 - Q for Dead Eye, which slows time; it refills when you take down lawmen
 - Mesas block bullets, cacti slow you down, and the posse grows the farther you ride
+
+## Level 0 (`backrooms/`)
+
+A found-footage Backrooms game in raw WebGL. Every pixel is lit by the nearby fluorescent
+panels, and walls cast shadows from them. Wallpaper, carpet and ceiling tiles are drawn
+procedurally with surface bumps, damp stains and rising damp. The image goes through a camcorder
+pipeline: bloom, lens distortion, chromatic aberration, film grain, scanlines and tape tearing.
+
+- An endless procedural maze: open halls with pillars, tight corridors and dark zones
+- Find the exit door; the SIGNAL bars rise as you get closer
+- The battery icon is your sanity. Darkness drains it; almond water restores it
+- When the lights around you start to flicker, something is hunting you. Run (Shift)
+- Synthesised audio: fluorescent hum, footsteps on carpet, distant knocking
