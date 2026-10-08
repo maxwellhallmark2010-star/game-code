@@ -1,0 +1,2064 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Symbiote Swarm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  /* Layout: full-bleed 3D viewport; HUD pinned to the four corners; overlays centered over the scene. */
+  :root {
+    --void: #06070b;
+    --ink: #e9edf5;
+    --dim: #8d96ab;
+    --bio: #7df3ff;
+    --surge: #b65cff;
+    --danger: #ff5468;
+    --panel: rgba(8, 10, 16, 0.64);
+    --line: rgba(125, 243, 255, 0.22);
+    --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+    --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--void); color: var(--ink); font-family: var(--body); }
+  body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  #game { position: fixed; inset: 0; }
+  #game canvas { display: block; width: 100%; height: 100%; }
+
+  .panel { background: var(--panel); border: 1px solid var(--line); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px)); }
+  .lbl { font: 600 10px/1 var(--mono); letter-spacing: 0.14em; color: var(--dim); text-transform: uppercase; }
+  .big { font: 700 34px/1 var(--display); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  #stats { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px)); padding: 12px 14px; width: 232px; display: grid; gap: 6px; }
+  #stats .big .of { font: 500 14px var(--mono); color: var(--dim); margin-left: 6px; }
+  #botsBreak { font: 400 11px/1.3 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; }
+  .meter { display: grid; grid-template-columns: 54px 1fr; align-items: center; gap: 8px; }
+  .mlbl { font: 600 10px var(--mono); letter-spacing: 0.12em; color: var(--dim); }
+  .bar { height: 6px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 100%; background: var(--bio); transform-origin: left; transition: transform 0.12s linear; }
+  .bar.surge i { background: var(--surge); }
+  .bar.surge.ready i { animation: pulse 0.8s ease-in-out infinite alternate; }
+  @keyframes pulse { from { filter: brightness(0.8); } to { filter: brightness(1.6); } }
+
+  #topRight { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); padding: 12px 14px; display: grid; gap: 6px; justify-items: end; min-width: 120px; }
+  .chip { font: 700 11px/1 var(--display); letter-spacing: 0.16em; padding: 5px 8px; border: 1px solid var(--bio); color: var(--bio); }
+  .chip.drive { border-color: #ffd27d; color: #ffd27d; }
+  .chip.build { border-color: #9dff9a; color: #9dff9a; }
+  .chip.surge { border-color: var(--surge); color: #fff; background: var(--surge); }
+
+  #cross { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); }
+  #cross::before, #cross::after { content: ""; position: absolute; background: rgba(233, 237, 245, 0.85); }
+  #cross::before { left: 10px; top: 0; width: 2px; height: 22px; clip-path: polygon(0 0,100% 0,100% 30%,0 30%,0 70%,100% 70%,100% 100%,0 100%); }
+  #cross::after { top: 10px; left: 0; height: 2px; width: 22px; clip-path: polygon(0 0,30% 0,30% 100%,0 100%,0 0,70% 0,100% 0,100% 100%,70% 100%); }
+  #cross.lock::before, #cross.lock::after { background: var(--danger); }
+
+  #toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); font: 600 15px var(--display); letter-spacing: 0.06em; text-align: center; padding: 8px 14px; background: var(--panel); border-left: 2px solid var(--bio); opacity: 0; transition: opacity 0.25s; max-width: calc(100vw - 32px); }
+  #toast.show { opacity: 1; }
+  #toast.bad { border-left-color: var(--danger); }
+  #voice { position: absolute; left: 50%; top: 32%; transform: translateX(-50%); font: 700 clamp(22px, 5vw, 46px)/1.05 var(--display); letter-spacing: 0.05em; color: #fff; text-align: center; text-shadow: 0 0 18px var(--surge), 3px 0 0 rgba(182, 92, 255, 0.6), -3px 0 0 rgba(125, 243, 255, 0.4); opacity: 0; transition: opacity 0.3s; width: calc(100vw - 32px); text-wrap: balance; }
+  #voice.show { opacity: 1; animation: jitter 0.12s steps(2) infinite; }
+  @keyframes jitter { 0% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(calc(-50% + 2px)) translateY(-1px); } }
+
+  #palette { position: absolute; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; gap: 6px; pointer-events: auto; }
+  #palette button { font: 600 12px/1.15 var(--display); color: var(--ink); background: var(--panel); border: 1px solid var(--line); padding: 7px 10px; min-width: 76px; text-align: left; cursor: pointer; }
+  #palette button small { display: block; font: 400 10px var(--mono); color: var(--dim); }
+  #palette button.on { border-color: #9dff9a; box-shadow: inset 0 0 0 1px #9dff9a; }
+  #palette button.poor small { color: var(--danger); }
+  #hint { position: absolute; left: calc(12px + env(safe-area-inset-left, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); font: 400 11px/1.5 var(--mono); color: var(--dim); max-width: min(520px, calc(100vw - 24px)); text-shadow: 0 1px 2px #000; }
+  #hint b { color: var(--ink); font-weight: 600; }
+
+  #vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(40, 0, 70, 0.55) 80%, rgba(5, 0, 12, 0.9) 100%); transition: opacity 0.4s; }
+  #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(255, 60, 80, 0.5)); }
+
+  .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: linear-gradient(180deg, rgba(6, 7, 11, 0.35), rgba(6, 7, 11, 0.82)); overflow-y: auto; }
+  .card { width: min(640px, 100%); padding: 26px 26px 22px; display: grid; gap: 14px; }
+  .eyebrow { font: 600 11px var(--mono); letter-spacing: 0.2em; color: var(--bio); text-transform: uppercase; }
+  h1 { margin: 0; font: 700 clamp(44px, 11vw, 84px)/0.88 var(--display); letter-spacing: -0.01em; text-transform: uppercase; text-wrap: balance; }
+  h1 span { color: transparent; -webkit-text-stroke: 1.5px var(--bio); }
+  .lede { margin: 0; font-size: 15px; line-height: 1.55; color: #c8cfdd; max-width: 60ch; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 18px; font-size: 13px; }
+  .controls div { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+  kbd { font: 600 11px var(--mono); padding: 2px 6px; border: 1px solid var(--line); background: rgba(125, 243, 255, 0.07); color: var(--ink); white-space: nowrap; }
+  .controls span { color: #c8cfdd; }
+  .primary { justify-self: start; font: 700 16px var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--void); background: var(--bio); border: 0; padding: 13px 22px; cursor: pointer; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px)); }
+  .primary:hover { filter: brightness(1.12); }
+  .primary:focus-visible, #palette button:focus-visible, .tb:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .foot { font: 400 11px var(--mono); color: var(--dim); }
+
+  /* Touch controls */
+  #touch { position: fixed; inset: 0; pointer-events: none; }
+  #lookZone { position: absolute; top: 0; right: 0; width: 60%; height: 100%; pointer-events: auto; }
+  #stickZone { position: absolute; left: 0; bottom: 0; width: 40%; height: 60%; pointer-events: auto; }
+  #stickBase { position: absolute; width: 110px; height: 110px; margin: -55px 0 0 -55px; border: 1px solid var(--line); border-radius: 50%; background: rgba(8, 10, 16, 0.35); left: 90px; top: calc(100% - 110px); }
+  #stickKnob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(125, 243, 255, 0.35); border: 1px solid var(--bio); }
+  .tcluster { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(3, 64px); gap: 8px; pointer-events: auto; }
+  .trow { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); top: calc(118px + env(safe-area-inset-top, 0px)); display: flex; gap: 6px; pointer-events: auto; }
+  .tb { font: 700 11px/1.1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); background: rgba(8, 10, 16, 0.55); border: 1px solid var(--line); height: 64px; padding: 0 4px; touch-action: none; }
+  .tb.small { height: 38px; min-width: 52px; font-size: 10px; }
+  .tb.hot { border-color: var(--bio); color: var(--bio); }
+  .tb:active, .tb.down { background: rgba(125, 243, 255, 0.25); }
+  #err { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; font: 500 16px var(--body); text-align: center; background: var(--void); }
+
+  @media (max-width: 640px) {
+    #stats { width: 176px; padding: 9px 10px; }
+    .big { font-size: 26px; }
+    #topRight { min-width: 0; padding: 9px 10px; }
+    #hint { display: none; }
+    #palette { bottom: calc(160px + env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; justify-content: center; width: calc(100vw - 32px); }
+    #palette button { min-width: 0; padding: 5px 7px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #voice.show, .bar.surge.ready i { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud">
+  <div id="stats" class="panel">
+    <div class="lbl">Microbots on your body</div>
+    <div class="big"><span id="botsNum">0</span><span class="of">/ <span id="botsTotal">0</span></span></div>
+    <div id="botsBreak">vehicle 0 · built 0 · loose 0</div>
+    <div class="meter"><span class="mlbl">HOST</span><div class="bar"><i id="hpFill"></i></div></div>
+    <div class="meter"><span class="mlbl" id="surgeLbl">HUNGER</span><div class="bar surge" id="surgeBar"><i id="surgeFill"></i></div></div>
+  </div>
+  <div id="topRight" class="panel">
+    <div class="lbl">Drones down</div>
+    <div class="big" id="score">0</div>
+    <div id="modeChip" class="chip">WALK</div>
+  </div>
+  <div id="cross"></div>
+  <div id="toast"></div>
+  <div id="voice"></div>
+  <div id="palette" hidden></div>
+  <div id="hint"></div>
+</div>
+<div id="vignette"></div>
+<div id="flash"></div>
+
+<div id="touch" hidden>
+  <div id="lookZone"></div>
+  <div id="stickZone"><div id="stickBase"><div id="stickKnob"></div></div></div>
+  <div class="trow">
+    <button class="tb small" data-act="car" id="tbCar">Car</button>
+    <button class="tb small" data-act="build" id="tbBuild">Build</button>
+    <button class="tb small" data-act="surge" id="tbSurge">Surge</button>
+    <button class="tb small" data-act="help">?</button>
+  </div>
+  <div class="tcluster">
+    <button class="tb" data-act="alt" id="tbAlt">Grapple</button>
+    <button class="tb" data-act="blast" id="tbBlast">Blast</button>
+    <button class="tb" data-act="sprint" id="tbSprint">Sprint</button>
+    <button class="tb hot" data-act="primary" id="tbPrimary">Strike</button>
+    <button class="tb" data-act="jump" id="tbJump" style="grid-column: span 2">Jump</button>
+  </div>
+</div>
+
+<div id="start" class="overlay">
+  <div class="card panel">
+    <div class="eyebrow">Microbot host · third person</div>
+    <h1>Symbiote <span>Swarm</span></h1>
+    <p class="lede">Twelve hundred microbots just bonded to your body. They armor you, they move you, and they can turn into anything: a buggy, a bridge, a fist that reaches twenty meters. Feed them enough and they stop asking permission.</p>
+    <div class="controls" id="ctrlList"></div>
+    <button class="primary" id="playBtn">Bond with the swarm</button>
+    <div class="foot" id="startFoot">Best with keyboard and mouse. Touch controls appear on phones and tablets.</div>
+  </div>
+</div>
+<div id="pause" class="overlay" hidden>
+  <div class="card panel">
+    <div class="eyebrow">Paused</div>
+    <div class="controls" id="ctrlList2"></div>
+    <button class="primary" id="resumeBtn">Resume</button>
+  </div>
+</div>
+<div id="err" hidden>Your browser couldn't start WebGL, which this game needs. Try a recent Chrome, Edge, Firefox or Safari.</div>
+
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+
+// =====================================================================
+//  Constants
+// =====================================================================
+const MAX_BOTS = 3000, START_BOTS = 1200, MIN_BODY = 150, VEH_COST = 600;
+const BODY = 0, VEH = 1, BLOCK = 2, TENDRIL = 3, FX = 4, LOOSE = 5;
+const G = 28, STEP = 0.55, SNAP = 0.3, WORLD = 118;
+const STRIKE_RANGE = 20, GRAPPLE_RANGE = 48, BUILD_RANGE = 16;
+
+const PIECES = [
+  { name: 'Cube',   cost: 30, size: [1, 1, 1],     type: 'box' },
+  { name: 'Wall',   cost: 70, size: [3, 2, 0.5],   type: 'box' },
+  { name: 'Ramp',   cost: 60, size: [2, 1, 3],     type: 'ramp' },
+  { name: 'Deck',   cost: 60, size: [3, 0.3, 3],   type: 'box' },
+  { name: 'Pillar', cost: 60, size: [1, 4, 1],     type: 'box' },
+  { name: 'Launch pad', cost: 50, size: [2, 0.3, 2], type: 'box', pad: true },
+];
+
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const rand = (a, b) => a + Math.random() * (b - a);
+const damp = (rate, dt) => 1 - Math.exp(-rate * dt);
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+function angLerp(a, b, t) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+const isTouch = matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
+
+// =====================================================================
+//  Renderer, scene, sky, lights
+// =====================================================================
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: !isTouch, powerPreference: 'high-performance' });
+} catch (e) {
+  $('err').hidden = false;
+  throw e;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isTouch ? 1.5 : 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+$('game').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 600);
+
+const SKY_TOP = new THREE.Color(0x0c1230), SKY_MID = new THREE.Color(0x3d2e5e), SKY_LOW = new THREE.Color(0xf0895c);
+function makeSky(radius) {
+  return new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 32, 16),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide, depthWrite: false,
+      uniforms: { top: { value: SKY_TOP }, mid: { value: SKY_MID }, low: { value: SKY_LOW } },
+      vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 low; varying vec3 vP;
+        void main(){ float h = vP.y; vec3 c = mix(mid, top, smoothstep(0.02, 0.55, h));
+          c = mix(c, low, smoothstep(0.22, 0.0, abs(h - 0.02)) * 0.75);
+          gl_FragColor = vec4(c, 1.0);
+          #include <colorspace_fragment>
+        }`,
+    })
+  );
+}
+const sky = makeSky(450);
+scene.add(sky);
+const fogCol = SKY_MID.clone().lerp(SKY_LOW, 0.32);
+scene.fog = new THREE.Fog(fogCol, 70, 270);
+scene.background = fogCol;
+
+// Environment map baked from the same sky so metal bots catch the dusk light.
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envScene = new THREE.Scene();
+  envScene.add(makeSky(50));
+  const sunBall = new THREE.Mesh(new THREE.SphereGeometry(5, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(9, 6, 4) }));
+  sunBall.position.set(30, 18, 22);
+  envScene.add(sunBall);
+  const rim = new THREE.Mesh(new THREE.SphereGeometry(3, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, 3, 4) }));
+  rim.position.set(-30, 25, -20);
+  envScene.add(rim);
+  scene.environment = pmrem.fromScene(envScene, 0.03).texture;
+}
+
+scene.add(new THREE.HemisphereLight(0xa8b8ff, 0x3a2c28, 0.45));
+const sun = new THREE.DirectionalLight(0xffc49a, 2.4);
+sun.castShadow = true;
+sun.shadow.mapSize.set(isTouch ? 1024 : 2048, isTouch ? 1024 : 2048);
+Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 160 });
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+
+// =====================================================================
+//  Textures & geometry helpers
+// =====================================================================
+function canvasTex(w, h, draw, srgb = true) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  return t;
+}
+// Box with UVs scaled to world meters, so one texture tiles evenly on any size.
+function boxGeoUV(w, h, d, unit = 1) {
+  const g = new THREE.BoxGeometry(w, h, d);
+  const uv = g.attributes.uv;
+  const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) {
+    const i = f * 4 + v;
+    uv.setXY(i, (uv.getX(i) * dims[f][0]) / unit, (uv.getY(i) * dims[f][1]) / unit);
+  }
+  return g;
+}
+function pieceGeo(type, w, h, l, unit = 1) {
+  const g = boxGeoUV(w, h, l, unit);
+  if (type === 'ramp') {
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) if (p.getY(i) > 0 && p.getZ(i) < 0) p.setY(i, -h / 2);
+    g.computeVertexNormals();
+  }
+  return g;
+}
+function sampleBox(sx, sy, sz, out) {
+  const ax = sy * sz, ay = sx * sz, az = sx * sy;
+  const r = Math.random() * (ax + ay + az), s = Math.random() < 0.5 ? -1 : 1;
+  const a = Math.random() - 0.5, b = Math.random() - 0.5;
+  if (r < ax) { out[0] = s * sx / 2; out[1] = a * sy; out[2] = b * sz; out[3] = s; out[4] = 0; out[5] = 0; }
+  else if (r < ax + ay) { out[0] = a * sx; out[1] = s * sy / 2; out[2] = b * sz; out[3] = 0; out[4] = s; out[5] = 0; }
+  else { out[0] = a * sx; out[1] = b * sy; out[2] = s * sz / 2; out[3] = 0; out[4] = 0; out[5] = s; }
+  return out;
+}
+
+const groundTex = canvasTex(512, 512, (g, w, h) => {
+  g.fillStyle = '#23252d'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 5000; i++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.045})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+  g.strokeStyle = 'rgba(190,205,255,0.06)'; g.lineWidth = 2;
+  for (let i = 1; i < 8; i++) { g.beginPath(); g.moveTo(i * 64, 0); g.lineTo(i * 64, h); g.moveTo(0, i * 64); g.lineTo(w, i * 64); g.stroke(); }
+  g.strokeStyle = 'rgba(125,243,255,0.16)'; g.lineWidth = 3; g.strokeRect(0, 0, w, h);
+});
+groundTex.repeat.set(50, 50);
+
+function windowTex(seed, emissive) {
+  let s = seed;
+  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  return canvasTex(512, 512, (g, w, h) => {
+    g.fillStyle = emissive ? '#000' : '#2a2d39'; g.fillRect(0, 0, w, h);
+    if (!emissive) for (let i = 0; i < 1500; i++) { g.fillStyle = `rgba(255,255,255,${rnd() * 0.03})`; g.fillRect(rnd() * w, rnd() * h, 3, 3); }
+    for (let fy = 0; fy < 4; fy++) for (let fx = 0; fx < 8; fx++) {
+      const lit = rnd() < 0.3, warm = rnd() < 0.75;
+      g.fillStyle = lit ? (warm ? '#ffcf8a' : '#a6dcff') : (emissive ? '#000' : '#14161d');
+      g.fillRect(fx * 64 + 9, fy * 128 + 34, 46, 72);
+    }
+  }, true);
+}
+const buildingMats = [11, 23, 37].map((seed, k) => new THREE.MeshStandardMaterial({
+  color: [0xb8bccc, 0xa8b0c4, 0xc4bab4][k], map: windowTex(seed, false), emissiveMap: windowTex(seed, true),
+  emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 0.75, metalness: 0.1,
+}));
+
+const concreteTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#5a5e6b'; g.fillRect(0, 0, w, h);
+  for (let i = 0; i < 3000; i++) { g.fillStyle = `rgba(0,0,0,${Math.random() * 0.08})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); }
+  g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 2; g.strokeRect(1, 1, w - 2, h - 2);
+  g.fillStyle = 'rgba(255,190,80,0.5)';
+  for (let i = 0; i < 6; i++) g.fillRect(i * 48, h - 14, 24, 10);
+});
+const staticMat = new THREE.MeshStandardMaterial({ map: concreteTex, roughness: 0.85, metalness: 0.05 });
+
+function weaveTex(emissive) {
+  return canvasTex(128, 128, (g, w, h) => {
+    g.fillStyle = emissive ? '#000' : '#0f1118'; g.fillRect(0, 0, w, h);
+    if (!emissive) {
+      for (let i = 0; i < 90; i++) {
+        g.save(); g.translate(Math.random() * w, Math.random() * h); g.rotate(Math.random() * Math.PI);
+        g.fillStyle = Math.random() < 0.5 ? '#1c2030' : '#161925'; g.fillRect(-9, -2, 18, 4); g.restore();
+      }
+    }
+    g.strokeStyle = emissive ? '#7df3ff' : 'rgba(125,243,255,0.4)'; g.lineWidth = 3; g.strokeRect(1.5, 1.5, w - 3, h - 3);
+    if (emissive) { g.fillStyle = '#7df3ff'; for (let i = 0; i < 12; i++) g.fillRect(Math.random() * w, Math.random() * h, 3, 3); }
+  });
+}
+const blockMatBase = new THREE.MeshStandardMaterial({ map: weaveTex(false), emissiveMap: weaveTex(true), emissive: 0x7df3ff, emissiveIntensity: 0.35, roughness: 0.4, metalness: 0.6 });
+const padMatBase = blockMatBase.clone();
+padMatBase.emissive = new THREE.Color(0xb65cff);
+padMatBase.emissiveIntensity = 1.2;
+
+// =====================================================================
+//  World: colliders, ground, city, plaza props
+// =====================================================================
+const colliders = [];     // {type:'box', min, max, pad} | {type:'ramp', cx, cz, bottom, h, w, L, cos, sin}
+const staticMeshes = [];  // raycast targets that never move
+const blockMeshes = [];   // player-built pieces
+const crateMeshes = [];
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(420, 420), new THREE.MeshStandardMaterial({ map: groundTex, roughness: 0.92, metalness: 0.05 }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+ground.userData.kind = 'ground';
+scene.add(ground);
+
+function addBoxCollider(cx, bottom, cz, sx, sy, sz, extra = {}) {
+  const c = { type: 'box', min: V(cx - sx / 2, bottom, cz - sz / 2), max: V(cx + sx / 2, bottom + sy, cz + sz / 2), ...extra };
+  colliders.push(c);
+  return c;
+}
+function addRampCollider(cx, bottom, cz, w, h, L, rot) {
+  const th = rot * Math.PI / 2;
+  const c = { type: 'ramp', cx, cz, bottom, h, w, L, cos: Math.cos(th), sin: Math.sin(th) };
+  colliders.push(c);
+  return c;
+}
+function rampHeight(c, x, z) {
+  const dx = x - c.cx, dz = z - c.cz;
+  const lx = dx * c.cos - dz * c.sin, lz = dx * c.sin + dz * c.cos;
+  if (Math.abs(lx) > c.w / 2 || Math.abs(lz) > c.L / 2) return -1;
+  return c.bottom + c.h * (lz + c.L / 2) / c.L;
+}
+function removeCollider(c) { const i = colliders.indexOf(c); if (i >= 0) colliders.splice(i, 1); }
+
+// --- City blocks
+const CELL = 26;
+for (let gx = -4; gx <= 4; gx++) for (let gz = -4; gz <= 4; gz++) {
+  if (Math.abs(gx) <= 1 && Math.abs(gz) <= 1) continue;
+  if (Math.random() < 0.18) continue;
+  const w = rand(9, 18), d = rand(9, 18);
+  const ring = Math.max(Math.abs(gx), Math.abs(gz));
+  const h = rand(10, 22) + ring * rand(2, 7);
+  const x = gx * CELL + rand(-3, 3), z = gz * CELL + rand(-3, 3);
+  const m = new THREE.Mesh(boxGeoUV(w, h, d, 16), buildingMats[(Math.random() * 3) | 0]);
+  m.position.set(x, h / 2, z);
+  m.castShadow = m.receiveShadow = true;
+  m.userData.kind = 'static';
+  scene.add(m);
+  staticMeshes.push(m);
+  addBoxCollider(x, 0, z, w, h, d);
+}
+
+// --- Plaza props (concrete ramps, a raised platform, a grapple pillar)
+function addStatic(type, size, cx, bottom, cz, rot = 0) {
+  const [w, h, l] = size;
+  const m = new THREE.Mesh(pieceGeo(type, w, h, l, 4), staticMat);
+  m.position.set(cx, bottom + h / 2, cz);
+  m.rotation.y = rot * Math.PI / 2;
+  m.castShadow = m.receiveShadow = true;
+  m.userData.kind = 'static';
+  scene.add(m);
+  staticMeshes.push(m);
+  if (type === 'ramp') addRampCollider(cx, bottom, cz, w, h, l, rot);
+  else { const sx = rot % 2 ? l : w, sz = rot % 2 ? w : l; addBoxCollider(cx, bottom, cz, sx, h, sz); }
+}
+addStatic('ramp', [6, 3, 10], 0, 0, 20, 0);
+addStatic('box', [10, 4, 10], 22, 0, -20);
+addStatic('ramp', [4, 4, 12], 22, 0, -9, 2);
+addStatic('ramp', [3, 1.2, 4], -18, 0, 10, 1);
+addStatic('ramp', [3, 1.2, 4], -10, 0, -22, 3);
+addStatic('box', [2, 12, 2], -24, 0, -24);
+addStatic('box', [6, 1.2, 0.6], -6, 0, -8);
+addStatic('box', [0.6, 1.2, 6], 10, 0, 6);
+
+// =====================================================================
+//  Collision / movement
+// =====================================================================
+let supportC = null;
+function supportHeight(x, z, footY, r) {
+  let best = 0; supportC = null;
+  const m = r * 0.5;
+  for (let k = 0; k < colliders.length; k++) {
+    const c = colliders[k];
+    let top;
+    if (c.type === 'box') {
+      if (x + m < c.min.x || x - m > c.max.x || z + m < c.min.z || z - m > c.max.z) continue;
+      top = c.max.y;
+    } else {
+      top = rampHeight(c, x, z);
+      if (top < 0) continue;
+    }
+    if (top <= footY + STEP && top > best) { best = top; supportC = c; }
+  }
+  return best;
+}
+function rampBlocked(x, z, footY) {
+  for (const c of colliders) {
+    if (c.type !== 'ramp') continue;
+    const h = rampHeight(c, x, z);
+    if (h >= 0 && h > footY + STEP && c.bottom < footY + 1.8) return true;
+  }
+  return false;
+}
+const pushN = { x: 0, z: 0 };
+function pushOut(pos, r, footY, height) {
+  let hit = false; pushN.x = 0; pushN.z = 0;
+  for (const c of colliders) {
+    if (c.type !== 'box') continue;
+    if (c.max.y <= footY + STEP || c.min.y >= footY + height) continue;
+    if (pos.x < c.min.x - r || pos.x > c.max.x + r || pos.z < c.min.z - r || pos.z > c.max.z + r) continue;
+    const qx = clamp(pos.x, c.min.x, c.max.x), qz = clamp(pos.z, c.min.z, c.max.z);
+    let dx = pos.x - qx, dz = pos.z - qz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= r * r) continue;
+    hit = true;
+    if (d2 > 1e-10) {
+      const d = Math.sqrt(d2); dx /= d; dz /= d;
+      pos.x = qx + dx * r; pos.z = qz + dz * r;
+      pushN.x += dx; pushN.z += dz;
+    } else {
+      const pl = pos.x - c.min.x, pr = c.max.x - pos.x, pb = pos.z - c.min.z, pf = c.max.z - pos.z;
+      const mn = Math.min(pl, pr, pb, pf);
+      if (mn === pl) { pos.x = c.min.x - r; pushN.x -= 1; }
+      else if (mn === pr) { pos.x = c.max.x + r; pushN.x += 1; }
+      else if (mn === pb) { pos.z = c.min.z - r; pushN.z -= 1; }
+      else { pos.z = c.max.z + r; pushN.z += 1; }
+    }
+  }
+  return hit;
+}
+function pointInSolid(p) {
+  for (const c of colliders) {
+    if (c.type === 'box') {
+      if (p.x > c.min.x && p.x < c.max.x && p.y > c.min.y && p.y < c.max.y && p.z > c.min.z && p.z < c.max.z) return true;
+    } else {
+      const h = rampHeight(c, p.x, p.z);
+      if (h >= 0 && p.y < h && p.y > c.bottom) return true;
+    }
+  }
+  return p.y < 0;
+}
+// Shared mover for the host, the vehicle, crates and loose debris.
+function moveBody(pos, vel, dt, r, height, st, grav = G) {
+  const ox = pos.x, oz = pos.z;
+  pos.x += vel.x * dt; pos.z += vel.z * dt;
+  let hit = false;
+  st.hitSpeed = 0;
+  if (rampBlocked(pos.x, pos.z, pos.y)) {
+    if (!rampBlocked(pos.x, oz, pos.y)) { pos.z = oz; st.hitSpeed = Math.abs(vel.z); vel.z = 0; }
+    else if (!rampBlocked(ox, pos.z, pos.y)) { pos.x = ox; st.hitSpeed = Math.abs(vel.x); vel.x = 0; }
+    else { pos.x = ox; pos.z = oz; st.hitSpeed = Math.hypot(vel.x, vel.z); vel.x = vel.z = 0; }
+    hit = true;
+  }
+  if (pushOut(pos, r, pos.y, height)) {
+    hit = true;
+    const nl = Math.hypot(pushN.x, pushN.z);
+    if (nl > 0) {
+      const nx = pushN.x / nl, nz = pushN.z / nl, dot = vel.x * nx + vel.z * nz;
+      if (dot < 0) { vel.x -= dot * nx; vel.z -= dot * nz; st.hitSpeed = Math.max(st.hitSpeed, -dot); }
+    }
+  }
+  pos.x = clamp(pos.x, -WORLD, WORLD); pos.z = clamp(pos.z, -WORLD, WORLD);
+
+  const prevY = pos.y;
+  vel.y -= grav * dt;
+  pos.y += vel.y * dt;
+  const sup = supportHeight(pos.x, pos.z, Math.max(prevY, pos.y), r);
+  st.supportC = supportC;
+  st.landed = 0;
+  if (pos.y <= sup) {
+    if (!st.onGround) st.landed = -vel.y;
+    const rise = (sup - prevY) / dt;
+    pos.y = sup;
+    vel.y = st.onGround ? clamp(rise, 0, 25) : 0;
+    st.onGround = true;
+  } else if (st.onGround && vel.y <= 0.5 && pos.y - sup < SNAP) {
+    pos.y = sup; vel.y = 0;
+  } else {
+    st.onGround = false;
+  }
+  return hit;
+}
+
+// =====================================================================
+//  The host (player model)
+// =====================================================================
+const bodyParts = [];
+const playerRoot = new THREE.Group();
+scene.add(playerRoot);
+const hips = new THREE.Group(); hips.position.y = 0.95; playerRoot.add(hips);
+const matHood = new THREE.MeshStandardMaterial({ color: 0x3a5480, roughness: 0.85 });
+const matSkin = new THREE.MeshStandardMaterial({ color: 0xd9a27e, roughness: 0.7 });
+const matJeans = new THREE.MeshStandardMaterial({ color: 0x2c3a5c, roughness: 0.9 });
+function bodyPart(parent, size, pos, mat, weight = 1) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(...size), mat);
+  m.position.set(...pos);
+  m.castShadow = true;
+  parent.add(m);
+  bodyParts.push({ mesh: m, size, weight });
+  return m;
+}
+bodyPart(hips, [0.5, 0.62, 0.28], [0, 0.33, 0], matHood);
+const neck = new THREE.Group(); neck.position.y = 0.65; hips.add(neck);
+bodyPart(neck, [0.28, 0.3, 0.28], [0, 0.15, 0], matSkin, 1.6);
+const shL = new THREE.Group(); shL.position.set(0.32, 0.6, 0); hips.add(shL);
+const shR = new THREE.Group(); shR.position.set(-0.32, 0.6, 0); hips.add(shR);
+bodyPart(shL, [0.14, 0.64, 0.14], [0, -0.3, 0], matHood);
+bodyPart(shR, [0.14, 0.64, 0.14], [0, -0.3, 0], matHood);
+const hipL = new THREE.Group(); hipL.position.set(0.125, 0, 0); hips.add(hipL);
+const hipR = new THREE.Group(); hipR.position.set(-0.125, 0, 0); hips.add(hipR);
+bodyPart(hipL, [0.19, 0.95, 0.2], [0, -0.475, 0], matJeans);
+bodyPart(hipR, [0.19, 0.95, 0.2], [0, -0.475, 0], matJeans);
+
+// The swarm's eyes: they fade in as the bots close over the face.
+const eyeShape = new THREE.Shape();
+eyeShape.moveTo(0, 0);
+eyeShape.quadraticCurveTo(0.07, -0.01, 0.11, 0.06);
+eyeShape.quadraticCurveTo(0.05, 0.065, 0, 0.028);
+const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, toneMapped: false, depthWrite: false });
+const eyeL = new THREE.Mesh(new THREE.ShapeGeometry(eyeShape), eyeMat);
+eyeL.position.set(0.018, 0.15, 0.185);
+const eyeR = eyeL.clone(); eyeR.scale.x = -1; eyeR.position.x = -0.018;
+neck.add(eyeL, eyeR);
+
+const player = {
+  pos: V(0, 0, 0), vel: V(), onGround: true, facing: 0, airJumps: 0,
+  health: 100, lastHit: -10, grapple: null, scale: 1, faceT: 0, faceYaw: 0,
+};
+const anim = { phase: 0, strikeT: 0 };
+
+// =====================================================================
+//  The vehicle the swarm becomes
+// =====================================================================
+const car = {
+  group: new THREE.Group(), pos: V(), vel: V(), yaw: 0, speed: 0, steer: 0, pitch: 0,
+  onGround: true, active: false, formed: 0, wheelSpin: 0,
+};
+car.group.rotation.order = 'YXZ';
+car.group.visible = false;
+scene.add(car.group);
+const carMat = new THREE.MeshStandardMaterial({ color: 0x0b0c12, metalness: 0.75, roughness: 0.32, transparent: true, opacity: 0 });
+const CAR_PARTS = [
+  { c: [0, 0.75, 0.1], s: [1.9, 0.35, 3.6] },
+  { c: [0, 1.0, 1.3], s: [1.6, 0.25, 1.0] },
+  { c: [0, 1.15, -1.35], s: [1.6, 0.6, 0.9] },
+  { c: [0, 1.95, -0.6], s: [1.7, 0.14, 0.14] },
+  { c: [0.78, 1.45, -0.6], s: [0.14, 0.9, 0.14] },
+  { c: [-0.78, 1.45, -0.6], s: [0.14, 0.9, 0.14] },
+  { c: [0, 1.25, -0.6], s: [0.7, 0.6, 0.14] },
+  { c: [0, 0.78, 2.0], s: [2.1, 0.25, 0.2] },
+];
+const WHEELS = [[1.18, 0.55, 1.35], [-1.18, 0.55, 1.35], [1.18, 0.55, -1.35], [-1.18, 0.55, -1.35]];
+const WHEEL_R = 0.55, WHEEL_W = 0.45;
+for (const p of CAR_PARTS) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(...p.s), carMat);
+  m.position.set(...p.c); m.castShadow = true;
+  car.group.add(m);
+}
+const wheelMeshes = WHEELS.map((w) => {
+  const g = new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, WHEEL_W, 18); g.rotateZ(Math.PI / 2);
+  const m = new THREE.Mesh(g, carMat); m.position.set(...w); m.castShadow = true;
+  car.group.add(m); return m;
+});
+const headMat = new THREE.MeshBasicMaterial({ color: 0x7df3ff, toneMapped: false, transparent: true, opacity: 0 });
+for (const sx of [0.62, -0.62]) {
+  const h = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.1, 0.05), headMat);
+  h.position.set(sx, 0.82, 2.11); car.group.add(h);
+}
+const steeringWheel = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.025, 6, 16), carMat);
+steeringWheel.position.set(0, 1.3, 0.45); steeringWheel.rotation.x = -0.9;
+car.group.add(steeringWheel);
+
+// Precomputed bot slots on the vehicle
+const cWheel = new Int8Array(VEH_COST), cLoc = new Float32Array(VEH_COST * 3);
+{
+  const tmp = new Float32Array(6);
+  const areas = CAR_PARTS.map((p) => 2 * (p.s[0] * p.s[1] + p.s[1] * p.s[2] + p.s[0] * p.s[2]));
+  const totA = areas.reduce((a, b) => a + b, 0);
+  const WHEEL_SLOTS = 66;
+  for (let k = 0; k < VEH_COST; k++) {
+    if (k < WHEEL_SLOTS * 4) {
+      cWheel[k] = k % 4;
+      const tread = Math.random() < 0.7;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      cLoc[k * 3] = tread ? rand(-WHEEL_W / 2, WHEEL_W / 2) : side * (WHEEL_W / 2 + 0.02);
+      cLoc[k * 3 + 1] = tread ? WHEEL_R + 0.03 : WHEEL_R * Math.sqrt(Math.random());
+      cLoc[k * 3 + 2] = Math.random() * Math.PI * 2;
+    } else {
+      cWheel[k] = -1;
+      let r = Math.random() * totA, pi = 0;
+      while (r > areas[pi] && pi < areas.length - 1) { r -= areas[pi]; pi++; }
+      const p = CAR_PARTS[pi];
+      sampleBox(p.s[0], p.s[1], p.s[2], tmp);
+      cLoc[k * 3] = p.c[0] + tmp[0] + tmp[3] * 0.03;
+      cLoc[k * 3 + 1] = p.c[1] + tmp[1] + tmp[4] * 0.03;
+      cLoc[k * 3 + 2] = p.c[2] + tmp[2] + tmp[5] * 0.03;
+    }
+  }
+}
+
+// =====================================================================
+//  The swarm: every microbot is one instance of one mesh
+// =====================================================================
+const B = {
+  n: 0,
+  px: new Float32Array(MAX_BOTS), py: new Float32Array(MAX_BOTS), pz: new Float32Array(MAX_BOTS),
+  gx: new Float32Array(MAX_BOTS), gy: new Float32Array(MAX_BOTS), gz: new Float32Array(MAX_BOTS),
+  role: new Uint8Array(MAX_BOTS), settled: new Uint8Array(MAX_BOTS),
+  rate: new Float32Array(MAX_BOTS), phase: new Float32Array(MAX_BOTS), size: new Float32Array(MAX_BOTS),
+  rot: new Float32Array(MAX_BOTS * 9),
+  bPart: new Uint8Array(MAX_BOTS), bl: new Float32Array(MAX_BOTS * 3), bn: new Float32Array(MAX_BOTS * 3), spike: new Float32Array(MAX_BOTS),
+  vSlot: new Int16Array(MAX_BOTS), until: new Float32Array(MAX_BOTS), tU: new Float32Array(MAX_BOTS),
+  ref: new Array(MAX_BOTS).fill(null),
+};
+const counts = new Int32Array(6);
+{
+  const tmp = new Float32Array(6), q = new THREE.Quaternion(), e = new THREE.Euler(), m = new THREE.Matrix4();
+  const weights = bodyParts.map((p) => 2 * (p.size[0] * p.size[1] + p.size[1] * p.size[2] + p.size[0] * p.size[2]) * p.weight);
+  const totW = weights.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < MAX_BOTS; i++) {
+    let r = Math.random() * totW, pi = 0;
+    while (r > weights[pi] && pi < weights.length - 1) { r -= weights[pi]; pi++; }
+    const s = bodyParts[pi].size;
+    sampleBox(s[0], s[1], s[2], tmp);
+    B.bPart[i] = pi;
+    B.bl[i * 3] = tmp[0] + tmp[3] * 0.03; B.bl[i * 3 + 1] = tmp[1] + tmp[4] * 0.03; B.bl[i * 3 + 2] = tmp[2] + tmp[5] * 0.03;
+    B.bn[i * 3] = tmp[3]; B.bn[i * 3 + 1] = tmp[4]; B.bn[i * 3 + 2] = tmp[5];
+    B.spike[i] = Math.random() < 0.3 ? rand(0.12, 0.5) : 0;
+    B.phase[i] = Math.random() * Math.PI * 2;
+    B.size[i] = rand(0.075, 0.12);
+    q.setFromEuler(e.set(rand(0, 6.3), rand(0, 6.3), rand(0, 6.3)));
+    m.makeRotationFromQuaternion(q);
+    const el = m.elements;
+    B.rot.set([el[0], el[1], el[2], el[4], el[5], el[6], el[8], el[9], el[10]], i * 9);
+  }
+}
+const botMat = new THREE.MeshStandardMaterial({ color: 0x0a0b10, metalness: 0.75, roughness: 0.3, envMapIntensity: 1.3, emissive: 0x000000 });
+const botMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.38, 1.7), botMat, MAX_BOTS);
+botMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+botMesh.frustumCulled = false;
+botMesh.castShadow = true;
+botMesh.count = 0;
+scene.add(botMesh);
+const ROLE_SCALE = [1, 1.15, 1.05, 1.1, 1, 0.75];
+
+function setRole(i, role, rate) {
+  B.role[i] = role; B.settled[i] = 0; B.rate[i] = rate * rand(0.7, 1.3);
+}
+function addBots(n, pos, spread = 0.5) {
+  let added = 0;
+  for (let k = 0; k < n && B.n < MAX_BOTS; k++) {
+    const i = B.n++;
+    B.px[i] = pos.x + rand(-spread, spread); B.py[i] = pos.y + rand(-spread, spread); B.pz[i] = pos.z + rand(-spread, spread);
+    setRole(i, BODY, rand(1.2, 2.6));
+    added++;
+  }
+  botMesh.count = B.n;
+  return added;
+}
+let takeCursor = 0;
+function takeBodyBots(n) {
+  const out = [], N = B.n;
+  let k = 0;
+  for (; k < N && out.length < n; k++) {
+    const i = (takeCursor + k) % N;
+    if (B.role[i] === BODY) out.push(i);
+  }
+  takeCursor = N ? (takeCursor + k) % N : 0;
+  return out;
+}
+const freeBots = () => Math.max(0, counts[BODY] - MIN_BODY);
+
+// =====================================================================
+//  Tendrils: streams of bots from the hand
+// =====================================================================
+const tendrils = [];
+const _hand = V();
+function handPos(out = _hand) { return shR.localToWorld(out.set(0, -0.68, 0)); }
+function makeTendril(kind, nBots, to, opts = {}) {
+  const ids = takeBodyBots(nBots);
+  if (ids.length < 12) return null;
+  const from = handPos(V());
+  const td = {
+    kind, bots: ids, from, to: to.clone(), ext: 0, state: 'out', hold: 0.07,
+    reach: clamp(from.distanceTo(to) / (kind === 'grapple' ? 75 : 95), 0.07, 0.6),
+    follow: opts.follow || null, onReach: opts.onReach || null, fist: kind === 'strike',
+    p1: V(), p2: V(), dir: V(),
+  };
+  ids.forEach((i, k) => { B.role[i] = TENDRIL; B.settled[i] = 0; B.rate[i] = rand(28, 40); B.tU[i] = k / (ids.length - 1); B.ref[i] = td; });
+  tendrils.push(td);
+  return td;
+}
+function updateTendrils(dt) {
+  for (let k = tendrils.length - 1; k >= 0; k--) {
+    const td = tendrils[k];
+    handPos(td.from);
+    if (td.follow && td.follow.alive && td.state === 'out') td.to.copy(td.follow.pos);
+    if (td.state === 'out') {
+      td.ext = Math.min(1, td.ext + dt / td.reach);
+      if (td.ext >= 1) { td.state = 'hold'; if (td.onReach) td.onReach(td); }
+    } else if (td.state === 'hold') {
+      if (td.kind === 'grapple') { if (!player.grapple || player.grapple.td !== td) td.state = 'in'; }
+      else if ((td.hold -= dt) <= 0) td.state = 'in';
+    } else {
+      td.ext -= dt / 0.2;
+      if (td.ext <= 0) {
+        for (const i of td.bots) if (B.role[i] === TENDRIL && B.ref[i] === td) { setRole(i, BODY, 14); B.ref[i] = null; }
+        tendrils.splice(k, 1);
+        continue;
+      }
+    }
+    td.dir.subVectors(td.to, td.from);
+    const up = Math.abs(td.dir.y) > 0.9 * td.dir.length() ? V(1, 0, 0) : V(0, 1, 0);
+    td.p1.crossVectors(td.dir, up).normalize();
+    td.p2.crossVectors(td.dir, td.p1).normalize();
+  }
+}
+
+// =====================================================================
+//  Particles (sparks) and the blast ring
+// =====================================================================
+const SPARKS = 600;
+const sp = {
+  px: new Float32Array(SPARKS), py: new Float32Array(SPARKS), pz: new Float32Array(SPARKS),
+  vx: new Float32Array(SPARKS), vy: new Float32Array(SPARKS), vz: new Float32Array(SPARKS),
+  life: new Float32Array(SPARKS), max: new Float32Array(SPARKS), size: new Float32Array(SPARKS), next: 0,
+};
+const sparkMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), SPARKS);
+sparkMesh.frustumCulled = false;
+sparkMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+{ const c = new THREE.Color(0xffffff); for (let i = 0; i < SPARKS; i++) sparkMesh.setColorAt(i, c); }
+scene.add(sparkMesh);
+const _col = new THREE.Color();
+function sparks(pos, n, color, speed = 8, life = 0.6, size = 0.12) {
+  _col.set(color);
+  for (let k = 0; k < n; k++) {
+    const i = sp.next; sp.next = (sp.next + 1) % SPARKS;
+    sp.px[i] = pos.x; sp.py[i] = pos.y; sp.pz[i] = pos.z;
+    const th = Math.random() * Math.PI * 2, ph = Math.acos(rand(-1, 1)), s = speed * rand(0.3, 1);
+    sp.vx[i] = Math.sin(ph) * Math.cos(th) * s; sp.vy[i] = Math.abs(Math.cos(ph)) * s * 0.9 + 2; sp.vz[i] = Math.sin(ph) * Math.sin(th) * s;
+    sp.life[i] = sp.max[i] = life * rand(0.6, 1.2); sp.size[i] = size * rand(0.6, 1.4);
+    sparkMesh.setColorAt(i, _col);
+  }
+  sparkMesh.instanceColor.needsUpdate = true;
+}
+function updateSparks(dt) {
+  const a = sparkMesh.instanceMatrix.array;
+  for (let i = 0; i < SPARKS; i++) {
+    const o = i * 16;
+    if (sp.life[i] <= 0) { a[o] = a[o + 5] = a[o + 10] = 0; continue; }
+    sp.life[i] -= dt;
+    sp.vy[i] -= 18 * dt;
+    sp.px[i] += sp.vx[i] * dt; sp.py[i] += sp.vy[i] * dt; sp.pz[i] += sp.vz[i] * dt;
+    if (sp.py[i] < 0.05) { sp.py[i] = 0.05; sp.vy[i] *= -0.4; sp.vx[i] *= 0.7; sp.vz[i] *= 0.7; }
+    const s = sp.size[i] * Math.max(0, sp.life[i] / sp.max[i]);
+    a[o] = s; a[o + 1] = 0; a[o + 2] = 0; a[o + 3] = 0;
+    a[o + 4] = 0; a[o + 5] = s; a[o + 6] = 0; a[o + 7] = 0;
+    a[o + 8] = 0; a[o + 9] = 0; a[o + 10] = s; a[o + 11] = 0;
+    a[o + 12] = sp.px[i]; a[o + 13] = sp.py[i]; a[o + 14] = sp.pz[i]; a[o + 15] = 1;
+  }
+  sparkMesh.instanceMatrix.needsUpdate = true;
+}
+const ring = new THREE.Mesh(new THREE.TorusGeometry(1, 0.05, 6, 64), new THREE.MeshBasicMaterial({ color: 0x7df3ff, transparent: true, opacity: 0, toneMapped: false, depthWrite: false }));
+ring.rotation.x = Math.PI / 2;
+ring.visible = false;
+scene.add(ring);
+let ringT = 1;
+
+// =====================================================================
+//  Built pieces
+// =====================================================================
+const blocks = [];
+const _tmp6 = new Float32Array(6);
+function createBlock(piece, cx, bottom, cz, rot) {
+  const [w, h, l] = piece.size;
+  const mat = (piece.pad ? padMatBase : blockMatBase).clone();
+  mat.transparent = true; mat.opacity = 0;
+  const mesh = new THREE.Mesh(pieceGeo(piece.type, w, h, l, 1), mat);
+  mesh.position.set(cx, bottom + h / 2, cz);
+  mesh.rotation.y = rot * Math.PI / 2;
+  mesh.castShadow = mesh.receiveShadow = true;
+  mesh.userData.kind = 'block';
+  scene.add(mesh);
+  const sx = rot % 2 ? l : w, sz = rot % 2 ? w : l;
+  const col = piece.type === 'ramp' ? addRampCollider(cx, bottom, cz, w, h, l, rot) : addBoxCollider(cx, bottom, cz, sx, h, sz, { pad: !!piece.pad });
+  const blk = { piece, mesh, mat, col, bots: [], born: T, built: false };
+  mesh.userData.ref = blk;
+  blocks.push(blk);
+  blockMeshes.push(mesh);
+  // assign bots to crawl over the new surface
+  const ids = takeBodyBots(piece.cost);
+  const th = rot * Math.PI / 2, c = Math.cos(th), s = Math.sin(th);
+  for (const i of ids) {
+    sampleBox(w, h, l, _tmp6);
+    let lx = _tmp6[0] + _tmp6[3] * 0.03, ly = _tmp6[1] + _tmp6[4] * 0.03, lz = _tmp6[2] + _tmp6[5] * 0.03;
+    if (piece.type === 'ramp') ly = Math.min(ly, -h / 2 + h * (lz + l / 2) / l + 0.03);
+    B.gx[i] = cx + lx * c + lz * s;
+    B.gy[i] = bottom + h / 2 + ly;
+    B.gz[i] = cz - lx * s + lz * c;
+    setRole(i, BLOCK, rand(2.5, 5));
+    B.ref[i] = blk;
+  }
+  blk.bots = ids;
+  return blk;
+}
+function removeBlock(blk) {
+  for (const i of blk.bots) if (B.role[i] === BLOCK && B.ref[i] === blk) { setRole(i, BODY, rand(2, 4)); B.ref[i] = null; }
+  scene.remove(blk.mesh);
+  blk.mesh.geometry.dispose(); blk.mat.dispose();
+  removeCollider(blk.col);
+  blocks.splice(blocks.indexOf(blk), 1);
+  blockMeshes.splice(blockMeshes.indexOf(blk.mesh), 1);
+}
+function updateBlocks() {
+  for (const b of blocks) {
+    if (b.built) continue;
+    const p = clamp((T - b.born - 0.2) / 0.7, 0, 1);
+    b.mat.opacity = p;
+    b.mat.emissiveIntensity = (b.piece.pad ? 1.2 : 0.35) + (1 - p) * 2.5;
+    if (p >= 1) { b.built = true; b.mat.transparent = false; b.mat.needsUpdate = true; }
+  }
+}
+
+// =====================================================================
+//  Crates, canisters, drones, orbs
+// =====================================================================
+const crateTex = canvasTex(128, 128, (g, w, h) => {
+  g.fillStyle = '#b8742c'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#8f5520'; for (let i = 0; i < 6; i++) g.fillRect(0, i * 22 + 4, w, 3);
+  g.strokeStyle = '#5e3714'; g.lineWidth = 12; g.strokeRect(6, 6, w - 12, h - 12);
+  g.beginPath(); g.moveTo(10, 10); g.lineTo(w - 10, h - 10); g.lineWidth = 9; g.stroke();
+});
+const crateMat = new THREE.MeshStandardMaterial({ map: crateTex, roughness: 0.8 });
+const crates = [];
+function spawnCrate(x, z) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), crateMat);
+  mesh.castShadow = mesh.receiveShadow = true;
+  mesh.userData.kind = 'crate';
+  const c = { mesh, pos: V(x, supportHeight(x, z, 50, 1), z), vel: V(), ang: V(), onGround: true };
+  mesh.userData.ref = c;
+  scene.add(mesh); crates.push(c); crateMeshes.push(mesh);
+}
+for (let i = 0; i < 14; i++) { const a = rand(0, 6.28), r = rand(6, 30); spawnCrate(Math.cos(a) * r, Math.sin(a) * r); }
+spawnCrate(3, 3); spawnCrate(3.2, 4.3);
+
+const canisters = [];
+const canGlass = new THREE.MeshStandardMaterial({ color: 0x7df3ff, emissive: 0x2aa7c0, emissiveIntensity: 0.9, transparent: true, opacity: 0.45, roughness: 0.1 });
+const canCap = new THREE.MeshStandardMaterial({ color: 0x9aa2b5, metalness: 0.8, roughness: 0.3 });
+function spawnCanister(pos, amount = 80) {
+  const g = new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.8, 16), canGlass));
+  for (const y of [0.42, -0.42]) { const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.09, 16), canCap); cap.position.y = y; g.add(cap); }
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2, 0), botMat);
+  g.add(core);
+  g.children.forEach((m) => (m.castShadow = true));
+  const baseY = supportHeight(pos.x, pos.z, pos.y + 0.5, 0.5) + 0.9;
+  const c = { group: g, core, pos: V(pos.x, Math.max(pos.y, baseY), pos.z), baseY, amount, t: Math.random() * 6 };
+  g.position.copy(c.pos);
+  scene.add(g); canisters.push(c);
+}
+[[8, 0, 8], [-12, 0, -6], [22, 4, -20], [-24, 12, -24], [0, 3, 24.5], [-30, 0, 18]].forEach(([x, y, z]) => spawnCanister(V(x, y, z)));
+// a few on rooftops: grapple up to collect them
+staticMeshes.filter((m) => m.geometry.parameters.height > 14 && Math.random() < 0.12).slice(0, 5)
+  .forEach((m) => spawnCanister(V(m.position.x, m.geometry.parameters.height, m.position.z), 120));
+
+const drones = [];
+const droneGeo = { body: new THREE.SphereGeometry(0.55, 20, 14), ring: new THREE.TorusGeometry(0.85, 0.07, 6, 28), eye: new THREE.SphereGeometry(0.17, 12, 8) };
+const droneRingMat = new THREE.MeshStandardMaterial({ color: 0x30333d, metalness: 0.7, roughness: 0.4 });
+const eyeRed = new THREE.MeshBasicMaterial({ color: 0xff3048, toneMapped: false });
+function spawnDrone() {
+  const hp = hostPos();
+  const a = rand(0, Math.PI * 2), r = rand(45, 80);
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8a90a0, metalness: 0.75, roughness: 0.35, emissive: 0xffffff, emissiveIntensity: 0 });
+  const body = new THREE.Mesh(droneGeo.body, bodyMat); body.castShadow = true;
+  const rg = new THREE.Mesh(droneGeo.ring, droneRingMat); rg.rotation.x = Math.PI / 2; rg.castShadow = true;
+  const eye = new THREE.Mesh(droneGeo.eye, eyeRed); eye.position.z = 0.46;
+  g.add(body, rg, eye);
+  const d = {
+    group: g, ring: rg, mat: bodyMat, pos: V(clamp(hp.x + Math.cos(a) * r, -100, 100), rand(10, 16), clamp(hp.z + Math.sin(a) * r, -100, 100)),
+    vel: V(), knock: V(), hp: 2, cd: rand(2, 4), t: rand(0, 10), phase: rand(0, 6.28), dir: Math.random() < 0.5 ? 1 : -1,
+    orbit: rand(9, 14), alt: rand(4, 7), wp: null, alive: true, flash: 0,
+  };
+  g.position.copy(d.pos);
+  scene.add(g); drones.push(d);
+}
+const orbs = [];
+const orbGeo = new THREE.SphereGeometry(0.2, 10, 8);
+const orbMat = new THREE.MeshBasicMaterial({ color: 0xff3a50, toneMapped: false });
+function fireOrb(from, to) {
+  const m = new THREE.Mesh(orbGeo, orbMat);
+  m.position.copy(from);
+  scene.add(m);
+  orbs.push({ mesh: m, pos: from.clone(), vel: to.clone().sub(from).normalize().multiplyScalar(16), life: 5 });
+}
+function removeOrb(k) { scene.remove(orbs[k].mesh); orbs.splice(k, 1); }
+
+// =====================================================================
+//  Game state
+// =====================================================================
+let T = 0, started = false, paused = false;
+let score = 0, hunger = 0, surgeT = 0, restless = 0, surgeVis = 0, strikeCd = 0, blastCd = 0, autoCd = 0;
+let shake = 0, droneTimer = 2, voiceTimer = 0;
+const build = { on: false, piece: 0, rot: 0, ghost: null, ghostKey: '', place: null };
+const cam = { yaw: 0, pitch: -0.22, dist: 5.2, lastMouse: -10, fov: 65 };
+const hostPos = () => (car.active ? car.pos : player.pos);
+
+function addShake(a) { shake = Math.min(1, shake + a); }
+let toastTimer = 0;
+function toast(text, bad = false) {
+  const el = $('toast');
+  el.textContent = text;
+  el.className = 'show' + (bad ? ' bad' : '');
+  toastTimer = 2.4;
+}
+function voice(text, dur = 2.2) { const el = $('voice'); el.textContent = text; el.className = 'show'; voiceTimer = dur; }
+function flashHurt() { const f = $('flash'); f.style.transition = 'none'; f.style.opacity = '1'; requestAnimationFrame(() => { f.style.transition = 'opacity 0.5s'; f.style.opacity = '0'; }); }
+
+// =====================================================================
+//  Audio (synthesized, no files)
+// =====================================================================
+const Sfx = (() => {
+  let ctx = null, master = null, noiseBuf = null, muted = false, eng = null;
+  function init() {
+    if (ctx) { ctx.resume?.(); return; }
+    try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    master = ctx.createGain(); master.gain.value = 0.35; master.connect(ctx.destination);
+    noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const osc = ctx.createOscillator(); osc.type = 'sawtooth';
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 300;
+    const g = ctx.createGain(); g.gain.value = 0;
+    osc.connect(f).connect(g).connect(master); osc.start();
+    eng = { osc, f, g };
+  }
+  function noise(dur, f0, f1, q, vol, type = 'bandpass') {
+    if (!ctx) return;
+    const t = ctx.currentTime, s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = noiseBuf; f.type = type; f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(f).connect(g).connect(master); s.start(t); s.stop(t + dur + 0.05);
+  }
+  function tone(dur, f0, f1, type, vol, delay = 0) {
+    if (!ctx) return;
+    const t = ctx.currentTime + delay, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g).connect(master); o.start(t); o.stop(t + dur + 0.05);
+  }
+  return {
+    init,
+    swarm: () => noise(0.25, 500, 2600, 1.4, 0.45),
+    whoosh: () => noise(0.55, 2200, 260, 0.8, 0.5),
+    hit: () => { tone(0.18, 150, 50, 'sine', 0.7); noise(0.12, 900, 200, 0.7, 0.35, 'lowpass'); },
+    zap: () => tone(0.2, 880, 240, 'square', 0.07),
+    boom: () => { noise(0.9, 1400, 60, 0.5, 0.9, 'lowpass'); tone(0.5, 95, 30, 'sine', 0.7); },
+    pickup: () => { tone(0.12, 660, 990, 'sine', 0.3); tone(0.16, 990, 1480, 'sine', 0.25, 0.09); },
+    build: () => noise(0.4, 300, 3200, 2, 0.35),
+    hurt: () => tone(0.3, 320, 80, 'sawtooth', 0.22),
+    surge: () => { tone(1.2, 60, 30, 'sawtooth', 0.35); noise(1.2, 200, 1800, 3, 0.4); },
+    engine(on, speed) {
+      if (!ctx) return;
+      const t = ctx.currentTime, s = Math.abs(speed);
+      eng.g.gain.setTargetAtTime(on ? 0.06 : 0, t, 0.12);
+      eng.osc.frequency.setTargetAtTime(42 + s * 4.5, t, 0.08);
+      eng.f.frequency.setTargetAtTime(260 + s * 45, t, 0.1);
+    },
+    toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.35; return muted; },
+  };
+})();
+
+// =====================================================================
+//  Aiming
+// =====================================================================
+const ray = new THREE.Raycaster();
+const camDir = V(), _v1 = V(), _v2 = V(), _v3 = V();
+function castAim(range, { build: forBuild = false, drones: withDrones = true, assist = false } = {}) {
+  camera.getWorldDirection(camDir);
+  const origin = camera.position;
+  const skip = Math.max(0, origin.distanceTo(handPos(_v3)) - 1.2);
+  ray.set(origin, camDir);
+  ray.near = skip; ray.far = skip + range + 6;
+  const targets = forBuild ? [ground, ...staticMeshes, ...blockMeshes] : [ground, ...staticMeshes, ...blockMeshes, ...crateMeshes];
+  let best = null;
+  const hits = ray.intersectObjects(targets, false);
+  if (hits.length) {
+    const h = hits[0];
+    best = { point: h.point.clone(), normal: h.face.normal.clone().transformDirection(h.object.matrixWorld), kind: h.object.userData.kind, obj: h.object.userData.ref || null, dist: h.distance };
+  }
+  if (withDrones) {
+    let bestAng = assist ? 0.13 : 0;
+    for (const d of drones) {
+      _v1.subVectors(d.pos, origin);
+      const t = _v1.dot(camDir);
+      if (t < skip) continue;
+      const off = _v2.copy(camDir).multiplyScalar(t).sub(_v1).length();
+      if (off < 1.0 && (!best || t < best.dist)) best = { point: d.pos.clone(), normal: null, kind: 'drone', obj: d, dist: t };
+      else if (assist && (!best || best.kind !== 'drone') && d.pos.distanceTo(handPos(_v3)) < range) {
+        const ang = off / t;
+        if (ang < bestAng) { bestAng = ang; best = { point: d.pos.clone(), normal: null, kind: 'drone', obj: d, dist: t }; }
+      }
+    }
+  }
+  return best;
+}
+
+// =====================================================================
+//  Abilities
+// =====================================================================
+function strike(forced = null) {
+  if (strikeCd > 0) return;
+  const surge = surgeT > 0;
+  strikeCd = surge ? 0.22 : 0.38;
+  const range = surge ? 26 : STRIKE_RANGE;
+  const hand = handPos(V());
+  const aim = forced ? { point: forced.pos.clone(), kind: 'drone', obj: forced } : castAim(range, { assist: true });
+  let to;
+  if (aim && aim.point.distanceTo(hand) <= range) to = aim.point.clone();
+  else {
+    camera.getWorldDirection(camDir);
+    const far = aim ? aim.point : camera.position.clone().addScaledVector(camDir, 40);
+    to = hand.clone().add(far.clone().sub(hand).normalize().multiplyScalar(range));
+  }
+  const n = clamp(freeBots() + MIN_BODY - 60, 25, surge ? 120 : 75);
+  const td = makeTendril('strike', n, to, {
+    follow: aim && aim.kind === 'drone' ? aim.obj : null,
+    onReach: (t) => {
+      const dir = t.to.clone().sub(t.from).normalize();
+      if (aim && aim.kind === 'drone' && aim.obj.alive && aim.obj.pos.distanceTo(t.to) < 3) damageDrone(aim.obj, surge ? 2 : 1, dir);
+      else if (aim && aim.kind === 'crate' && aim.obj.pos.distanceTo(t.to) < 2) {
+        aim.obj.vel.addScaledVector(dir, 16).y += 7;
+        aim.obj.ang.set(rand(-8, 8), rand(-8, 8), rand(-8, 8));
+        aim.obj.onGround = false;
+        Sfx.hit(); sparks(t.to, 10, 0xffc070, 5, 0.4);
+      } else if (aim && aim.point.distanceTo(t.to) < 0.5) { sparks(t.to, 8, 0x7df3ff, 4, 0.35, 0.08); addShake(0.08); }
+      for (let k = orbs.length - 1; k >= 0; k--) if (orbs[k].pos.distanceTo(t.to) < 2.2) { sparks(orbs[k].pos, 10, 0xff3a50, 5, 0.4); removeOrb(k); }
+    },
+  });
+  if (!td) { toast('Not enough bots on you to strike', true); return; }
+  anim.strikeT = 0.32;
+  player.faceT = 0.45; player.faceYaw = Math.atan2(to.x - player.pos.x, to.z - player.pos.z);
+  Sfx.swarm();
+}
+function grapple() {
+  if (car.active) return;
+  const aim = castAim(GRAPPLE_RANGE, { drones: false });
+  if (!aim || aim.kind === 'crate' || aim.point.distanceTo(player.pos) > GRAPPLE_RANGE + 2 || (aim.kind === 'ground' && aim.point.distanceTo(player.pos) < 6)) {
+    toast('Nothing to latch onto', true); return;
+  }
+  if (player.grapple) player.grapple = null;
+  const td = makeTendril('grapple', clamp(freeBots() + MIN_BODY - 60, 25, 95), aim.point, {
+    onReach: () => { player.grapple = { point: aim.point.clone(), t: 0, td }; player.onGround = false; player.vel.y = Math.max(player.vel.y, 5); Sfx.whoosh(); },
+  });
+  if (!td) { toast('Not enough bots on you to grapple', true); return; }
+  anim.strikeT = 0.25;
+  Sfx.swarm();
+}
+function blast() {
+  if (blastCd > 0) return;
+  const ids = takeBodyBots(Math.max(40, Math.floor(counts[BODY] * 0.55)));
+  if (ids.length < 30) { toast('Not enough bots on you to blast', true); return; }
+  blastCd = surgeT > 0 ? 1.5 : 4;
+  const c = hostPos().clone(); c.y += 1.1;
+  for (const i of ids) {
+    const th = rand(0, 6.28), ph = Math.acos(rand(-0.6, 1)), r = rand(4, 8);
+    B.gx[i] = c.x + Math.sin(ph) * Math.cos(th) * r; B.gy[i] = Math.max(0.1, c.y + Math.cos(ph) * r * 0.6); B.gz[i] = c.z + Math.sin(ph) * Math.sin(th) * r;
+    setRole(i, FX, rand(10, 16)); B.until[i] = T + rand(0.3, 0.45);
+  }
+  ring.position.copy(c); ring.visible = true; ringT = 0;
+  for (const d of [...drones]) { const dist = d.pos.distanceTo(c); if (dist < 10) damageDrone(d, dist < 6 ? 2 : 1, d.pos.clone().sub(c).normalize()); }
+  for (const cr of crates) {
+    const dv = cr.pos.clone().sub(c); const dist = dv.length();
+    if (dist < 9) { cr.vel.addScaledVector(dv.normalize(), 18 * (1 - dist / 9) + 4).y += 6; cr.ang.set(rand(-6, 6), rand(-6, 6), rand(-6, 6)); cr.onGround = false; }
+  }
+  for (let k = orbs.length - 1; k >= 0; k--) if (orbs[k].pos.distanceTo(c) < 10) removeOrb(k);
+  addShake(0.35); Sfx.whoosh(); Sfx.hit();
+}
+function springFx(at, n = 70) {
+  const ids = takeBodyBots(n);
+  for (const i of ids) {
+    const a = rand(0, 6.28), r = rand(0, 0.7);
+    B.gx[i] = at.x + Math.cos(a) * r; B.gy[i] = Math.max(0.05, at.y - rand(0, 1.3)); B.gz[i] = at.z + Math.sin(a) * r;
+    setRole(i, FX, 30); B.until[i] = T + 0.22;
+  }
+}
+function jump() {
+  if (car.active) {
+    if (car.onGround && car.formed > 0.6) { car.vel.y = 10; car.onGround = false; springFx(car.pos, 90); Sfx.whoosh(); }
+    return;
+  }
+  if (player.grapple) { player.grapple = null; player.vel.y = Math.max(player.vel.y, 8); return; }
+  if (player.onGround) { player.vel.y = 10; player.onGround = false; player.airJumps = 0; }
+  else if (player.airJumps < 1 && freeBots() > 40) {
+    player.airJumps++; player.vel.y = 13;
+    springFx(player.pos); Sfx.whoosh();
+  }
+}
+function toggleCar() {
+  if (car.active) return exitCar();
+  if (build.on) setBuild(false);
+  if (player.grapple) player.grapple = null;
+  if (freeBots() < VEH_COST) { toast(`A vehicle takes ${VEH_COST} free bots. You have ${freeBots()}.`, true); return; }
+  car.active = true; car.formed = 0;
+  car.pos.copy(player.pos); car.yaw = player.facing; car.vel.set(player.vel.x, 0, player.vel.z);
+  car.speed = Math.hypot(player.vel.x, player.vel.z); car.steer = 0; car.pitch = 0; car.onGround = true;
+  car.group.visible = true;
+  const ids = takeBodyBots(VEH_COST);
+  ids.forEach((i, k) => { B.vSlot[i] = k; setRole(i, VEH, rand(2.5, 4.5)); });
+  car.group.position.copy(car.pos); car.group.rotation.set(0, car.yaw, 0);
+  car.group.add(playerRoot);
+  playerRoot.position.set(0, 0.08, -0.22); playerRoot.rotation.set(0, 0, 0);
+  Sfx.build(); toast('The swarm becomes a buggy');
+}
+function exitCar() {
+  car.active = false;
+  for (let i = 0; i < B.n; i++) if (B.role[i] === VEH) setRole(i, BODY, rand(3, 6));
+  car.group.remove(playerRoot); scene.add(playerRoot);
+  const right = V(-Math.cos(car.yaw), 0, Math.sin(car.yaw));
+  player.pos.copy(car.pos).addScaledVector(right, 1.9);
+  player.pos.y = supportHeight(player.pos.x, player.pos.z, car.pos.y + 1, 0.35);
+  pushOut(player.pos, 0.35, player.pos.y, 1.8);
+  player.vel.copy(car.vel).multiplyScalar(0.5);
+  player.facing = car.yaw; player.onGround = true;
+  Sfx.engine(false, 0); Sfx.swarm();
+}
+function setBuild(on) {
+  if (on && car.active) { toast('Dismount first (E)', true); return; }
+  build.on = on;
+  $('palette').hidden = !on;
+  if (build.ghost) build.ghost.visible = on;
+  if (on) toast('Build mode: the swarm will shape what you point at');
+}
+function startSurge(forced = false) {
+  if (surgeT > 0) return;
+  if (!forced && hunger < 100) { toast(`The swarm isn't hungry enough yet (${Math.floor(hunger)}%)`, true); return; }
+  surgeT = 9; hunger = 100; restless = 0;
+  if (build.on) setBuild(false);
+  voice(forced ? 'YOU WAITED TOO LONG. WE DRIVE NOW.' : 'LET US HANDLE THIS.', 2.6);
+  Sfx.surge(); addShake(0.5);
+}
+function damageDrone(d, dmg, dir) {
+  if (!d.alive) return;
+  d.hp -= dmg; d.flash = 1;
+  d.knock.addScaledVector(dir, 10);
+  sparks(d.pos, 12, 0xffd080, 6, 0.4);
+  Sfx.hit(); addShake(0.12);
+  if (d.hp <= 0) killDrone(d);
+}
+function killDrone(d) {
+  d.alive = false;
+  scene.remove(d.group);
+  drones.splice(drones.indexOf(d), 1);
+  sparks(d.pos, 60, 0xff9a40, 11, 0.9, 0.16);
+  sparks(d.pos, 25, 0x30333d, 8, 1.2, 0.2);
+  Sfx.boom(); addShake(0.3);
+  score++;
+  if (surgeT <= 0) hunger = Math.min(100, hunger + 18);
+  if (Math.random() < 0.55) spawnCanister(d.pos, 60);
+  if (surgeT > 0 && Math.random() < 0.5) voice(['MORE.', 'DELICIOUS.', 'NEXT ONE.', 'THEY BREAK SO EASILY.'][(Math.random() * 4) | 0], 1.2);
+}
+function scatterBots(n) {
+  const ids = takeBodyBots(n);
+  const c = hostPos();
+  for (const i of ids) {
+    const a = rand(0, 6.28), r = rand(2, 5.5);
+    B.gx[i] = c.x + Math.cos(a) * r; B.gz[i] = c.z + Math.sin(a) * r;
+    B.gy[i] = supportHeight(B.gx[i], B.gz[i], c.y + 0.5, 0) + 0.04;
+    setRole(i, LOOSE, rand(5, 8)); B.until[i] = T + rand(0.5, 0.9);
+  }
+  return ids.length;
+}
+function hurtHost() {
+  if (surgeT > 0) { sparks(hostPos().clone().setY(hostPos().y + 1.2), 10, 0xb65cff, 5, 0.4); return; }
+  if (T - player.lastHit < 0.25) return;
+  player.lastHit = T;
+  addShake(0.35); Sfx.hit();
+  if (counts[BODY] - 70 >= MIN_BODY) {
+    scatterBots(70);
+    toast('Bots knocked loose. They will crawl back.', true);
+  } else {
+    player.health -= 22; Sfx.hurt(); flashHurt();
+    toast('Your armor is too thin. Get your bots back!', true);
+    if (player.health <= 0) die();
+  }
+}
+function die() {
+  if (car.active) exitCar();
+  player.grapple = null;
+  for (let i = 0; i < B.n; i++) if (B.role[i] !== BLOCK) { setRole(i, BODY, rand(0.8, 2)); B.ref[i] = null; }
+  tendrils.length = 0;
+  player.pos.set(0, 0, 0); player.vel.set(0, 0, 0); player.health = 100;
+  for (let k = orbs.length - 1; k >= 0; k--) removeOrb(k);
+  voice('WE PULLED YOU BACK TOGETHER.', 2.4);
+}
+
+// =====================================================================
+//  Input
+// =====================================================================
+const keys = {};
+const touch = { mx: 0, my: 0, sprint: false };
+let lockOK = false;
+function primary() { if (build.on) placePiece(); else strike(); }
+function secondary() {
+  if (build.on) {
+    const aim = castAim(BUILD_RANGE + 6, { build: true, drones: false });
+    if (aim && aim.kind === 'block' && aim.obj) { removeBlock(aim.obj); Sfx.swarm(); toast(`Dismantled. ${aim.obj.piece.cost} bots return to you`); }
+    else toast('Point at something you built to dismantle it', true);
+  } else grapple();
+}
+function setPiece(i) {
+  build.piece = (i + PIECES.length) % PIECES.length;
+  renderPalette();
+}
+function action(name) {
+  if (!started || paused) return;
+  switch (name) {
+    case 'jump': jump(); break;
+    case 'primary': primary(); break;
+    case 'alt': secondary(); break;
+    case 'blast': if (build.on) { build.rot = (build.rot + 1) % 4; } else blast(); break;
+    case 'car': toggleCar(); break;
+    case 'build': setBuild(!build.on); break;
+    case 'surge': startSurge(); break;
+    case 'piece': setPiece(build.piece + 1); break;
+    case 'help': pause(); break;
+  }
+}
+addEventListener('keydown', (e) => {
+  if (e.repeat) { keys[e.code] = true; return; }
+  keys[e.code] = true;
+  if (!started) return;
+  if (e.code === 'Space') { e.preventDefault(); action('jump'); }
+  else if (e.code === 'KeyE') action('car');
+  else if (e.code === 'KeyB') action('build');
+  else if (e.code === 'KeyV') action('surge');
+  else if (e.code === 'KeyF') { if (!build.on) blast(); }
+  else if (e.code === 'KeyR' && build.on) build.rot = (build.rot + 1) % 4;
+  else if (/^Digit[1-6]$/.test(e.code) && build.on) setPiece(+e.code.slice(5) - 1);
+  else if (e.code === 'KeyQ' && build.on) setPiece(build.piece + 1);
+  else if (e.code === 'KeyH') { paused ? resume() : pause(); }
+  else if (e.code === 'KeyM') toast(Sfx.toggleMute() ? 'Sound off' : 'Sound on');
+  else if (e.code === 'Escape' && !lockOK) { paused ? resume() : pause(); }
+});
+addEventListener('keyup', (e) => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+const canvas = renderer.domElement;
+canvas.addEventListener('mousedown', (e) => {
+  if (!started || paused || isTouch) return;
+  if (lockOK && document.pointerLockElement !== canvas) { requestLock(); return; }
+  if (e.button === 0) primary();
+  else if (e.button === 2) secondary();
+});
+addEventListener('contextmenu', (e) => e.preventDefault());
+addEventListener('mousemove', (e) => {
+  if (!started || paused || isTouch) return;
+  if (lockOK && document.pointerLockElement !== canvas) return;
+  cam.yaw -= e.movementX * 0.0024;
+  cam.pitch = clamp(cam.pitch - e.movementY * 0.0022, -1.25, 0.75);
+  cam.lastMouse = T;
+});
+addEventListener('wheel', (e) => { if (started && build.on) setPiece(build.piece + (e.deltaY > 0 ? 1 : -1)); }, { passive: true });
+function requestLock() {
+  try {
+    const p = canvas.requestPointerLock();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) { /* pointer lock unavailable: mouse look still works while the cursor is over the game */ }
+}
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === canvas) lockOK = true;
+  else if (lockOK && started && !paused) pause();
+});
+
+// Touch: left half is a floating stick, right half drags the camera.
+if (isTouch) {
+  $('touch').hidden = false;
+  $('cross').style.display = '';
+  const zone = $('stickZone'), base = $('stickBase'), knob = $('stickKnob');
+  let sid = null, sx = 0, sy = 0;
+  zone.addEventListener('pointerdown', (e) => {
+    sid = e.pointerId; sx = e.clientX; sy = e.clientY;
+    const r = zone.getBoundingClientRect();
+    base.style.left = sx - r.left + 'px'; base.style.top = sy - r.top + 'px';
+    zone.setPointerCapture(sid);
+  });
+  zone.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== sid) return;
+    let dx = e.clientX - sx, dy = e.clientY - sy;
+    const l = Math.hypot(dx, dy), R = 50;
+    if (l > R) { dx *= R / l; dy *= R / l; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    touch.mx = dx / R; touch.my = -dy / R;
+  });
+  const endStick = (e) => { if (e.pointerId !== sid) return; sid = null; touch.mx = touch.my = 0; knob.style.transform = ''; };
+  zone.addEventListener('pointerup', endStick); zone.addEventListener('pointercancel', endStick);
+  const look = $('lookZone');
+  let lid = null, lx = 0, ly = 0;
+  look.addEventListener('pointerdown', (e) => { lid = e.pointerId; lx = e.clientX; ly = e.clientY; look.setPointerCapture(lid); });
+  look.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== lid) return;
+    cam.yaw -= (e.clientX - lx) * 0.0065; cam.pitch = clamp(cam.pitch - (e.clientY - ly) * 0.005, -1.25, 0.75);
+    lx = e.clientX; ly = e.clientY; cam.lastMouse = T;
+  });
+  const endLook = (e) => { if (e.pointerId === lid) lid = null; };
+  look.addEventListener('pointerup', endLook); look.addEventListener('pointercancel', endLook);
+  document.querySelectorAll('#touch .tb').forEach((b) => {
+    b.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      b.classList.add('down');
+      if (b.dataset.act === 'sprint') touch.sprint = true; else action(b.dataset.act);
+    });
+    const up = () => { b.classList.remove('down'); if (b.dataset.act === 'sprint') touch.sprint = false; };
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('pointerleave', up);
+  });
+}
+function moveInput() {
+  let x = 0, y = 0;
+  if (keys.KeyW || keys.ArrowUp) y += 1;
+  if (keys.KeyS || keys.ArrowDown) y -= 1;
+  if (keys.KeyA || keys.ArrowLeft) x -= 1;
+  if (keys.KeyD || keys.ArrowRight) x += 1;
+  x += touch.mx; y += touch.my;
+  const l = Math.hypot(x, y);
+  if (l > 1) { x /= l; y /= l; }
+  return { x, y };
+}
+const sprinting = () => keys.ShiftLeft || keys.ShiftRight || touch.sprint;
+
+// =====================================================================
+//  Build mode
+// =====================================================================
+const ghostMat = new THREE.MeshBasicMaterial({ color: 0x9dff9a, transparent: true, opacity: 0.28, depthWrite: false });
+const ghostLineMat = new THREE.LineBasicMaterial({ color: 0x9dff9a, transparent: true, opacity: 0.9 });
+function updateGhost() {
+  if (!build.on) return;
+  const piece = PIECES[build.piece];
+  const key = build.piece + ':' + build.rot;
+  if (build.ghostKey !== key) {
+    if (build.ghost) { scene.remove(build.ghost); build.ghost.traverse((o) => o.geometry && o.geometry.dispose()); }
+    const g = pieceGeo(piece.type, ...piece.size);
+    const m = new THREE.Mesh(g, ghostMat);
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g), ghostLineMat));
+    build.ghost = m; build.ghostKey = key;
+    scene.add(m);
+  }
+  const pl = computePlacement(piece);
+  build.place = pl;
+  if (!pl) { build.ghost.visible = false; return; }
+  build.ghost.visible = true;
+  build.ghost.position.set(pl.cx, pl.bottom + piece.size[1] / 2, pl.cz);
+  build.ghost.rotation.y = build.rot * Math.PI / 2;
+  const col = pl.ok ? 0x9dff9a : 0xff5468;
+  ghostMat.color.setHex(col); ghostLineMat.color.setHex(col);
+}
+const snapC = (v, size) => (Math.round(size) % 2 === 1 ? Math.floor(v) + 0.5 : Math.round(v));
+function computePlacement(piece) {
+  const hit = castAim(BUILD_RANGE + 10, { build: true, drones: false });
+  if (!hit || !hit.normal) return null;
+  const [w, h, l] = piece.size;
+  const sx = build.rot % 2 ? l : w, sz = build.rot % 2 ? w : l;
+  const n = hit.normal, p = hit.point;
+  let bottom, cx, cz;
+  if (n.y > 0.5) { bottom = Math.round(p.y * 100) / 100; cx = snapC(p.x, sx); cz = snapC(p.z, sz); }
+  else if (n.y < -0.5) { bottom = p.y - h; cx = snapC(p.x, sx); cz = snapC(p.z, sz); }
+  else {
+    bottom = Math.max(0, Math.floor(p.y + 0.001));
+    if (Math.abs(n.x) > Math.abs(n.z)) { cx = p.x + Math.sign(n.x) * sx / 2; cz = snapC(p.z, sz); }
+    else { cz = p.z + Math.sign(n.z) * sz / 2; cx = snapC(p.x, sx); }
+  }
+  let ok = true, why = '';
+  const dist = Math.hypot(cx - player.pos.x, bottom - player.pos.y, cz - player.pos.z);
+  if (dist > BUILD_RANGE) { ok = false; why = 'Too far away'; }
+  else if (freeBots() < piece.cost) { ok = false; why = `Needs ${piece.cost} free bots (you have ${freeBots()})`; }
+  else {
+    const P = player.pos;
+    if (P.x + 0.35 > cx - sx / 2 && P.x - 0.35 < cx + sx / 2 && P.z + 0.35 > cz - sz / 2 && P.z - 0.35 < cz + sz / 2 && P.y + 1.9 > bottom && P.y < bottom + h) { ok = false; why = 'You are standing in the way'; }
+  }
+  return { cx, cz, bottom, ok, why };
+}
+function placePiece() {
+  const pl = build.place;
+  if (!pl) { toast('Aim at the ground or a surface', true); return; }
+  if (!pl.ok) { toast(pl.why, true); return; }
+  createBlock(PIECES[build.piece], pl.cx, pl.bottom, pl.cz, build.rot);
+  anim.strikeT = 0.3;
+  Sfx.build();
+}
+function renderPalette() {
+  const el = $('palette');
+  el.innerHTML = '';
+  PIECES.forEach((p, i) => {
+    const b = document.createElement('button');
+    b.id = 'piece' + i;
+    b.className = (i === build.piece ? 'on' : '') + (freeBots() < p.cost ? ' poor' : '');
+    b.innerHTML = `${i + 1} · ${p.name}<small>${p.cost} bots</small>`;
+    b.addEventListener('pointerdown', (e) => { e.stopPropagation(); setPiece(i); });
+    el.appendChild(b);
+  });
+}
+renderPalette();
+
+// =====================================================================
+//  Update: host on foot
+// =====================================================================
+function nearestDrone(from, maxD = 1e9) {
+  let best = null, bd = maxD;
+  for (const d of drones) { const dd = d.pos.distanceTo(from); if (dd < bd) { bd = dd; best = d; } }
+  return best;
+}
+function updatePlayer(dt) {
+  const inp = started ? moveInput() : { x: 0, y: 0 };
+  const fx = Math.sin(cam.yaw), fz = Math.cos(cam.yaw);
+  let wx = fx * inp.y - fz * inp.x, wz = fz * inp.y + fx * inp.x;
+  const surge = surgeT > 0;
+  // While surging, the swarm steers. Your input only nudges it.
+  if (surge && started) {
+    const target = nearestDrone(player.pos, 70);
+    wx *= 0.35; wz *= 0.35;
+    if (target) {
+      const dx = target.pos.x - player.pos.x, dz = target.pos.z - player.pos.z, dh = Math.hypot(dx, dz);
+      if (dh > 6) { wx += dx / dh; wz += dz / dh; }
+      const above = target.pos.y - player.pos.y;
+      if (dh < 10 && above > 3) { if (player.onGround) jump(); else if (player.vel.y < 1 && player.airJumps < 1) jump(); }
+    }
+    const l = Math.hypot(wx, wz); if (l > 1) { wx /= l; wz /= l; }
+  }
+  const speed = surge ? 12.5 : sprinting() ? 10 : 6;
+  const g = player.grapple;
+  if (g) {
+    g.t += dt;
+    const c = V(player.pos.x, player.pos.y + 1.1, player.pos.z);
+    const d = _v1.subVectors(g.point, c), dist = d.length();
+    if (dist < 1.8 || g.t > 1.8) { player.grapple = null; if (g.point.y > player.pos.y) player.vel.y = Math.max(player.vel.y, 7); }
+    else { d.multiplyScalar(30 / dist); player.vel.lerp(d, damp(7, dt)); }
+  } else {
+    const rate = player.onGround ? 14 : 2.5;
+    if (player.onGround || wx * wx + wz * wz > 0.01) {
+      player.vel.x = lerp(player.vel.x, wx * speed, damp(rate, dt));
+      player.vel.z = lerp(player.vel.z, wz * speed, damp(rate, dt));
+    }
+  }
+  const st = player;
+  const hit = moveBody(player.pos, player.vel, dt, 0.35, 1.85, st, g ? 4 : G);
+  if (hit && g && st.hitSpeed > 4) player.grapple = null;
+  if (player.onGround) player.airJumps = 0;
+  if (player.landed > 14) { addShake(0.15); sparks(player.pos, 8, 0x7df3ff, 3, 0.3, 0.07); }
+  if (player.onGround && st.supportC && st.supportC.pad) {
+    player.vel.y = 22; player.onGround = false; Sfx.whoosh(); springFx(player.pos, 40);
+  }
+  // facing
+  const hs = Math.hypot(player.vel.x, player.vel.z);
+  if (player.faceT > 0) { player.faceT -= dt; player.facing = angLerp(player.facing, player.faceYaw, damp(20, dt)); }
+  else if (build.on) player.facing = angLerp(player.facing, cam.yaw, damp(10, dt));
+  else if (hs > 0.6) player.facing = angLerp(player.facing, Math.atan2(player.vel.x, player.vel.z), damp(12, dt));
+  player.scale = lerp(player.scale, surge ? 1.32 : 1, damp(4, dt));
+  playerRoot.position.copy(player.pos);
+  playerRoot.rotation.y = player.facing;
+  playerRoot.scale.setScalar(player.scale);
+}
+
+// =====================================================================
+//  Update: vehicle
+// =====================================================================
+function updateCar(dt) {
+  const inp = started ? moveInput() : { x: 0, y: 0 };
+  car.formed = Math.min(1, car.formed + dt / 0.9);
+  const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw);
+  const boost = sprinting() && car.formed >= 1;
+  const maxS = boost ? 40 : 27;
+  if (car.onGround) {
+    const thr = inp.y * (car.formed < 1 ? 0.3 : 1);
+    if (thr > 0) car.speed += (car.speed < 0 ? 30 : 15 + (boost ? 16 : 0)) * thr * dt;
+    else if (thr < 0) car.speed += (car.speed > 0 ? 32 : 11) * thr * dt;
+    else car.speed -= car.speed * Math.min(1, 0.9 * dt);
+    if (car.speed > maxS) car.speed = lerp(car.speed, maxS, damp(2, dt));
+    car.speed = Math.max(car.speed, -12);
+    car.steer = lerp(car.steer, -inp.x, damp(10, dt));
+    const s = Math.abs(car.speed);
+    car.yaw += car.steer * 2.1 * clamp(s / 6, 0, 1) * Math.sign(car.speed) * (1 - 0.4 * clamp(s / 40, 0, 1)) * dt;
+    const grip = damp(sprinting() ? 4.5 : 7, dt);
+    car.vel.x = lerp(car.vel.x, Math.sin(car.yaw) * car.speed, grip);
+    car.vel.z = lerp(car.vel.z, Math.cos(car.yaw) * car.speed, grip);
+  } else {
+    car.yaw -= inp.x * 1.2 * dt;
+  }
+  const hit = moveBody(car.pos, car.vel, dt, 1.35, 1.6, car);
+  if (hit) {
+    if (car.hitSpeed > 10) { addShake(clamp(car.hitSpeed / 40, 0.2, 0.6)); Sfx.hit(); sparks(V(car.pos.x + fx * 2, car.pos.y + 0.8, car.pos.z + fz * 2), 16, 0xffd080, 6, 0.4); }
+    car.speed = car.vel.x * fx + car.vel.z * fz;
+  }
+  if (car.landed > 10) { addShake(0.2); sparks(car.pos, 14, 0x7df3ff, 4, 0.35, 0.08); }
+  if (car.onGround && car.supportC && car.supportC.pad) { car.vel.y = 19; car.onGround = false; Sfx.whoosh(); springFx(car.pos, 50); }
+  car.wheelSpin += car.speed * dt / WHEEL_R;
+  // pitch from the ground under the axles, or from the flight path in the air
+  let tp;
+  if (car.onGround) {
+    const hf = supportHeight(car.pos.x + fx * 1.4, car.pos.z + fz * 1.4, car.pos.y + 0.6, 0.2);
+    const hb = supportHeight(car.pos.x - fx * 1.4, car.pos.z - fz * 1.4, car.pos.y + 0.6, 0.2);
+    tp = Math.atan2(hf - hb, 2.8);
+  } else tp = clamp(Math.atan2(car.vel.y, Math.max(4, Math.hypot(car.vel.x, car.vel.z))), -0.5, 0.5);
+  car.pitch = lerp(car.pitch, tp, damp(8, dt));
+  car.group.position.copy(car.pos);
+  car.group.rotation.set(-car.pitch, car.yaw, -car.steer * clamp(Math.abs(car.speed) / 25, 0, 1) * 0.07);
+  player.pos.copy(car.pos); player.vel.copy(car.vel);
+  Sfx.engine(true, car.speed);
+}
+function updateCarVisual(dt) {
+  if (!car.active) {
+    car.formed = Math.max(0, car.formed - dt / 0.4);
+    if (car.formed <= 0) car.group.visible = false;
+  }
+  const o = clamp((car.formed - 0.35) / 0.65, 0, 1);
+  carMat.opacity = o; headMat.opacity = o;
+  carMat.transparent = o < 1; carMat.depthWrite = o > 0.5;
+  for (const w of wheelMeshes) w.rotation.x = car.wheelSpin;
+  steeringWheel.rotation.z = car.steer * 1.2;
+}
+
+// =====================================================================
+//  Animation of the host's limbs
+// =====================================================================
+function animatePlayer(dt) {
+  const k = damp(14, dt);
+  let lL, lR, aL, aR, azL = 0, azR = 0, lean = 0, bob = 0;
+  if (car.active) {
+    lL = lR = -1.45; aL = aR = -0.95; azL = 0.15; azR = -0.15;
+  } else if (player.grapple) {
+    lL = 0.25; lR = -0.15; aL = 0.3; aR = -2.9; lean = 0.25;
+  } else if (!player.onGround) {
+    lL = -0.55; lR = 0.35; aL = -0.4; aR = -0.4; azL = 0.5; azR = -0.5;
+  } else {
+    const hs = Math.hypot(player.vel.x, player.vel.z);
+    anim.phase += hs * dt * 1.7;
+    const amt = Math.min(1, hs / 6), sw = Math.sin(anim.phase);
+    lL = sw * 0.75 * amt; lR = -sw * 0.75 * amt;
+    aL = -sw * 0.6 * amt; aR = sw * 0.6 * amt;
+    lean = 0.1 * amt + (hs > 8.5 ? 0.12 : 0);
+    bob = Math.abs(Math.cos(anim.phase)) * 0.05 * amt;
+    azL = 0.06; azR = -0.06;
+  }
+  if (anim.strikeT > 0) { anim.strikeT -= dt; aR = -1.55 - cam.pitch * 0.8; azR = 0; }
+  if (surgeT > 0 && !car.active) { azL += 0.35; azR -= 0.35; lean += 0.15; }
+  hipL.rotation.x = lerp(hipL.rotation.x, lL, k); hipR.rotation.x = lerp(hipR.rotation.x, lR, k);
+  shL.rotation.x = lerp(shL.rotation.x, aL, k); shR.rotation.x = lerp(shR.rotation.x, aR, anim.strikeT > 0 ? 1 : k);
+  shL.rotation.z = lerp(shL.rotation.z, azL, k); shR.rotation.z = lerp(shR.rotation.z, azR, k);
+  hips.rotation.x = lerp(hips.rotation.x, car.active ? 0 : lean, k);
+  hips.position.y = 0.95 + bob;
+}
+
+// =====================================================================
+//  Update: the swarm
+// =====================================================================
+const partE = [];
+const prevRoot = V(), rootNow = V(), prevCar = V();
+let bodyDX = 0, bodyDY = 0, bodyDZ = 0, carDX = 0, carDY = 0, carDZ = 0;
+function updateBots(dt) {
+  counts.fill(0);
+  for (let p = 0; p < bodyParts.length; p++) partE[p] = bodyParts[p].mesh.matrixWorld.elements;
+  const ce = car.group.matrixWorld.elements;
+  const hp = hostPos();
+  const hx = hp.x, hz = hp.z, catchR = car.active ? 3.2 : 2.4;
+  const wspin = car.wheelSpin, t = T;
+  const arr = botMesh.instanceMatrix.array;
+  const breathe = 0.012;
+  for (let i = 0; i < B.n; i++) {
+    let role = B.role[i];
+    const ph = B.phase[i];
+    let tx, ty, tz;
+    if (role === FX && t > B.until[i]) { setRole(i, BODY, 7); role = BODY; }
+    if (role === BODY) {
+      const e = partE[B.bPart[i]], j = i * 3;
+      const lx = B.bl[j], ly = B.bl[j + 1], lz = B.bl[j + 2];
+      const nx0 = B.bn[j], ny0 = B.bn[j + 1], nz0 = B.bn[j + 2];
+      tx = e[0] * lx + e[4] * ly + e[8] * lz + e[12];
+      ty = e[1] * lx + e[5] * ly + e[9] * lz + e[13];
+      tz = e[2] * lx + e[6] * ly + e[10] * lz + e[14];
+      let push = breathe * Math.sin(t * 5 + ph * 6);
+      if (surgeVis > 0.01 && B.spike[i] > 0) push += B.spike[i] * surgeVis * (0.6 + 0.4 * Math.sin(t * 7 + ph * 11));
+      tx += (e[0] * nx0 + e[4] * ny0 + e[8] * nz0) * push;
+      ty += (e[1] * nx0 + e[5] * ny0 + e[9] * nz0) * push;
+      tz += (e[2] * nx0 + e[6] * ny0 + e[10] * nz0) * push;
+      if (!B.settled[i]) { B.px[i] += bodyDX; B.py[i] += bodyDY; B.pz[i] += bodyDZ; }
+    } else if (role === VEH) {
+      const k = B.vSlot[i], w = cWheel[k];
+      let lx, ly, lz;
+      if (w < 0) { lx = cLoc[k * 3]; ly = cLoc[k * 3 + 1]; lz = cLoc[k * 3 + 2]; }
+      else {
+        const wd = WHEELS[w], a = cLoc[k * 3 + 2] + wspin, r = cLoc[k * 3 + 1];
+        lx = wd[0] + cLoc[k * 3]; ly = wd[1] + r * Math.cos(a); lz = wd[2] + r * Math.sin(a);
+      }
+      tx = ce[0] * lx + ce[4] * ly + ce[8] * lz + ce[12];
+      ty = ce[1] * lx + ce[5] * ly + ce[9] * lz + ce[13];
+      tz = ce[2] * lx + ce[6] * ly + ce[10] * lz + ce[14];
+      if (!B.settled[i]) { B.px[i] += carDX; B.py[i] += carDY; B.pz[i] += carDZ; }
+    } else if (role === BLOCK) {
+      tx = B.gx[i] + Math.sin(t * 1.3 + ph * 5) * 0.015; ty = B.gy[i]; tz = B.gz[i] + Math.cos(t * 1.1 + ph * 7) * 0.015;
+    } else if (role === TENDRIL) {
+      const td = B.ref[i], u = B.tU[i];
+      if (!td) { setRole(i, BODY, 6); continue; }
+      const s = u * td.ext;
+      tx = td.from.x + td.dir.x * s; ty = td.from.y + td.dir.y * s; tz = td.from.z + td.dir.z * s;
+      const thick = (td.fist && u > 0.86 ? 0.24 : 0.04 + 0.1 * (1 - u)) * (surgeVis > 0 ? 1.4 : 1);
+      const a = ph * 3 + t * 9 + u * 6;
+      const wave = Math.sin(u * Math.PI) * Math.sin(t * 15 + u * 8) * (td.state === 'out' ? 0.22 : 0.07);
+      const c1 = Math.cos(a) * thick + wave, c2 = Math.sin(a) * thick;
+      tx += td.p1.x * c1 + td.p2.x * c2; ty += td.p1.y * c1 + td.p2.y * c2; tz += td.p1.z * c1 + td.p2.z * c2;
+      B.px[i] += bodyDX; B.py[i] += bodyDY; B.pz[i] += bodyDZ;
+    } else if (role === FX) {
+      tx = B.gx[i]; ty = B.gy[i]; tz = B.gz[i];
+    } else { // LOOSE: fly out, land, then crawl home
+      if (t < B.until[i]) { tx = B.gx[i]; ty = B.gy[i]; tz = B.gz[i]; }
+      else {
+        const dx = hx - B.px[i], dz = hz - B.pz[i], d = Math.hypot(dx, dz);
+        if (d < catchR) { setRole(i, BODY, 5); counts[BODY]++; writeBot(arr, i, 1); continue; }
+        const stepL = Math.min(d, 3.2 * dt) / d;
+        B.px[i] += dx * stepL; B.pz[i] += dz * stepL;
+        if ((i + frameNo) % 4 === 0) B.gy[i] = supportHeight(B.px[i], B.pz[i], B.py[i], 0) + 0.04;
+        B.py[i] = lerp(B.py[i], B.gy[i], damp(12, dt));
+        counts[LOOSE]++;
+        writeBot(arr, i, ROLE_SCALE[LOOSE]);
+        continue;
+      }
+    }
+    counts[role]++;
+    if (B.settled[i]) { B.px[i] = tx; B.py[i] = ty; B.pz[i] = tz; }
+    else {
+      const k = damp(B.rate[i], dt);
+      const dx = tx - B.px[i], dy = ty - B.py[i], dz = tz - B.pz[i];
+      B.px[i] += dx * k; B.py[i] += dy * k; B.pz[i] += dz * k;
+      if (role <= BLOCK) {
+        B.rate[i] = Math.min(60, B.rate[i] + dt * 22);
+        if (dx * dx + dy * dy + dz * dz < 0.0025 || B.rate[i] >= 60) B.settled[i] = 1;
+      }
+    }
+    writeBot(arr, i, ROLE_SCALE[role] * (role === BODY ? player.scale : 1));
+  }
+  botMesh.count = B.n;
+  botMesh.instanceMatrix.needsUpdate = true;
+}
+function writeBot(a, i, mul) {
+  const o = i * 16, r = i * 9, s = B.size[i] * mul, R = B.rot;
+  a[o] = R[r] * s; a[o + 1] = R[r + 1] * s; a[o + 2] = R[r + 2] * s; a[o + 3] = 0;
+  a[o + 4] = R[r + 3] * s; a[o + 5] = R[r + 4] * s; a[o + 6] = R[r + 5] * s; a[o + 7] = 0;
+  a[o + 8] = R[r + 6] * s; a[o + 9] = R[r + 7] * s; a[o + 10] = R[r + 8] * s; a[o + 11] = 0;
+  a[o + 12] = B.px[i]; a[o + 13] = B.py[i]; a[o + 14] = B.pz[i]; a[o + 15] = 1;
+}
+
+// =====================================================================
+//  Update: world objects
+// =====================================================================
+function updateDrones(dt) {
+  const hp = hostPos();
+  const chest = _v2.set(hp.x, hp.y + (car.active ? 1.4 : 1.2 * player.scale), hp.z);
+  for (let k = drones.length - 1; k >= 0; k--) {
+    const d = drones[k];
+    d.t += dt;
+    const dist = d.pos.distanceTo(chest);
+    let desired;
+    if (dist < 48) {
+      const ang = d.t * 0.35 * d.dir + d.phase;
+      desired = _v1.set(hp.x + Math.cos(ang) * d.orbit, hp.y + d.alt, hp.z + Math.sin(ang) * d.orbit);
+    } else {
+      if (!d.wp || d.pos.distanceTo(d.wp) < 4) d.wp = V(rand(-90, 90), rand(9, 15), rand(-90, 90));
+      desired = _v1.copy(d.wp);
+    }
+    desired.sub(d.pos);
+    const dl = desired.length();
+    if (dl > 10) desired.multiplyScalar(10 / dl);
+    d.vel.lerp(desired.multiplyScalar(1.1), damp(2, dt));
+    d.pos.addScaledVector(d.vel, dt).addScaledVector(d.knock, dt);
+    d.knock.multiplyScalar(Math.exp(-4 * dt));
+    pushOut(d.pos, 1.0, d.pos.y - 0.8, 1.6);
+    const floor = supportHeight(d.pos.x, d.pos.z, d.pos.y, 1) + 1.6;
+    if (d.pos.y < floor) d.pos.y = floor;
+    d.cd -= dt;
+    if (dist < 34 && d.cd <= 0) {
+      const eye = d.pos.clone();
+      const lead = chest.clone().addScaledVector(car.active ? car.vel : player.vel, dist / 16 * 0.5);
+      fireOrb(eye, lead);
+      d.cd = rand(2.2, 3.8);
+      Sfx.zap();
+    }
+    d.group.position.set(d.pos.x, d.pos.y + Math.sin(d.t * 2.3) * 0.15, d.pos.z);
+    d.group.lookAt(chest);
+    d.ring.rotation.z += dt * 3;
+    d.flash = Math.max(0, d.flash - dt * 5);
+    d.mat.emissiveIntensity = d.flash * 2;
+    if (car.active && Math.abs(car.speed) > 8 && d.pos.distanceTo(_v3.set(car.pos.x, car.pos.y + 1, car.pos.z)) < 2.8) killDrone(d);
+    for (const c of crates) if (c.vel.lengthSq() > 64 && c.pos.distanceTo(d.pos) < 1.6) { damageDrone(d, 2, c.vel.clone().normalize()); break; }
+  }
+}
+function updateOrbs(dt) {
+  const hp = hostPos();
+  const chest = _v2.set(hp.x, hp.y + (car.active ? 1.2 : 1.1), hp.z);
+  const R = car.active ? 2.0 : 0.85 * player.scale;
+  for (let k = orbs.length - 1; k >= 0; k--) {
+    const o = orbs[k];
+    o.pos.addScaledVector(o.vel, dt);
+    o.life -= dt;
+    o.mesh.position.copy(o.pos);
+    if (o.pos.distanceTo(chest) < R) { sparks(o.pos, 14, 0xff3a50, 5, 0.4); removeOrb(k); hurtHost(); continue; }
+    if (o.life <= 0 || pointInSolid(o.pos)) { sparks(o.pos, 6, 0xff3a50, 3, 0.3); removeOrb(k); }
+  }
+}
+function updateCrates(dt) {
+  const hp = hostPos();
+  for (const c of crates) {
+    const dx = c.pos.x - hp.x, dz = c.pos.z - hp.z, d = Math.hypot(dx, dz) || 0.001;
+    if (Math.abs(c.pos.y - hp.y) < 1.6) {
+      if (car.active && d < 2.1 && Math.abs(car.speed) > 3) {
+        c.vel.set(car.vel.x * 1.15 + dx / d * 3, 4 + Math.abs(car.speed) * 0.25, car.vel.z * 1.15 + dz / d * 3);
+        c.ang.set(rand(-9, 9), rand(-9, 9), rand(-9, 9)); c.onGround = false;
+        car.speed *= 0.93;
+        if (Math.abs(car.speed) > 10) { Sfx.hit(); sparks(c.pos, 8, 0xffc070, 4, 0.4); }
+      } else if (!car.active && d < 0.9) {
+        c.vel.x += (dx / d) * 30 * dt; c.vel.z += (dz / d) * 30 * dt;
+      }
+    }
+    moveBody(c.pos, c.vel, dt, 0.5, 1, c);
+    if (c.onGround) {
+      const f = Math.exp(-5 * dt);
+      c.vel.x *= f; c.vel.z *= f;
+      c.ang.multiplyScalar(Math.exp(-8 * dt));
+      const r = c.mesh.rotation, q = Math.PI / 2;
+      r.x = lerp(r.x, Math.round(r.x / q) * q, damp(8, dt));
+      r.z = lerp(r.z, Math.round(r.z / q) * q, damp(8, dt));
+    }
+    c.mesh.rotation.x += c.ang.x * dt; c.mesh.rotation.y += c.ang.y * dt; c.mesh.rotation.z += c.ang.z * dt;
+    c.mesh.position.set(c.pos.x, c.pos.y + 0.5, c.pos.z);
+  }
+}
+function updateCanisters(dt) {
+  const hp = hostPos();
+  const R = car.active ? 3.2 : 1.9;
+  for (let k = canisters.length - 1; k >= 0; k--) {
+    const c = canisters[k];
+    c.t += dt;
+    if (c.pos.y > c.baseY) c.pos.y = Math.max(c.baseY, c.pos.y - 9 * dt);
+    c.group.position.set(c.pos.x, c.pos.y + Math.sin(c.t * 2) * 0.12, c.pos.z);
+    c.group.rotation.y += dt * 1.2;
+    c.core.rotation.x += dt * 2.3;
+    if (Math.hypot(c.pos.x - hp.x, c.pos.z - hp.z) < R && Math.abs(c.pos.y - (hp.y + 0.9)) < 1.8) {
+      if (B.n >= MAX_BOTS) { if (T - (c.warned || -9) > 3) { toast('Your swarm is at full size (3,000 bots)'); c.warned = T; } continue; }
+      const got = addBots(c.amount, c.pos);
+      scene.remove(c.group); canisters.splice(k, 1);
+      toast(`+${got} microbots joined the swarm`);
+      Sfx.pickup();
+    }
+  }
+}
+
+// =====================================================================
+//  Camera
+// =====================================================================
+const camT = V(0, 1.6, 0), _dir = V(), _right = V(), _want = V();
+const camRayTargets = () => [...staticMeshes, ...blockMeshes];
+function updateCamera(dt) {
+  const tgt = car.active ? _v1.set(car.pos.x, car.pos.y + 2.1, car.pos.z) : _v1.set(player.pos.x, player.pos.y + 1.6 * player.scale, player.pos.z);
+  camT.lerp(tgt, damp(car.active ? 12 : 20, dt));
+  if (!started) cam.yaw += dt * 0.12;
+  if (car.active && T - cam.lastMouse > 1.2) {
+    cam.yaw = angLerp(cam.yaw, car.yaw, damp(2.2, dt));
+    cam.pitch = lerp(cam.pitch, -0.2, damp(2, dt));
+  }
+  const wantDist = car.active ? 9 + Math.abs(car.speed) * 0.05 : build.on ? 7.5 : surgeT > 0 ? 6.6 : 5.2;
+  cam.dist = lerp(cam.dist, wantDist, damp(4, dt));
+  const shoulder = car.active ? 0 : 0.65;
+  const cp = Math.cos(cam.pitch);
+  _dir.set(Math.sin(cam.yaw) * cp, Math.sin(cam.pitch), Math.cos(cam.yaw) * cp);
+  _right.set(-Math.cos(cam.yaw), 0, Math.sin(cam.yaw));
+  _want.copy(camT).addScaledVector(_right, shoulder);
+  // keep the camera out of buildings
+  let dist = cam.dist;
+  ray.set(_want, _v2.copy(_dir).negate());
+  ray.near = 0; ray.far = cam.dist;
+  const hits = ray.intersectObjects(camRayTargets(), false);
+  if (hits.length) dist = Math.max(0.8, hits[0].distance - 0.3);
+  camera.position.copy(_want).addScaledVector(_dir, -dist);
+  if (camera.position.y < 0.3) camera.position.y = 0.3;
+  if (shake > 0) {
+    camera.position.x += (Math.random() - 0.5) * shake * 0.5;
+    camera.position.y += (Math.random() - 0.5) * shake * 0.5;
+    shake = Math.max(0, shake - dt * 2.2);
+  }
+  camera.lookAt(_v3.copy(camera.position).add(_dir));
+  const fov = 65 + (car.active ? clamp((Math.abs(car.speed) - 20) * 0.7, 0, 12) : 0) + surgeVis * 6;
+  if (Math.abs(fov - camera.fov) > 0.05) { camera.fov = lerp(camera.fov, fov, damp(5, dt)); camera.updateProjectionMatrix(); }
+}
+
+// =====================================================================
+//  HUD
+// =====================================================================
+const MODE = { walk: ['WALK', ''], build: ['BUILD', 'build'], drive: ['DRIVE', 'drive'], surge: ['SURGE', 'surge'] };
+const HINTS = {
+  walk: '<b>LMB</b> strike · <b>RMB</b> grapple · <b>Space×2</b> bot-spring · <b>F</b> blast · <b>E</b> form buggy · <b>B</b> build · <b>V</b> surge · <b>H</b> help',
+  build: '<b>LMB</b> place · <b>RMB</b> dismantle · <b>R</b> rotate · <b>1–6</b>/<b>wheel</b> piece · <b>B</b> done',
+  drive: '<b>W/S</b> throttle · <b>A/D</b> steer · <b>Shift</b> boost · <b>Space</b> hop · <b>LMB</b> strike · <b>E</b> dismount',
+  surge: 'The swarm is steering. <b>WASD</b> only nudges it.',
+};
+let hudT = 0, lastMode = '', lastFree = -1;
+function updateHUD(dt) {
+  if (toastTimer > 0 && (toastTimer -= dt) <= 0) $('toast').className = '';
+  if (voiceTimer > 0 && (voiceTimer -= dt) <= 0) $('voice').className = '';
+  if ((hudT -= dt) > 0) return;
+  hudT = 0.1;
+  $('botsNum').textContent = counts[BODY] + counts[TENDRIL] + counts[FX];
+  $('botsTotal').textContent = B.n;
+  $('botsBreak').textContent = `vehicle ${counts[VEH]} · built ${counts[BLOCK]} · loose ${counts[LOOSE]}`;
+  $('hpFill').style.transform = `scaleX(${clamp(player.health / 100, 0, 1)})`;
+  $('hpFill').style.background = player.health < 40 ? 'var(--danger)' : '';
+  $('surgeFill').style.transform = `scaleX(${surgeT > 0 ? surgeT / 9 : hunger / 100})`;
+  $('surgeBar').classList.toggle('ready', hunger >= 100 && surgeT <= 0);
+  $('surgeLbl').textContent = surgeT > 0 ? 'SURGE' : hunger >= 100 ? 'READY·V' : 'HUNGER';
+  $('score').textContent = score;
+  const mode = surgeT > 0 ? 'surge' : car.active ? 'drive' : build.on ? 'build' : 'walk';
+  if (mode !== lastMode) {
+    lastMode = mode;
+    $('modeChip').textContent = MODE[mode][0];
+    $('modeChip').className = 'chip ' + MODE[mode][1];
+    $('hint').innerHTML = isTouch ? '' : HINTS[mode];
+    if (isTouch) {
+      $('tbPrimary').textContent = build.on ? 'Place' : 'Strike';
+      $('tbAlt').textContent = build.on ? 'Remove' : car.active ? '—' : 'Grapple';
+      $('tbBlast').textContent = build.on ? 'Rotate' : 'Blast';
+      $('tbSprint').textContent = car.active ? 'Boost' : 'Sprint';
+      $('tbJump').textContent = car.active ? 'Hop' : 'Jump';
+      $('tbCar').textContent = car.active ? 'Exit' : 'Car';
+      $('tbBuild').textContent = build.on ? 'Done' : 'Build';
+    }
+  }
+  if (isTouch) $('tbSurge').classList.toggle('hot', hunger >= 100 && surgeT <= 0);
+  const free = freeBots();
+  if (build.on && Math.abs(free - lastFree) > 5) { lastFree = free; renderPalette(); }
+  $('cross').classList.toggle('lock', !build.on && !!castLockCache);
+}
+let castLockCache = null, lockT = 0;
+
+// =====================================================================
+//  Main loop
+// =====================================================================
+let frameNo = 0, last = performance.now();
+addBots(START_BOTS, V(0, 0.5, 0), 0);
+for (let i = 0; i < B.n; i++) {
+  const a = rand(0, 6.28), r = rand(4, 16);
+  B.px[i] = Math.cos(a) * r; B.py[i] = 0.05; B.pz[i] = Math.sin(a) * r;
+  B.rate[i] = rand(0.6, 1.6);
+}
+for (let i = 0; i < 6; i++) spawnDrone();
+drones.forEach((d) => { d.pos.multiplyScalar(1.3); d.cd = rand(4, 7); });
+
+function update(dt) {
+  T += dt; frameNo++;
+  strikeCd -= dt; blastCd -= dt;
+  // hunger, restlessness and the surge
+  if (started) {
+    if (surgeT > 0) {
+      surgeT -= dt;
+      if (surgeT <= 0) { surgeT = 0; hunger = 0; voice('...FOR NOW.', 1.6); }
+    } else {
+      hunger = Math.min(100, hunger + dt * 2.2);
+      if (hunger >= 100) {
+        restless += dt;
+        if (restless > 6 && restless - dt <= 6) voice('WE ARE HUNGRY. PRESS V.', 2.2);
+        if (restless > 14) startSurge(true);
+      }
+    }
+  }
+  surgeVis = lerp(surgeVis, surgeT > 0 ? 1 : 0, damp(3, dt));
+  if (surgeT > 0 && (autoCd -= dt) <= 0) {
+    const target = nearestDrone(hostPos(), 22);
+    if (target) { autoCd = 0.45; strike(target); }
+  }
+  botMat.emissive.setRGB(0.22 * surgeVis * (0.6 + 0.4 * Math.sin(T * 8)), 0.02 * surgeVis, 0.36 * surgeVis * (0.6 + 0.4 * Math.sin(T * 8)));
+  $('vignette').style.opacity = surgeVis.toFixed(3);
+  if (player.health < 100 && T - player.lastHit > 3) player.health = Math.min(100, player.health + dt * 8);
+
+  if (car.active) updateCar(dt); else updatePlayer(dt);
+  updateCarVisual(dt);
+  animatePlayer(dt);
+  scene.updateMatrixWorld();
+  playerRoot.getWorldPosition(rootNow);
+  bodyDX = rootNow.x - prevRoot.x; bodyDY = rootNow.y - prevRoot.y; bodyDZ = rootNow.z - prevRoot.z;
+  if (Math.abs(bodyDX) + Math.abs(bodyDY) + Math.abs(bodyDZ) > 4) bodyDX = bodyDY = bodyDZ = 0;
+  prevRoot.copy(rootNow);
+  carDX = car.pos.x - prevCar.x; carDY = car.pos.y - prevCar.y; carDZ = car.pos.z - prevCar.z;
+  prevCar.copy(car.pos);
+  updateTendrils(dt);
+  updateBots(dt);
+  updateBlocks();
+  eyeMat.opacity = lerp(eyeMat.opacity, Math.max(surgeVis, clamp((counts[BODY] - 500) / 500, 0, 1)), damp(3, dt));
+
+  if (started) {
+    updateDrones(dt);
+    updateOrbs(dt);
+    const want = Math.min(12, 5 + Math.floor(score / 4));
+    if ((droneTimer -= dt) <= 0 && drones.length < want) { spawnDrone(); droneTimer = rand(2.5, 4.5); }
+    if (canisters.length === 0 && B.n < 1000) spawnCanister(V(rand(-25, 25), 0, rand(-25, 25)), 120);
+  } else {
+    for (const d of drones) { d.t += dt; d.group.position.set(d.pos.x, d.pos.y + Math.sin(d.t * 2.3) * 0.15, d.pos.z); d.ring.rotation.z += dt * 3; }
+  }
+  updateCrates(dt);
+  updateCanisters(dt);
+  updateSparks(dt);
+  if (ringT < 1) {
+    ringT += dt / 0.45;
+    const s = 1 + ringT * 9;
+    ring.scale.set(s, s, s);
+    ring.material.opacity = (1 - ringT) * 0.9;
+    if (ringT >= 1) ring.visible = false;
+  }
+  updateGhost();
+  updateCamera(dt);
+  const hp = hostPos();
+  sun.position.set(hp.x + 30, hp.y + 50, hp.z + 22);
+  sun.target.position.set(hp.x, hp.y, hp.z);
+  sky.position.copy(camera.position);
+  if (!build.on && (lockT -= dt) <= 0) {
+    lockT = 0.12;
+    const a = started ? castAim(surgeT > 0 ? 26 : STRIKE_RANGE, { assist: true }) : null;
+    castLockCache = a && a.kind === 'drone' && a.point.distanceTo(handPos(_v3)) < STRIKE_RANGE ? a : null;
+  }
+  updateHUD(dt);
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (!paused) update(dt);
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(frame);
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+});
+
+// =====================================================================
+//  Menus
+// =====================================================================
+const CONTROLS = isTouch ? [
+  ['Left thumb', 'Move'], ['Right thumb', 'Look around'], ['Strike', 'Swarm fist, reaches 20 m'], ['Grapple', 'Tendril pulls you to a wall or roof'],
+  ['Jump ×2', 'Mid-air bot-spring'], ['Blast', 'Bots burst outward, knocks drones down'], ['Car', 'Bots form a buggy around you'],
+  ['Build', 'Shape bots into ramps, walls, pads'], ['Surge', 'Let the swarm take control'],
+] : [
+  ['WASD', 'Move'], ['Mouse', 'Look'], ['Shift', 'Sprint / boost'], ['Space', 'Jump · again mid-air: bot-spring'],
+  ['Left click', 'Swarm strike (20 m reach)'], ['Right click', 'Grapple tendril'], ['F', 'Swarm blast'],
+  ['E', 'Form or dissolve the buggy'], ['B', 'Build mode: 1–6, R rotate, right-click dismantle'], ['V', 'Surge: the swarm takes control'],
+  ['H / Esc', 'Pause and controls'], ['M', 'Sound on/off'],
+];
+function fillControls(id) {
+  $(id).innerHTML = CONTROLS.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join('');
+}
+fillControls('ctrlList'); fillControls('ctrlList2');
+if (isTouch) $('startFoot').textContent = 'Turn your phone sideways for the best view. Keyboard and mouse also work.';
+$('cross').style.display = 'none';
+
+$('playBtn').addEventListener('click', () => {
+  Sfx.init();
+  started = true;
+  $('start').hidden = true;
+  $('cross').style.display = '';
+  cam.yaw = player.facing; cam.pitch = -0.2;
+  if (!isTouch) requestLock();
+  voice('WE ARE BONDED. NOW MOVE.', 2.2);
+  setTimeout(() => toast('Drones incoming. Strike them, or let the swarm get hungry.'), 2500);
+});
+function pause() {
+  if (!started || paused) return;
+  paused = true;
+  $('pause').hidden = false;
+  for (const k in keys) keys[k] = false;
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function resume() {
+  paused = false;
+  $('pause').hidden = true;
+  last = performance.now();
+  if (!isTouch && lockOK) requestLock();
+}
+$('resumeBtn').addEventListener('click', resume);
+</script>
+</body>
+</html>
