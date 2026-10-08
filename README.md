@@ -1,12 +1,36 @@
 # game-code
 im gonna be creating games
 
-## Symbiote Swarm (`index.html`)
+Open `index.html` to pick a game, or open a game's own `index.html` directly.
+Both games run in Chrome, Edge, Firefox or Safari. They need an internet connection
+the first time to load the Three.js 3D library.
+
+## Sneak Out (`sneak-out/index.html`)
+
+You're grounded and locked in your bedroom. Your friends are at Maple Park until the
+streetlights come on at 8:15. Sneak out the window, grab your bike off the sidewalk,
+and ride two blocks down to the park on the right.
+
+- **The bedroom:** put on your sneakers, stuff pillows under your blanket so Mom thinks
+  you're asleep, then open the window and climb out onto the porch roof (E).
+- **Mom checks on you.** You'll hear footsteps on the stairs first. If you're gone and
+  there's no pillow decoy in your bed, you're busted.
+- **Get down:** drop into the bushes. Landing on the grass is loud and brings Mom sooner.
+- **The ride:** the sidewalk is smooth and safe from cars, but you're not allowed to ride
+  on it. Nosy neighbors who see you get suspicious, and bumping into people walking makes it
+  worse. If the suspicion bar fills up, someone calls your mom. The street has cars instead.
+  Ring your bell (F) so people step aside.
+- **Win:** reach Maya, Theo and Jay at the picnic table before 8:15.
+
+Controls: WASD move/ride, mouse look, E use, Shift run/pedal hard, Space jump/bunny hop,
+F bell, H pause. Phones and tablets get on-screen controls.
+
+## Symbiote Swarm (`symbiote-swarm/index.html`)
 
 A third-person 3D game where a swarm of microbots has bonded to your body, like a symbiote.
 The bots armor you, move you, and can turn into anything.
 
-**How to play:** double-click `index.html` to open it in Chrome, Edge, Firefox or Safari.
+**How to play:** double-click `symbiote-swarm/index.html` to open it in Chrome, Edge, Firefox or Safari.
 (It needs an internet connection the first time to load the Three.js 3D library.)
 
 ### What the swarm can do

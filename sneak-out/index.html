@@ -1,0 +1,1556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Sneak Out</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Patrick+Hand&family=Rubik:wght@400;500;700;800&display=swap">
+<style>
+  /* Layout: full-bleed 3D street; a sticky-note checklist top-left, clock top-center, neighborhood map top-right, prompts bottom-center. */
+  :root {
+    --dusk: #1b1830;
+    --ink: #fdf6ec;
+    --dim: #c9c1d6;
+    --note: #ffe98a;
+    --note-ink: #3a2e14;
+    --sunset: #ff9c5b;
+    --mom: #ff5d6c;
+    --go: #8ff0a4;
+    --panel: rgba(23, 20, 44, 0.72);
+    --hand: "Patrick Hand", "Comic Sans MS", "Segoe Print", cursive;
+    --ui: "Rubik", "Segoe UI", system-ui, sans-serif;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--dusk); color: var(--ink); font-family: var(--ui); }
+  body { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  #game { position: fixed; inset: 0; }
+  #game canvas { display: block; width: 100%; height: 100%; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+
+  #note { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px)); width: 236px; padding: 12px 14px 12px; background: var(--note); color: var(--note-ink); font: 19px/1.12 var(--hand); transform: rotate(-1.2deg); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }
+  #note::before { content: ""; position: absolute; top: -9px; left: 50%; width: 70px; height: 20px; margin-left: -35px; background: rgba(255, 255, 255, 0.45); transform: rotate(2deg); }
+  #note h2 { margin: 0 0 6px; font: 22px/1 var(--hand); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  #note ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+  #note li { position: relative; padding-left: 22px; }
+  #note li::before { content: ""; position: absolute; left: 0; top: 4px; width: 12px; height: 12px; border: 1.5px solid var(--note-ink); border-radius: 2px; }
+  #note li.done { opacity: 0.55; text-decoration: line-through; }
+  #note li.done::before { background: var(--note-ink); }
+  #note li.now { font-weight: bold; color: #000; }
+  #note li small { display: block; font-size: 14px; opacity: 0.75; }
+
+  #clock { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); text-align: center; padding: 8px 16px; background: var(--panel); border-radius: 10px; }
+  #clockT { font: 800 26px/1 var(--ui); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+  #clockS { font: 500 11px/1.3 var(--ui); color: var(--dim); letter-spacing: 0.04em; margin-top: 3px; }
+  #clock.late #clockT { color: var(--sunset); }
+
+  #mapWrap { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); padding: 6px; background: var(--panel); border-radius: 10px; }
+  #map { display: block; width: 220px; height: 144px; border-radius: 6px; }
+  #mapWrap .cap { font: 500 10px var(--ui); color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 2px 0; display: flex; justify-content: space-between; }
+
+  #susp { position: absolute; left: 50%; transform: translateX(-50%); top: calc(76px + env(safe-area-inset-top, 0px)); width: 250px; padding: 8px 10px; background: var(--panel); border-radius: 8px; opacity: 0; transition: opacity 0.3s; }
+  #susp.show { opacity: 1; }
+  #susp .row { display: flex; justify-content: space-between; font: 700 11px var(--ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+  #susp .bar { height: 7px; margin-top: 5px; background: rgba(255, 255, 255, 0.12); border-radius: 4px; overflow: hidden; }
+  #susp .bar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--sunset), var(--mom)); transform-origin: left; transform: scaleX(0); }
+
+  #warn { position: absolute; top: calc(136px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); font: 700 16px var(--ui); color: #fff; background: var(--mom); padding: 8px 16px; border-radius: 999px; opacity: 0; transition: opacity 0.2s; white-space: nowrap; }
+  #warn.show { opacity: 1; animation: throb 0.6s ease-in-out infinite alternate; }
+  @keyframes throb { to { transform: translateX(-50%) scale(1.06); } }
+
+  #toast { position: absolute; left: 50%; top: 40%; transform: translateX(-50%); font: 500 16px/1.35 var(--ui); text-align: center; padding: 9px 16px; background: var(--panel); border-radius: 10px; opacity: 0; transition: opacity 0.25s; max-width: min(560px, calc(100vw - 32px)); }
+  #toast.show { opacity: 1; }
+  #speech { position: absolute; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; background: #fff; color: #1a1630; border-radius: 16px; font: 500 16px/1.35 var(--ui); opacity: 0; transition: opacity 0.2s; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
+  #speech.show { opacity: 1; }
+  #speech b { display: block; font: 800 11px var(--ui); letter-spacing: 0.1em; text-transform: uppercase; color: #8a4fd8; margin-bottom: 2px; }
+  #speech.mom b { color: #d8344a; }
+  #speech.text { background: #2f80ff; color: #fff; border-bottom-left-radius: 4px; }
+  #speech.text b { color: #d7e6ff; }
+  #prompt { position: absolute; left: 50%; bottom: calc(40px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); font: 600 16px var(--ui); padding: 8px 14px; background: var(--panel); border-radius: 10px; white-space: nowrap; }
+  #prompt kbd { font: 800 13px var(--ui); background: var(--ink); color: var(--dusk); padding: 2px 8px; border-radius: 5px; margin-right: 8px; }
+  #speedo { position: absolute; right: calc(16px + env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); text-align: right; font: 800 34px/1 var(--ui); font-variant-numeric: tabular-nums; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); }
+  #speedo small { display: block; font: 600 11px var(--ui); letter-spacing: 0.08em; color: var(--dim); }
+  #speedo .walk { color: var(--sunset); }
+
+  .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: radial-gradient(ellipse at 50% 30%, rgba(27, 24, 48, 0.2), rgba(27, 24, 48, 0.88)); overflow-y: auto; }
+  .card { width: min(620px, 100%); display: grid; gap: 14px; padding: 24px; background: var(--panel); border-radius: 18px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+  .eyebrow { font: 700 12px var(--ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--sunset); }
+  h1 { margin: 0; font: 400 clamp(52px, 13vw, 92px)/0.9 var(--hand); color: var(--note); text-shadow: 3px 3px 0 #c2522b; transform: rotate(-2deg); transform-origin: left; text-wrap: balance; }
+  .lede { margin: 0; font-size: 16px; line-height: 1.55; color: #e9e3f2; max-width: 60ch; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 16px; font-size: 14px; }
+  .controls div { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+  .controls kbd { font: 700 12px var(--ui); padding: 2px 7px; border-radius: 5px; background: rgba(255, 255, 255, 0.12); white-space: nowrap; }
+  .controls span { color: #e1dbec; }
+  .primary { justify-self: start; font: 800 17px var(--ui); color: var(--dusk); background: var(--note); border: 0; padding: 13px 22px; border-radius: 12px; cursor: pointer; box-shadow: 0 4px 0 #c2a43a; }
+  .primary:active { transform: translateY(2px); box-shadow: 0 2px 0 #c2a43a; }
+  .primary:focus-visible, .tb:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .foot { font-size: 12px; color: var(--dim); }
+  #endTitle.lose { color: var(--mom); text-shadow: 3px 3px 0 #5a1622; }
+  #endStats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  #endStats div { background: rgba(255, 255, 255, 0.07); border-radius: 10px; padding: 10px; }
+  #endStats b { display: block; font: 800 22px var(--ui); font-variant-numeric: tabular-nums; }
+  #endStats span { font-size: 12px; color: var(--dim); }
+
+  #touch { position: fixed; inset: 0; pointer-events: none; }
+  #lookZone { position: absolute; top: 0; right: 0; width: 60%; height: 100%; pointer-events: auto; }
+  #stickZone { position: absolute; left: 0; bottom: 0; width: 40%; height: 60%; pointer-events: auto; }
+  #stickBase { position: absolute; width: 110px; height: 110px; margin: -55px 0 0 -55px; border: 2px solid rgba(255, 255, 255, 0.35); border-radius: 50%; background: rgba(23, 20, 44, 0.3); left: 90px; top: calc(100% - 110px); }
+  #stickKnob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(255, 233, 138, 0.6); }
+  .tcluster { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(60px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(2, 68px); gap: 8px; pointer-events: auto; }
+  .tb { font: 800 12px/1.1 var(--ui); color: var(--ink); background: rgba(23, 20, 44, 0.6); border: 2px solid rgba(255, 255, 255, 0.3); border-radius: 14px; height: 60px; touch-action: none; }
+  .tb.use { background: rgba(255, 233, 138, 0.85); color: var(--dusk); border-color: var(--note); }
+  .tb.down { background: rgba(255, 255, 255, 0.35); }
+  #err { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; background: var(--dusk); font: 500 16px var(--ui); }
+
+  @media (max-width: 760px) {
+    #note { width: 168px; font-size: 15px; padding: 9px 10px; }
+    #note h2 { font-size: 17px; }
+    #note li small { display: none; }
+    #map { width: 150px; height: 98px; }
+    #clock { top: auto; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); left: 50%; padding: 5px 12px; }
+    #clockT { font-size: 20px; }
+    #susp { width: 200px; top: calc(12px + env(safe-area-inset-top, 0px)); }
+    #warn { top: calc(70px + env(safe-area-inset-top, 0px)); }
+    #speedo { display: none; }
+    #prompt { bottom: calc(70px + env(safe-area-inset-bottom, 0px)); font-size: 14px; }
+    #speech { bottom: calc(120px + env(safe-area-inset-bottom, 0px)); font-size: 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) { #warn.show { animation: none; } }
+</style>
+</head>
+<body>
+<div id="game"></div>
+<div id="hud">
+  <div id="note"><h2>Escape plan</h2><ol id="plan"></ol></div>
+  <div id="clock"><div id="clockT">7:42 PM</div><div id="clockS">Streetlights come on at 8:15</div></div>
+  <div id="mapWrap"><canvas id="map" width="440" height="288"></canvas><div class="cap"><span>Elm Street</span><span>N ↑</span></div></div>
+  <div id="susp"><div class="row"><span>Nosy neighbors</span><span id="suspWho"></span></div><div class="bar"><i id="suspFill"></i></div></div>
+  <div id="warn">Footsteps on the stairs…</div>
+  <div id="toast"></div>
+  <div id="speech"><b id="speechWho"></b><span id="speechText"></span></div>
+  <div id="prompt" hidden></div>
+  <div id="speedo" hidden><span id="speedN">0</span><small id="speedL">KM/H</small></div>
+</div>
+
+<div id="touch" hidden>
+  <div id="lookZone"></div>
+  <div id="stickZone"><div id="stickBase"><div id="stickKnob"></div></div></div>
+  <div class="tcluster">
+    <button class="tb" data-act="bell" id="tbBell">Bell</button>
+    <button class="tb use" data-act="use" id="tbUse">Use</button>
+    <button class="tb" data-act="sprint" id="tbSprint">Run</button>
+    <button class="tb" data-act="jump" id="tbJump">Jump</button>
+  </div>
+</div>
+
+<div id="start" class="overlay">
+  <div class="card">
+    <div class="eyebrow">Friday · 7:42 PM · grounded</div>
+    <h1>Sneak Out</h1>
+    <p class="lede">You're grounded. Again. Your door is locked and Mom is downstairs. But Maya, Theo and Jay are at Maple Park until the streetlights come on, your bike is leaning on the sidewalk out front, and your window isn't locked.</p>
+    <div class="controls" id="ctrlList"></div>
+    <button class="primary" id="playBtn">Start sneaking</button>
+    <div class="foot" id="startFoot">Best with keyboard and mouse. Touch controls appear on phones and tablets.</div>
+  </div>
+</div>
+<div id="pause" class="overlay" hidden>
+  <div class="card">
+    <div class="eyebrow">Paused</div>
+    <div class="controls" id="ctrlList2"></div>
+    <button class="primary" id="resumeBtn">Keep going</button>
+  </div>
+</div>
+<div id="end" class="overlay" hidden>
+  <div class="card">
+    <div class="eyebrow" id="endEyebrow"></div>
+    <h1 id="endTitle"></h1>
+    <p class="lede" id="endText"></p>
+    <div id="endStats"></div>
+    <button class="primary" id="againBtn">Play again</button>
+  </div>
+</div>
+<div id="err" hidden>Your browser couldn't start WebGL, which this game needs. Try a recent Chrome, Edge, Firefox or Safari.</div>
+
+<script type="module">
+import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+
+// =====================================================================
+//  Basics
+// =====================================================================
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const rand = (a, b) => a + Math.random() * (b - a);
+const damp = (rate, dt) => 1 - Math.exp(-rate * dt);
+const V = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+function angLerp(a, b, t) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+const isTouch = matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
+
+const G = 24, STEP = 0.4, SNAP = 0.3;
+const LIMIT = 330;              // seconds until the streetlights come on (7:42 → 8:15)
+const CROSS = [-35, -105];      // x of the two cross streets
+const BOUNDS = { x0: -192, x1: 68, z0: -78, z1: 78 };
+const ROOM = { x0: -5.6, x1: -0.6, z0: -24.6, z1: -20.2, floor: 3 };
+const PARK = { x0: -185, x1: -112.5, z0: -60, z1: -6.5 };
+const FRIENDS_AT = new THREE.Vector3(-148, 0, -34);
+
+// =====================================================================
+//  Renderer, sky, light
+// =====================================================================
+let renderer;
+try { renderer = new THREE.WebGLRenderer({ antialias: !isTouch, powerPreference: 'high-performance' }); }
+catch (e) { $('err').hidden = false; throw e; }
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isTouch ? 1.5 : 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+$('game').appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.08, 700);
+
+const SKY = {
+  early: { top: new THREE.Color(0x3b5c9e), mid: new THREE.Color(0xf6a77a), low: new THREE.Color(0xffc27a) },
+  late: { top: new THREE.Color(0x0e1236), mid: new THREE.Color(0x4a3466), low: new THREE.Color(0xd06a5c) },
+};
+const skyU = { top: { value: new THREE.Color() }, mid: { value: new THREE.Color() }, low: { value: new THREE.Color() }, sunDir: { value: V(0, 0.2, -1).normalize() }, sunCol: { value: new THREE.Color(1, 0.75, 0.45) } };
+const sky = new THREE.Mesh(new THREE.SphereGeometry(500, 32, 16), new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, uniforms: skyU,
+  vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: `uniform vec3 top; uniform vec3 mid; uniform vec3 low; uniform vec3 sunDir; uniform vec3 sunCol; varying vec3 vP;
+    void main(){ float h = vP.y; vec3 c = mix(mid, top, smoothstep(0.0, 0.6, h));
+      c = mix(c, low, smoothstep(0.25, 0.0, abs(h - 0.02)) * 0.8);
+      float s = max(dot(normalize(vP), sunDir), 0.0);
+      c += sunCol * (pow(s, 900.0) * 4.0 + pow(s, 10.0) * 0.35);
+      gl_FragColor = vec4(c, 1.0);
+      #include <colorspace_fragment>
+    }`,
+}));
+scene.add(sky);
+scene.fog = new THREE.Fog(0xe0a080, 70, 260);
+const hemi = new THREE.HemisphereLight(0xbcc8ff, 0x5b4a3a, 0.9);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffc28a, 2.6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(isTouch ? 1024 : 2048, isTouch ? 1024 : 2048);
+Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 32, bottom: -32, near: 1, far: 200 });
+sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+
+// =====================================================================
+//  Textures and helpers
+// =====================================================================
+function canvasTex(w, h, draw, srgb = true) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+  return t;
+}
+const noise = (g, w, h, n, a, col = '255,255,255') => { for (let i = 0; i < n; i++) { g.fillStyle = `rgba(${col},${Math.random() * a})`; g.fillRect(Math.random() * w, Math.random() * h, 2, 2); } };
+function boxGeoUV(w, h, d, unit = 1) {
+  const g = new THREE.BoxGeometry(w, h, d), uv = g.attributes.uv;
+  const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+  for (let f = 0; f < 6; f++) for (let v = 0; v < 4; v++) { const i = f * 4 + v; uv.setXY(i, uv.getX(i) * dims[f][0] / unit, uv.getY(i) * dims[f][1] / unit); }
+  return g;
+}
+const std = (color, roughness = 0.8, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness, ...extra });
+
+const grassTex = canvasTex(256, 256, (g, w, h) => { g.fillStyle = '#5d8a3c'; g.fillRect(0, 0, w, h); noise(g, w, h, 5000, 0.12, '20,40,10'); noise(g, w, h, 2500, 0.1, '200,230,120'); });
+grassTex.repeat.set(120, 120);
+const asphaltTex = (vertical) => canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#3b3d44'; g.fillRect(0, 0, w, h); noise(g, w, h, 6000, 0.08); noise(g, w, h, 2000, 0.15, '0,0,0');
+  g.fillStyle = '#f2c94c';
+  if (vertical) { g.fillRect(w / 2 - 4, 0, 8, h * 0.5); } else { g.fillRect(0, h / 2 - 4, w * 0.5, 8); }
+});
+const concreteTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#b9b5ad'; g.fillRect(0, 0, w, h); noise(g, w, h, 4000, 0.08, '0,0,0'); noise(g, w, h, 1500, 0.1);
+  g.strokeStyle = 'rgba(60,55,50,0.45)'; g.lineWidth = 3; g.strokeRect(0, 0, w, h);
+});
+const sidingTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y += 16) { g.fillStyle = 'rgba(0,0,0,0.13)'; g.fillRect(0, y + 13, w, 3); g.fillStyle = 'rgba(255,255,255,0.4)'; g.fillRect(0, y, w, 2); }
+});
+const shingleTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#5a4a48'; g.fillRect(0, 0, w, h);
+  for (let y = 0; y < h; y += 20) for (let x = (y / 20) % 2 ? -16 : 0; x < w; x += 32) {
+    g.fillStyle = `hsl(10, 10%, ${22 + Math.random() * 10}%)`; g.fillRect(x + 1, y + 1, 30, 18);
+  }
+});
+const floorTex = canvasTex(256, 256, (g, w, h) => {
+  for (let y = 0; y < h; y += 32) { g.fillStyle = `hsl(28, 45%, ${44 + Math.random() * 10}%)`; g.fillRect(0, y, w, 32); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, y, w, 2); g.fillRect(((y * 7) % w), y, 2, 32); }
+  noise(g, w, h, 1500, 0.08, '60,30,10');
+});
+const wallTex = canvasTex(256, 256, (g, w, h) => {
+  g.fillStyle = '#b9d4e8'; g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(255,255,255,0.35)';
+  for (let y = 16; y < h; y += 48) for (let x = 16; x < w; x += 48) { g.beginPath(); g.arc(x + ((y / 48) % 2) * 24, y, 4, 0, 7); g.fill(); }
+});
+function houseFrontTex() {
+  return canvasTex(512, 256, (g, w, h) => {
+    g.drawImage(sidingTex.image, 0, 0, w, h / 2); g.drawImage(sidingTex.image, 0, h / 2, w, h / 2);
+    const win = (x, y, ww, hh) => { g.fillStyle = '#ffffff'; g.fillRect(x - 5, y - 5, ww + 10, hh + 10); g.fillStyle = '#2a3550'; g.fillRect(x, y, ww, hh); g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(x, y, ww / 2, hh); g.fillStyle = '#ffffff'; g.fillRect(x + ww / 2 - 2, y, 4, hh); };
+    win(40, 30, 80, 70); win(390, 30, 80, 70); win(215, 30, 80, 70); win(40, 150, 90, 70); win(380, 150, 90, 70);
+    g.fillStyle = '#ffffff'; g.fillRect(220, 140, 72, 116); g.fillStyle = '#7a3b2e'; g.fillRect(228, 148, 56, 108); g.fillStyle = '#e8c35a'; g.fillRect(270, 200, 6, 6);
+  });
+}
+function houseSideTex() {
+  return canvasTex(512, 256, (g, w, h) => {
+    g.drawImage(sidingTex.image, 0, 0, w, h / 2); g.drawImage(sidingTex.image, 0, h / 2, w, h / 2);
+    for (const [x, y] of [[90, 40], [330, 40], [90, 160], [330, 160]]) { g.fillStyle = '#fff'; g.fillRect(x - 5, y - 5, 90, 70); g.fillStyle = '#2a3550'; g.fillRect(x, y, 80, 60); }
+  });
+}
+const houseFront = houseFrontTex(), houseSide = houseSideTex();
+function textTex(text, w, h, bg, fg, font) {
+  return canvasTex(w, h, (g) => { g.fillStyle = bg; g.fillRect(0, 0, w, h); g.fillStyle = fg; g.font = font; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, w / 2, h / 2 + 2); });
+}
+
+// =====================================================================
+//  World geometry + collisions
+// =====================================================================
+const colliders = [];
+const camMeshes = [];
+const sidewalks = [];  // rects used to tell when you're riding where you're not allowed
+const roads = [];
+function addBoxCollider(cx, bottom, cz, sx, sy, sz, extra = {}) {
+  const c = { min: V(cx - sx / 2, bottom, cz - sz / 2), max: V(cx + sx / 2, bottom + sy, cz + sz / 2), ...extra };
+  colliders.push(c); return c;
+}
+function box(w, h, d, mat, x, y, z, o = {}) {
+  const m = new THREE.Mesh(o.unit ? boxGeoUV(w, h, d, o.unit) : new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y + h / 2, z);
+  m.castShadow = o.cast !== false; m.receiveShadow = true;
+  (o.parent || scene).add(m);
+  if (o.collide) m.userData.col = addBoxCollider(x, y, z, w, h, d, { soft: !!o.soft });
+  if (o.cam) camMeshes.push(m);
+  return m;
+}
+function plane(w, d, mat, x, y, z, rotY = 0) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
+  m.rotation.set(-Math.PI / 2, 0, rotY); m.position.set(x, y, z); m.receiveShadow = true;
+  scene.add(m); return m;
+}
+let supportC = null;
+function supportHeight(x, z, footY, r) {
+  let best = 0; supportC = null; const m = r * 0.5;
+  for (const c of colliders) {
+    if (x + m < c.min.x || x - m > c.max.x || z + m < c.min.z || z - m > c.max.z) continue;
+    const top = c.max.y;
+    if (top <= footY + STEP && top > best) { best = top; supportC = c; }
+  }
+  return best;
+}
+const pushN = { x: 0, z: 0 };
+function pushOut(pos, r, footY, height) {
+  let hit = false; pushN.x = pushN.z = 0;
+  for (const c of colliders) {
+    if (c.max.y <= footY + STEP || c.min.y >= footY + height) continue;
+    if (pos.x < c.min.x - r || pos.x > c.max.x + r || pos.z < c.min.z - r || pos.z > c.max.z + r) continue;
+    const qx = clamp(pos.x, c.min.x, c.max.x), qz = clamp(pos.z, c.min.z, c.max.z);
+    let dx = pos.x - qx, dz = pos.z - qz; const d2 = dx * dx + dz * dz;
+    if (d2 >= r * r) continue;
+    hit = true;
+    if (d2 > 1e-10) { const d = Math.sqrt(d2); dx /= d; dz /= d; pos.x = qx + dx * r; pos.z = qz + dz * r; pushN.x += dx; pushN.z += dz; }
+    else {
+      const pl = pos.x - c.min.x, pr = c.max.x - pos.x, pb = pos.z - c.min.z, pf = c.max.z - pos.z, mn = Math.min(pl, pr, pb, pf);
+      if (mn === pl) { pos.x = c.min.x - r; pushN.x -= 1; } else if (mn === pr) { pos.x = c.max.x + r; pushN.x += 1; }
+      else if (mn === pb) { pos.z = c.min.z - r; pushN.z -= 1; } else { pos.z = c.max.z + r; pushN.z += 1; }
+    }
+  }
+  return hit;
+}
+function moveBody(pos, vel, dt, r, height, st) {
+  pos.x += vel.x * dt; pos.z += vel.z * dt;
+  st.hitSpeed = 0;
+  let hit = false;
+  if (pushOut(pos, r, pos.y, height)) {
+    hit = true;
+    const nl = Math.hypot(pushN.x, pushN.z);
+    if (nl > 0) { const nx = pushN.x / nl, nz = pushN.z / nl, dot = vel.x * nx + vel.z * nz; if (dot < 0) { vel.x -= dot * nx; vel.z -= dot * nz; st.hitSpeed = -dot; } }
+  }
+  pos.x = clamp(pos.x, BOUNDS.x0, BOUNDS.x1); pos.z = clamp(pos.z, BOUNDS.z0, BOUNDS.z1);
+  const prevY = pos.y;
+  vel.y -= G * dt; pos.y += vel.y * dt;
+  const sup = supportHeight(pos.x, pos.z, Math.max(prevY, pos.y), r);
+  st.supportC = supportC; st.landed = 0;
+  if (pos.y <= sup) {
+    if (!st.onGround) st.landed = -vel.y;
+    pos.y = sup; vel.y = 0; st.onGround = true;  // flat world: stepping up a curb must not launch you
+  } else if (st.onGround && vel.y <= 0.5 && pos.y - sup < SNAP) { pos.y = sup; vel.y = 0; }
+  else st.onGround = false;
+  return hit;
+}
+const inRect = (r, x, z) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+const onSidewalk = (x, z) => sidewalks.some((r) => inRect(r, x, z));
+const onRoad = (x, z) => roads.some((r) => inRect(r, x, z));
+
+// --- ground, roads, sidewalks
+plane(640, 640, std(0xffffff, 0.95, { map: grassTex }), -60, 0, 0);
+function road(x0, x1, z0, z1, vertical, y) {
+  const t = asphaltTex(vertical);
+  if (vertical) t.repeat.set(1, (z1 - z0) / 8); else t.repeat.set((x1 - x0) / 8, 1);
+  plane(x1 - x0, z1 - z0, std(0xffffff, 0.9, { map: t }), (x0 + x1) / 2, y, (z0 + z1) / 2);
+  roads.push({ x0, x1, z0, z1 });
+}
+road(-200, 80, -4, 4, false, 0.02);
+for (const c of CROSS) { road(c - 5, c + 5, -90, -4, true, 0.015); road(c - 5, c + 5, 4, 90, true, 0.015); }
+const zebra = std(0xf4f1ea, 0.7);
+for (const c of CROSS) for (const side of [-1, 1]) for (let k = 0; k < 6; k++) {
+  plane(1.7, 0.55, zebra, c + side * 6.2 - side * 0.0, 0.03, -3.2 + k * 1.3);
+}
+const walkMat = std(0xffffff, 0.85, { map: concreteTex });
+function sidewalk(x0, x1, z0, z1) {
+  box(x1 - x0, 0.15, z1 - z0, walkMat, (x0 + x1) / 2, 0, (z0 + z1) / 2, { collide: true, unit: 1.6, cast: false });
+  sidewalks.push({ x0, x1, z0, z1 });
+}
+{
+  const segs = [[-200, CROSS[1] - 5], [CROSS[1] + 5, CROSS[0] - 5], [CROSS[0] + 5, 80]];
+  for (const [a, b] of segs) { sidewalk(a, b, -6.5, -4); sidewalk(a, b, 4, 6.5); }
+  for (const c of CROSS) for (const [a, b] of [[-90, -6.5], [6.5, 90]]) { sidewalk(c - 7.5, c - 5, a, b); sidewalk(c + 5, c + 7.5, a, b); }
+}
+
+// --- houses
+const windowGlow = [];  // emissive window panes that light up as it gets dark
+function gableRoof(w, d, h, mat) {
+  const s = new THREE.Shape();
+  s.moveTo(-d / 2 - 0.5, 0); s.lineTo(d / 2 + 0.5, 0); s.lineTo(0, h); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: w + 0.8, bevelEnabled: false });
+  g.translate(0, 0, -(w + 0.8) / 2); g.rotateY(Math.PI / 2);
+  const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 3, uv.getY(i) / 3);
+  const m = new THREE.Mesh(g, mat); m.castShadow = true; m.receiveShadow = true;
+  return m;
+}
+const roofMat = std(0xffffff, 0.9, { map: shingleTex });
+const HOUSE_COLORS = [0xb7d3e8, 0xf1d9a7, 0xd7e8c2, 0xe8c4c4, 0xd9cfe8, 0xf3efe6, 0xc9dfe0];
+function neighborHouse(cx, side, color) {
+  const w = 12, d = 10, h = 6, frontZ = side * 20, cz = frontZ + side * d / 2;
+  const sm = std(color, 0.85, { map: houseSide }), fm = std(color, 0.85, { map: houseFront });
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [sm, sm, sm, sm, fm, sm]);
+  m.position.set(cx, h / 2, cz); m.rotation.y = side < 0 ? 0 : Math.PI; m.castShadow = m.receiveShadow = true;
+  scene.add(m); camMeshes.push(m);
+  addBoxCollider(cx, 0, cz, w, h, d);
+  const r = gableRoof(w, d, 2.6, roofMat); r.position.set(cx, h, cz); scene.add(r); camMeshes.push(r);
+  // glowing windows (two upstairs) for when it gets dark
+  for (const x of [-3.9, 3.9]) {
+    const p = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.4), new THREE.MeshBasicMaterial({ color: 0xffc77a, transparent: true, opacity: 0 }));
+    p.position.set(cx + (side < 0 ? x : -x), 4.55, frontZ + (side < 0 ? 0.02 : -0.02)); p.rotation.y = side < 0 ? 0 : Math.PI;
+    scene.add(p); windowGlow.push(p);
+  }
+  plane(3.4, Math.abs(frontZ) - 6.5, std(0xc9c4ba, 0.85, { map: concreteTex }), cx + (side < 0 ? 4.2 : -4.2), 0.012, side * (6.5 + (Math.abs(frontZ) - 6.5) / 2));
+  plane(1.4, Math.abs(frontZ) - 6.5, std(0xc9c4ba, 0.85), cx, 0.011, side * (6.5 + (Math.abs(frontZ) - 6.5) / 2));
+  mailbox(cx - (side < 0 ? 2.2 : -2.2), side * 7.1);
+  tree(cx + (side < 0 ? -4 : 4), side * 12.5, rand(0.9, 1.25));
+}
+const mailMat = std(0x2c3e66, 0.5, { metalness: 0.4 }), postMat = std(0x6b4a2e, 0.9);
+function mailbox(x, z, num) {
+  box(0.12, 1.0, 0.12, postMat, x, 0, z, { collide: true });
+  const b = box(0.26, 0.24, 0.48, mailMat, x, 1.0, z);
+  if (num) {
+    const t = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.2), new THREE.MeshBasicMaterial({ map: textTex(num, 128, 64, '#ffffff', '#1a1630', 'bold 48px Rubik, sans-serif') }));
+    t.position.set(x + 0.14, 1.12, z); t.rotation.y = Math.PI / 2; scene.add(t);
+  }
+  return b;
+}
+const trunkMat = std(0x6b4a32, 0.95), leafMats = [std(0x4f7d32, 0.9), std(0x5f8f3a, 0.9), std(0x3f6b2c, 0.9)];
+const leafGeo = new THREE.IcosahedronGeometry(1, 1);
+function tree(x, z, s = 1) {
+  box(0.35 * s, 2.4 * s, 0.35 * s, trunkMat, x, 0, z, { collide: true });
+  const n = 3;
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Mesh(leafGeo, leafMats[(Math.random() * 3) | 0]);
+    m.scale.setScalar(s * rand(1.1, 1.6));
+    m.position.set(x + rand(-0.7, 0.7) * s, (2.6 + rand(0, 1.4)) * s, z + rand(-0.7, 0.7) * s);
+    m.castShadow = true; scene.add(m);
+  }
+}
+const hedgeMat = std(0x3f6b2c, 0.95);
+const picketTex = canvasTex(256, 64, (g, w, h) => {
+  g.clearRect(0, 0, w, h); g.fillStyle = '#f6f3ec';
+  for (let x = 4; x < w; x += 22) { g.beginPath(); g.moveTo(x, h); g.lineTo(x, 10); g.lineTo(x + 7, 2); g.lineTo(x + 14, 10); g.lineTo(x + 14, h); g.fill(); }
+  g.fillRect(0, 18, w, 6); g.fillRect(0, 46, w, 6);
+});
+function picket(x0, z0, x1, z1) {
+  const len = Math.hypot(x1 - x0, z1 - z0), t = picketTex.clone(); t.needsUpdate = true; t.repeat.set(len / 2.4, 1);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.95), new THREE.MeshStandardMaterial({ map: t, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.8 }));
+  m.position.set((x0 + x1) / 2, 0.475, (z0 + z1) / 2); m.rotation.y = -Math.atan2(z1 - z0, x1 - x0); m.castShadow = true; scene.add(m);
+  const horiz = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+  addBoxCollider((x0 + x1) / 2, 0, (z0 + z1) / 2, horiz ? len : 0.12, 0.95, horiz ? 0.12 : len);
+}
+
+// --- Our house, with a real bedroom upstairs
+const ourSiding = std(0xf1d9a7, 0.85, { map: sidingTex });
+{
+  const H = { cam: true, collide: true, unit: 2 };
+  box(12, 3, 10, ourSiding, 0, 0, -25, H);                  // ground floor (its top is the bedroom floor)
+  box(6.6, 3, 10, ourSiding, 2.7, 3, -25, H);               // upstairs east half
+  box(5.4, 3, 5.4, ourSiding, -3.3, 3, -27.3, H);           // upstairs behind the bedroom
+  box(0.4, 3, 4.6, ourSiding, -5.8, 3, -22.3, H);           // bedroom west wall
+  box(5.0, 0.3, 4.6, ourSiding, -3.1, 5.7, -22.3, H);       // bedroom ceiling
+  // front wall with the window hole (window x -3.7..-2.5, y 3.9..5.0)
+  box(2.3, 3, 0.2, ourSiding, -4.85, 3, -20.1, H);
+  box(1.9, 3, 0.2, ourSiding, -1.55, 3, -20.1, H);
+  box(1.2, 0.9, 0.2, ourSiding, -3.1, 3, -20.1, H);
+  box(1.2, 1.0, 0.2, ourSiding, -3.1, 5.0, -20.1, H);
+  const r = gableRoof(12, 10, 2.8, roofMat); r.position.set(0, 6, -25); scene.add(r); camMeshes.push(r);
+  // porch roof under the bedroom window, posts, front door
+  box(8.4, 0.25, 3.6, roofMat, -2.5, 2.75, -18.2, { collide: true, cam: true });
+  for (const x of [-6.4, 1.4]) box(0.22, 2.75, 0.22, std(0xf6f3ec, 0.6), x, 0, -16.6, { collide: true });
+  box(1.1, 2.1, 0.08, std(0x7a3b2e, 0.7), -0.9, 0, -19.98);
+  box(1.9, 0.2, 1.4, walkMat, -0.9, 0, -19.3, { collide: true, cast: false });
+  // exterior windows
+  const frame = std(0xffffff, 0.6), glass = std(0x2a3550, 0.2, { metalness: 0.3 });
+  for (const [x, y] of [[3.6, 1.0], [3.6, 3.9], [-4.6, 1.0]]) {
+    box(1.4, 1.3, 0.06, frame, x, y, -19.97, { cast: false });
+    const gl = box(1.2, 1.1, 0.06, glass, x, y + 0.1, -19.95, { cast: false });
+    windowGlow.push(gl);
+  }
+  // bushes along the porch: a soft landing
+  for (const x of [-5.6, -4.2, -2.8, -1.4]) {
+    const b = new THREE.Mesh(leafGeo, hedgeMat); b.scale.set(0.8, 0.6, 0.75); b.position.set(x, 0.55, -15.6); b.castShadow = true; scene.add(b);
+    addBoxCollider(x, 0, -15.6, 1.3, 0.95, 1.2, { soft: true });
+  }
+  // trellis up to the porch roof, for climbing back up
+  const tm = std(0xf6f3ec, 0.7);
+  for (let k = 0; k < 5; k++) box(0.05, 2.9, 0.05, tm, 1.95 + k * 0.18, 0, -19.9, { cast: false });
+  for (let k = 0; k < 7; k++) box(0.8, 0.05, 0.05, tm, 2.3, 0.3 + k * 0.42, -19.88, { cast: false });
+  // yard
+  plane(3.4, 13.5, std(0xc9c4ba, 0.85, { map: concreteTex }), 4.2, 0.012, -13.25);
+  plane(1.4, 3.1, std(0xc9c4ba, 0.85), -0.9, 0.011, -18.1 + 1.6);
+  picket(-10, -7.2, -10, -20); picket(10, -7.2, 10, -20);
+  mailbox(-2.2, -7.1, '12');
+  tree(-8, -11, 1.15);
+}
+
+// bedroom interior
+const room = new THREE.Group(); scene.add(room);
+{
+  const wallM = std(0xffffff, 0.9, { map: wallTex });
+  const fl = new THREE.Mesh(boxGeoUV(5.0, 0.02, 4.4, 1.2), std(0xffffff, 0.75, { map: floorTex }));
+  fl.position.set(-3.1, 3.0, -22.4); fl.receiveShadow = true; room.add(fl);
+  const wall = (w, h, x, y, z, ry) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallM); m.position.set(x, y, z); m.rotation.y = ry; m.receiveShadow = true; room.add(m); };
+  wall(4.4, 2.7, -5.59, 4.35, -22.4, Math.PI / 2);
+  wall(4.4, 2.7, -0.61, 4.35, -22.4, -Math.PI / 2);
+  wall(5.0, 2.7, -3.1, 4.35, -24.59, 0);
+  { // front wall, with a hole for the window
+    const s = new THREE.Shape(); s.moveTo(-2.5, -1.35); s.lineTo(2.5, -1.35); s.lineTo(2.5, 1.35); s.lineTo(-2.5, 1.35); s.closePath();
+    const hole = new THREE.Path(); hole.moveTo(-0.6, -0.45); hole.lineTo(0.6, -0.45); hole.lineTo(0.6, 0.65); hole.lineTo(-0.6, 0.65); hole.closePath(); s.holes.push(hole);
+    const g = new THREE.ShapeGeometry(s); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) / 2.5, uv.getY(i) / 2.5);
+    const m = new THREE.Mesh(g, wallM); m.position.set(-3.1, 4.35, -20.21); m.rotation.y = Math.PI; m.receiveShadow = true; room.add(m);
+  }
+  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(5, 4.4), std(0xf4f1ea, 0.9)); ceil.rotation.x = Math.PI / 2; ceil.position.set(-3.1, 5.69, -22.4); room.add(ceil);
+  const rug = new THREE.Mesh(new THREE.CircleGeometry(1.1, 32), std(0x8a5cc4, 1)); rug.rotation.x = -Math.PI / 2; rug.position.set(-3.0, 3.015, -22.4); rug.receiveShadow = true; room.add(rug);
+}
+const R = { cam: false, collide: true, parent: room };
+// bed
+box(1.05, 0.35, 2.1, std(0x6b4a32, 0.8), -5.05, 3, -23.45, R);
+box(1.0, 0.18, 2.0, std(0xf4f1ea, 0.9), -5.05, 3.35, -23.45, { parent: room });
+const blanket = box(1.04, 0.08, 1.45, std(0x2f80ff, 0.9), -5.05, 3.5, -23.15, { parent: room });
+box(0.7, 0.12, 0.38, std(0xffffff, 0.9), -5.05, 3.53, -24.2, { parent: room });
+box(1.05, 0.9, 0.08, std(0x6b4a32, 0.8), -5.05, 3, -24.5, { parent: room });
+const decoy = new THREE.Group();
+{
+  const lump = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 10), std(0x2f80ff, 0.9));
+  lump.scale.set(0.75, 0.38, 1.35); lump.position.set(-5.05, 3.55, -23.1); lump.castShadow = true;
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 8), std(0x2b1d14, 0.95)); hair.scale.set(1, 0.7, 1); hair.position.set(-5.05, 3.62, -24.0);
+  decoy.add(lump, hair); decoy.visible = false; room.add(decoy);
+}
+// desk, computer, lamp, chair
+box(1.35, 0.06, 0.65, std(0xd9b38c, 0.7), -0.95, 3.72, -22.7, { parent: room });
+box(0.06, 0.72, 0.6, std(0xd9b38c, 0.7), -0.95, 3.0, -23.3, { parent: room, collide: true });
+box(0.06, 0.72, 0.6, std(0xd9b38c, 0.7), -0.95, 3.0, -22.1, { parent: room, collide: true });
+addBoxCollider(-0.95, 3, -22.7, 0.65, 0.78, 1.35);
+box(0.05, 0.4, 0.6, std(0x1d1f26, 0.4), -0.75, 3.85, -22.7, { parent: room });
+const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.54, 0.34), new THREE.MeshBasicMaterial({ map: textTex('MAPLE PARK??', 256, 160, '#2f80ff', '#ffffff', 'bold 30px Rubik, sans-serif'), toneMapped: false }));
+screen.position.set(-0.78, 4.05, -22.7); screen.rotation.y = -Math.PI / 2; room.add(screen);
+box(0.08, 0.4, 0.08, std(0x1d1f26), -0.75, 3.78, -23.2, { parent: room });
+const lampShade = box(0.22, 0.16, 0.22, new THREE.MeshStandardMaterial({ color: 0xffe2a8, emissive: 0xffc26a, emissiveIntensity: 1.2 }), -0.75, 4.16, -23.2, { parent: room });
+const lamp = new THREE.PointLight(0xffc98a, 7, 7, 1.6); lamp.position.set(-0.9, 4.4, -23.1); room.add(lamp);
+box(0.5, 0.45, 0.5, std(0x2f80ff, 0.6), -1.7, 3, -22.7, { parent: room, collide: true });
+box(0.5, 0.5, 0.08, std(0x2f80ff, 0.6), -1.92, 3.45, -22.7, { parent: room });
+// closet, dresser, door, posters
+camMeshes.push(box(1.6, 2.1, 0.6, std(0xe8dcc8, 0.8), -3.5, 3, -24.3, R));
+box(0.02, 1.9, 0.02, std(0x8a7a60), -3.5, 3.1, -23.99, { parent: room });
+camMeshes.push(box(0.5, 0.9, 1.0, std(0xa0704a, 0.8), -0.85, 3, -20.95, R));
+const door = new THREE.Group(); door.position.set(-2.05, 3, -24.55); room.add(door);
+box(0.9, 2.1, 0.05, std(0xf6f3ec, 0.7), 0.45, 0, 0, { parent: door });
+box(0.08, 0.08, 0.06, std(0xd4b44a, 0.3, { metalness: 0.7 }), 0.8, 1.0, 0.04, { parent: door });
+const hall = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 2.1), new THREE.MeshBasicMaterial({ color: 0xffd9a0 }));
+hall.position.set(-1.6, 4.05, -24.585); room.add(hall);
+function poster(text, sub, bg, fg, x, y, z, ry, w = 0.7, h = 0.95) {
+  const t = canvasTex(256, 352, (g, W, H) => {
+    g.fillStyle = bg; g.fillRect(0, 0, W, H); g.fillStyle = fg; g.textAlign = 'center';
+    g.font = 'bold 44px Rubik, sans-serif'; g.fillText(text, W / 2, H * 0.42); g.font = '22px Rubik, sans-serif'; g.fillText(sub, W / 2, H * 0.58);
+    g.strokeStyle = fg; g.lineWidth = 6; g.strokeRect(14, 14, W - 28, H - 28);
+  });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), std(0xffffff, 0.8, { map: t })); m.position.set(x, y, z); m.rotation.y = ry; room.add(m);
+}
+poster('SKATE', 'or die trying', '#ff5d6c', '#fff6e0', -5.58, 4.4, -22.2, Math.PI / 2);
+poster('MARS', 'next stop', '#1a1630', '#ff9c5b', -0.62, 4.5, -21.6, -Math.PI / 2);
+poster('GROUNDED', 'until further notice', '#fff6e0', '#d8344a', -4.6, 4.5, -24.58, 0, 0.8, 0.6);
+// the window
+const sash = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.6), new THREE.MeshStandardMaterial({ color: 0xbfe0ff, transparent: true, opacity: 0.3, roughness: 0.05, metalness: 0.2 }));
+sash.position.set(-3.1, 4.2, -20.12); room.add(sash);
+const sashFrame = box(1.2, 0.05, 0.06, std(0xffffff, 0.6), -3.1, 4.47, -20.1, { parent: room });
+const windowCol = addBoxCollider(-3.1, 3.9, -20.1, 1.2, 1.1, 0.2);
+for (const x of [-3.95, -2.25]) box(0.45, 1.6, 0.05, std(0xff9c5b, 1), x, 3.75, -20.3, { parent: room, cast: false });
+
+// --- neighbor houses, street trees, parked cars, streetlights
+[[52, -1], [27, -1], [-19, -1], [-55, -1], [-82, -1], [52, 1], [27, 1], [0, 1], [-19, 1], [-55, 1], [-82, 1], [-125, 1], [-150, 1], [-175, 1]]
+  .forEach(([x, s], i) => neighborHouse(x, s, HOUSE_COLORS[i % HOUSE_COLORS.length]));
+for (const x of [60, 40, 15, -10, -28, -48, -68, -92]) { tree(x, -8.4, rand(0.8, 1.1)); tree(x + 6, 8.4, rand(0.8, 1.1)); }
+for (const z of [-30, -55, -75, 30, 55, 75]) for (const c of CROSS) { tree(c - 9, z, 1); tree(c + 9, z + 7, 1); }
+
+const streetLamps = [];
+const lampHeadMat = new THREE.MeshStandardMaterial({ color: 0xfff3d0, emissive: 0xffd27a, emissiveIntensity: 0 });
+const glowTex = canvasTex(128, 128, (g, w, h) => { const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, 'rgba(255,214,140,0.9)'); gr.addColorStop(1, 'rgba(255,214,140,0)'); g.fillStyle = gr; g.fillRect(0, 0, w, h); });
+const poleMat = std(0x3a3d44, 0.6, { metalness: 0.5 });
+for (let x = 64; x > -192; x -= 32) for (const z of [-6.3, 6.3]) {
+  if (CROSS.some((c) => Math.abs(x - c) < 9)) continue;
+  box(0.14, 5.2, 0.14, poleMat, x, 0, z, { collide: true });
+  box(0.1, 0.1, 1.2, poleMat, x, 5.1, z + (z < 0 ? 0.55 : -0.55));
+  box(0.4, 0.14, 0.5, lampHeadMat, x, 4.95, z + (z < 0 ? 1.05 : -1.05), { cast: false });
+  const gm = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), new THREE.MeshBasicMaterial({ map: glowTex, transparent: true, opacity: 0, depthWrite: false }));
+  gm.rotation.x = -Math.PI / 2; gm.position.set(x, 0.04, z + (z < 0 ? 1.5 : -1.5)); scene.add(gm); streetLamps.push(gm);
+}
+
+const CAR_COLORS = [0xd8344a, 0x2f80ff, 0xf3efe6, 0x1d1f26, 0x8a9099, 0x3d7a4a, 0xf2c94c, 0x6a3fa0];
+function makeCar(color) {
+  const g = new THREE.Group();
+  const paint = std(color, 0.35, { metalness: 0.4 }), dark = std(0x16181d, 0.5), glassM = std(0x24314a, 0.15, { metalness: 0.5 });
+  box(1.85, 0.75, 4.3, paint, 0, 0.35, 0, { parent: g });
+  box(1.6, 0.6, 2.2, glassM, 0, 1.1, -0.25, { parent: g });
+  box(1.62, 0.08, 2.0, paint, 0, 1.7, -0.25, { parent: g });
+  const wg = new THREE.CylinderGeometry(0.36, 0.36, 0.28, 14); wg.rotateZ(Math.PI / 2);
+  for (const [x, z] of [[0.86, 1.35], [-0.86, 1.35], [0.86, -1.35], [-0.86, -1.35]]) { const w = new THREE.Mesh(wg, dark); w.position.set(x, 0.36, z); g.add(w); }
+  for (const x of [0.62, -0.62]) {
+    box(0.36, 0.14, 0.04, new THREE.MeshBasicMaterial({ color: 0xfff6d8 }), x, 0.78, 2.16, { parent: g, cast: false });
+    box(0.36, 0.14, 0.04, new THREE.MeshBasicMaterial({ color: 0xc02030 }), x, 0.8, -2.16, { parent: g, cast: false });
+  }
+  return g;
+}
+for (const [x, z] of [[14, -3.2], [-48, -3.2], [-88, -3.2], [-160, -3.2], [20, 3.2], [-62, 3.2], [-138, 3.2], [-170, 3.2], [-6, 3.2]]) {
+  const c = makeCar(CAR_COLORS[(Math.random() * CAR_COLORS.length) | 0]);
+  c.position.set(x, 0, z); c.rotation.y = z < 0 ? -Math.PI / 2 : Math.PI / 2; scene.add(c);
+  addBoxCollider(x, 0, z, 4.3, 1.6, 1.85);
+}
+
+// --- Maple Park
+const parkGrass = std(0xffffff, 0.95, { map: grassTex.clone() });
+parkGrass.map.repeat.set(14, 10); parkGrass.color.setHex(0xd8ffc8);
+plane(PARK.x1 - PARK.x0, PARK.z1 - PARK.z0, parkGrass, (PARK.x0 + PARK.x1) / 2, 0.008, (PARK.z0 + PARK.z1) / 2);
+{
+  const ironMat = std(0x1d1f26, 0.5, { metalness: 0.6 });
+  const rail = (x0, x1, z) => { box(x1 - x0, 0.06, 0.06, ironMat, (x0 + x1) / 2, 0.95, z); box(x1 - x0, 0.06, 0.06, ironMat, (x0 + x1) / 2, 0.2, z); for (let x = x0; x <= x1; x += 0.5) box(0.04, 1.0, 0.04, ironMat, x, 0, z, { cast: false }); addBoxCollider((x0 + x1) / 2, 0, z, x1 - x0, 1.0, 0.1); };
+  rail(PARK.x0, -131, -7.0); rail(-124, PARK.x1 - 0.5, -7.0);
+  // path from the gate to the picnic table and on to the court
+  const pathMat = std(0xd6c3a0, 0.95);
+  const path = (ax, az, bx, bz, w = 2.2) => { const len = Math.hypot(bx - ax, bz - az); const m = plane(w, len, pathMat, (ax + bx) / 2, 0.02, (az + bz) / 2); m.rotation.z = Math.atan2(bx - ax, bz - az); };
+  path(-127.5, -6.5, -134, -22); path(-134, -22, -147, -31); path(-147, -31, -166, -46); path(-134, -22, -160, -18);
+  // sign
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.9), std(0xffffff, 0.8, { map: textTex('MAPLE PARK', 512, 176, '#2f5a2a', '#fdf6ec', 'bold 84px Rubik, sans-serif') }));
+  sign.position.set(-121.5, 1.6, -7.15); scene.add(sign);
+  for (const x of [-122.7, -120.3]) box(0.12, 2.05, 0.12, std(0x6b4a32), x, 0, -7.25, { collide: true });
+  // picnic table where your friends hang out
+  const wood = std(0x9a6a42, 0.85);
+  box(2.2, 0.08, 0.9, wood, FRIENDS_AT.x, 0.74, FRIENDS_AT.z, { collide: true });
+  for (const dz of [-0.75, 0.75]) box(2.2, 0.06, 0.3, wood, FRIENDS_AT.x, 0.44, FRIENDS_AT.z + dz);
+  for (const dx of [-0.9, 0.9]) box(0.08, 0.74, 0.7, wood, FRIENDS_AT.x + dx, 0, FRIENDS_AT.z);
+  // playground
+  const red = std(0xd8344a, 0.6), yel = std(0xf2c94c, 0.6), blu = std(0x2f80ff, 0.6);
+  box(2.2, 1.6, 2.2, blu, -162, 0, -18, { collide: true });
+  const slide = box(0.8, 0.06, 3.2, yel, -162, 0.75, -15.6); slide.rotation.x = -0.5;
+  for (const x of [-169, -165]) { box(0.12, 2.6, 0.12, red, x, 0, -21, { collide: true }); box(0.12, 2.6, 0.12, red, x, 0, -19); }
+  box(4.2, 0.12, 0.12, red, -167, 2.55, -20);
+  for (const x of [-168, -166]) { box(0.02, 1.9, 0.02, std(0x1d1f26), x, 0.7, -20); box(0.5, 0.05, 0.25, std(0x1d1f26), x, 0.68, -20); }
+  // basketball court
+  plane(12, 10, std(0x9aa0a8, 0.8), -168, 0.015, -48);
+  box(0.16, 3.2, 0.16, std(0x3a3d44), -168, 0, -53.2, { collide: true });
+  box(1.8, 1.05, 0.06, std(0xffffff), -168, 3.0, -53.0);
+  const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.02, 6, 20), std(0xff6a2a)); hoop.rotation.x = Math.PI / 2; hoop.position.set(-168, 3.05, -52.65); scene.add(hoop);
+  for (const [x, z] of [[-118, -14], [-117, -40], [-130, -52], [-141, -12], [-152, -46], [-158, -30], [-178, -30], [-176, -12], [-180, -55], [-135, -40], [-122, -27]]) tree(x, z, rand(1.0, 1.4));
+  for (const [x, z] of [[-140, -22.5], [-156, -34]]) { box(1.6, 0.08, 0.5, wood, x, 0.45, z, { collide: true }); box(1.6, 0.4, 0.06, wood, x, 0.5, z - 0.25); }
+}
+
+// =====================================================================
+//  People
+// =====================================================================
+function makePerson(o) {
+  const M = (c, r = 0.8) => std(c, r);
+  const top = M(o.top), topD = M(new THREE.Color(o.top).multiplyScalar(0.72)), skin = M(o.skin, 0.7), skinD = M(new THREE.Color(o.skin).multiplyScalar(0.88), 0.7);
+  const pants = M(o.pants, 0.9), hair = M(o.hair, 0.95), white = M(0xf4f4f0, 0.4), iris = M(o.eyes || 0x4a2e18, 0.3), mouth = M(0x8a4a3a), sole = M(0x1d1f26);
+  const shoeMat = M(o.shoes, 0.6);
+  const root = new THREE.Group(), hips = new THREE.Group(); hips.position.y = 0.95; root.add(hips);
+  const b = (parent, size, pos, mat, shadow = false) => { const m = new THREE.Mesh(new THREE.BoxGeometry(...size), mat); m.position.set(...pos); m.castShadow = shadow; parent.add(m); return m; };
+  const torso = b(hips, [0.5, 0.62, 0.28], [0, 0.33, 0], top, true);
+  if (o.hoodie) {
+    b(torso, [0.38, 0.13, 0.1], [0, 0.29, -0.16], topD); b(torso, [0.3, 0.13, 0.012], [0, -0.14, 0.144], topD);
+    for (const x of [0.05, -0.05]) b(torso, [0.014, 0.14, 0.012], [x, 0.2, 0.146], white);
+  }
+  b(torso, [0.5, 0.05, 0.29], [0, -0.285, 0], topD);
+  const neck = new THREE.Group(); neck.position.y = 0.65; hips.add(neck);
+  const head = b(neck, [0.28, 0.3, 0.28], [0, 0.15, 0], skin, true);
+  const style = o.hairStyle || 'short';
+  if (style === 'cap') {
+    const cap = M(o.cap || 0xd8344a, 0.7);
+    b(head, [0.31, 0.1, 0.31], [0, 0.16, 0], cap); b(head, [0.26, 0.03, 0.16], [0, 0.125, 0.2], cap);
+    b(head, [0.3, 0.12, 0.05], [0, 0.04, -0.13], hair);
+  } else {
+    b(head, [0.3, 0.07, 0.3], [0, 0.16, -0.005], hair);
+    b(head, [0.3, style === 'long' ? 0.42 : 0.2, 0.06], [0, style === 'long' ? -0.05 : 0.06, -0.125], hair);
+    b(head, [0.3, 0.05, 0.04], [0, 0.115, 0.125], hair);
+    for (const s of [1, -1]) b(head, [0.03, style === 'long' ? 0.32 : 0.12, 0.2], [s * 0.145, style === 'long' ? -0.02 : 0.08, -0.03], hair);
+    if (style === 'bun') b(head, [0.15, 0.15, 0.15], [0, 0.2, -0.13], hair);
+  }
+  for (const s of [1, -1]) {
+    b(head, [0.065, 0.04, 0.01], [s * 0.062, 0.03, 0.141], white);
+    b(head, [0.03, 0.04, 0.012], [s * 0.058, 0.03, 0.143], iris);
+    b(head, [0.075, 0.016, 0.012], [s * 0.064, 0.075, 0.142], o.hairStyle === 'cap' ? hair : hair);
+    b(head, [0.025, 0.07, 0.05], [s * 0.15, 0.01, 0.01], skinD);
+  }
+  b(head, [0.04, 0.07, 0.035], [0, -0.015, 0.155], skinD);
+  const mouthM = b(head, [0.085, 0.018, 0.01], [0, -0.075, 0.141], mouth);
+  if (o.glasses) for (const s of [1, -1]) b(head, [0.09, 0.07, 0.01], [s * 0.062, 0.03, 0.15], M(0x1d1f26, 0.3));
+  const shL = new THREE.Group(); shL.position.set(0.32, 0.6, 0); hips.add(shL);
+  const shR = new THREE.Group(); shR.position.set(-0.32, 0.6, 0); hips.add(shR);
+  for (const sh of [shL, shR]) {
+    const sl = b(sh, [0.14, o.shortSleeve ? 0.26 : 0.54, 0.14], [0, o.shortSleeve ? -0.13 : -0.27, 0], top, true);
+    if (o.shortSleeve) b(sh, [0.12, 0.3, 0.12], [0, -0.42, 0], skin); else b(sl, [0.15, 0.05, 0.15], [0, -0.25, 0], topD);
+    b(sh, [0.11, 0.13, 0.12], [0, -0.61, 0], skin);
+  }
+  const hipL = new THREE.Group(); hipL.position.set(0.125, 0, 0); hips.add(hipL);
+  const hipR = new THREE.Group(); hipR.position.set(-0.125, 0, 0); hips.add(hipR);
+  const shoes = [];
+  for (const hp of [hipL, hipR]) {
+    b(hp, [0.19, 0.84, 0.2], [0, -0.42, 0], pants, true);
+    const sh = b(hp, [0.2, 0.12, 0.3], [0, -0.89, 0.04], shoeMat); shoes.push(sh);
+    b(sh, [0.21, 0.035, 0.31], [0, -0.045, 0], sole);
+  }
+  root.scale.setScalar(o.scale || 1);
+  return { root, hips, neck, head, shL, shR, hipL, hipR, shoes, shoeMat, mouth: mouthM, phase: Math.random() * 6, crank: 0 };
+}
+function animPerson(p, dt, speed, pose = 'walk', extra = 0) {
+  const k = damp(12, dt);
+  let lL = 0, lR = 0, aL = 0, aR = 0, azL = 0.06, azR = -0.06, lean = 0, bob = 0, side = 0;
+  if (pose === 'walk') {
+    p.phase += speed * dt * 2.6;
+    const amt = Math.min(1, speed / 2.5), sw = Math.sin(p.phase);
+    lL = sw * 0.7 * amt; lR = -sw * 0.7 * amt; aL = -sw * 0.55 * amt; aR = sw * 0.55 * amt;
+    lean = speed > 4.5 ? 0.18 : 0.05 * amt; bob = Math.abs(Math.cos(p.phase)) * 0.05 * amt;
+  } else if (pose === 'air') { lL = -0.6; lR = 0.3; aL = aR = -0.5; azL = 0.5; azR = -0.5; }
+  else if (pose === 'ride') { const s = Math.sin(p.crank); lL = -1.15 + s * 0.42; lR = -1.15 - s * 0.42; aL = aR = -1.05; azL = 0.12; azR = -0.12; lean = 0.32; }
+  else if (pose === 'wave') { aR = -2.7; azR = -0.35 + Math.sin(T * 10 + p.phase) * 0.4; aL = 0.1; }
+  else if (pose === 'cheer') { aL = aR = -2.9; azL = 0.35; azR = -0.35; bob = Math.abs(Math.sin(T * 8 + p.phase)) * 0.12; }
+  else if (pose === 'hose') { aR = -1.3; aL = -0.4; }
+  else if (pose === 'fall') { lean = -1.3; aL = aR = -2.2; lL = lR = -0.4; }
+  else if (pose === 'stumble') { lean = -0.5; aL = aR = -1.8; azL = 0.6; azR = -0.6; side = Math.sin(T * 20) * 0.1; }
+  else if (pose === 'climb') { aL = aR = -2.6; lL = -0.9; lR = -0.2; }
+  else if (pose === 'arms') { aL = aR = -0.2; azL = 0.25; azR = -0.25; } // hands on hips (Mom)
+  p.hipL.rotation.x = lerp(p.hipL.rotation.x, lL, k); p.hipR.rotation.x = lerp(p.hipR.rotation.x, lR, k);
+  p.shL.rotation.x = lerp(p.shL.rotation.x, aL, k); p.shR.rotation.x = lerp(p.shR.rotation.x, aR, k);
+  p.shL.rotation.z = lerp(p.shL.rotation.z, azL, k); p.shR.rotation.z = lerp(p.shR.rotation.z, azR, k);
+  p.hips.rotation.x = lerp(p.hips.rotation.x, lean, k); p.hips.rotation.z = side;
+  p.hips.position.y = 0.95 + bob;
+}
+
+// You
+const SOCKS = 0xb9bcc6, SNEAKERS = 0xeceff4;
+const me = makePerson({ top: 0x3a5480, hoodie: true, skin: 0xd9a27e, pants: 0x2c3a5c, hair: 0x2b1d14, shoes: SOCKS, scale: 0.82 });
+scene.add(me.root);
+// Mom
+const mom = makePerson({ top: 0x9a4a6a, skin: 0xd9a27e, pants: 0x3a3a48, hair: 0x3b2618, hairStyle: 'bun', shoes: 0x6b4a32, scale: 0.95 });
+mom.root.position.set(-1.55, 3, -24.75); mom.root.visible = false; scene.add(mom.root);
+// Friends at the park
+const friends = [
+  { name: 'Maya', p: makePerson({ top: 0xf2c94c, skin: 0x8d5a3b, pants: 0x6a3fa0, hair: 0x1a120c, hairStyle: 'long', shoes: 0xffffff, scale: 0.8, shortSleeve: true }), at: [-149.6, -32.4] },
+  { name: 'Theo', p: makePerson({ top: 0x3d7a4a, skin: 0xf0c8a8, pants: 0x2c3a5c, hair: 0xc9873a, hairStyle: 'cap', cap: 0xd8344a, shoes: 0x1d1f26, scale: 0.84, shortSleeve: true }), at: [-146.2, -32.6] },
+  { name: 'Jay', p: makePerson({ top: 0xd8344a, hoodie: true, skin: 0xc58c64, pants: 0x1d1f26, hair: 0x1a120c, shoes: 0xeceff4, scale: 0.82, glasses: true }), at: [-147.8, -36.1] },
+];
+for (const f of friends) {
+  f.p.root.position.set(f.at[0], 0, f.at[1]);
+  f.p.root.rotation.y = Math.atan2(FRIENDS_AT.x - f.at[0], FRIENDS_AT.z - f.at[1]);
+  scene.add(f.p.root);
+}
+// Nosy neighbors who disapprove of sidewalk riding
+const neighbors = [
+  { name: 'Mrs. Henderson', p: makePerson({ top: 0xe8a0b8, skin: 0xf0c8a8, pants: 0x5a6b8a, hair: 0xb8b8c0, hairStyle: 'bun', shoes: 0xffffff, scale: 0.92, glasses: true }), at: [-16, -12.5], yaw: 0, pose: 'hose',
+    lines: ['Is that the kid from number 12? On the SIDEWALK?', 'I am telling your mother, young one!', 'Sidewalks are for walking!'] },
+  { name: 'Mr. Delgado', p: makePerson({ top: 0xf3efe6, skin: 0xb07a52, pants: 0x3a3a48, hair: 0x1a120c, hairStyle: 'cap', cap: 0x2f80ff, shoes: 0x6b4a32, scale: 0.97, shortSleeve: true }), at: [-55, 12], yaw: Math.PI, pose: 'arms',
+    lines: ['Hey! Bikes go in the street!', 'Does your mom know you are out?', 'Slow down on that sidewalk!'] },
+  { name: 'Mr. Pike', p: makePerson({ top: 0x6b7a4a, skin: 0xf0c8a8, pants: 0x6b4a32, hair: 0xd8d8d8, shoes: 0x1d1f26, scale: 0.94, glasses: true }), at: [-84, -12], yaw: 0, pose: 'arms',
+    lines: ['In my day we WALKED our bikes on the sidewalk.', 'Off the sidewalk, kiddo!', 'I know your mother, you know.'] },
+];
+const alertTex = textTex('!', 64, 64, '#ff5d6c', '#ffffff', 'bold 52px Rubik, sans-serif');
+for (const n of neighbors) {
+  n.p.root.position.set(n.at[0], 0, n.at[1]); n.p.root.rotation.y = n.yaw; scene.add(n.p.root);
+  n.alert = new THREE.Sprite(new THREE.SpriteMaterial({ map: alertTex, depthTest: false, transparent: true, opacity: 0 }));
+  n.alert.scale.set(0.6, 0.6, 1); n.alert.position.set(n.at[0], 2.35, n.at[1]); scene.add(n.alert);
+  n.watch = 0; n.lineT = -99; n.lineI = 0;
+}
+// Pedestrians on the sidewalks
+const peds = [];
+function addPed(o, x0, x1, z, speed, dog = false) {
+  const p = makePerson(o);
+  const ped = { p, x0, x1, z, x: rand(x0, x1), dir: Math.random() < 0.5 ? 1 : -1, speed, aside: 0, stumble: 0, hitCd: 0, offset: 0, dog: null };
+  if (dog) {
+    const g = new THREE.Group(), fur = std(0xc98a4a, 0.9);
+    box(0.25, 0.22, 0.6, fur, 0, 0.22, 0, { parent: g }); box(0.2, 0.2, 0.22, fur, 0, 0.36, 0.36, { parent: g });
+    for (const [lx, lz] of [[0.08, 0.2], [-0.08, 0.2], [0.08, -0.2], [-0.08, -0.2]]) box(0.06, 0.22, 0.06, fur, lx, 0, lz, { parent: g });
+    scene.add(g); ped.dog = g;
+  }
+  scene.add(p.root); peds.push(ped);
+}
+addPed({ top: 0x2f80ff, skin: 0xb07a52, pants: 0x1d1f26, hair: 0x1a120c, shoes: 0xffffff, scale: 0.97, shortSleeve: true }, -26, 45, -5.3, 2.7);
+addPed({ top: 0x9a6a42, skin: 0xf0c8a8, pants: 0x3a3a48, hair: 0xc9873a, hairStyle: 'long', shoes: 0x6b4a32, scale: 0.93 }, -96, -44, -5.4, 1.2, true);
+addPed({ top: 0xe8dcc8, skin: 0xd9a27e, pants: 0x5a6b8a, hair: 0xd8d8d8, hairStyle: 'bun', shoes: 0x6b4a32, scale: 0.9, glasses: true }, -182, -116, -5.3, 0.8);
+addPed({ top: 0x6a3fa0, skin: 0x8d5a3b, pants: 0x2c3a5c, hair: 0x1a120c, hairStyle: 'cap', cap: 0xf2c94c, shoes: 0xffffff, scale: 0.95 }, -96, -44, 5.3, 1.4);
+addPed({ top: 0x3d7a4a, skin: 0xf0c8a8, pants: 0x1d1f26, hair: 0x7a4a2a, shoes: 0xffffff, scale: 0.95 }, -26, 45, 5.4, 1.3, true);
+
+// =====================================================================
+//  Your bike
+// =====================================================================
+function tube(parent, a, b, r, mat) {
+  const d = new THREE.Vector3().subVectors(b, a), m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, d.length(), 8), mat);
+  m.position.copy(a).addScaledVector(d, 0.5); m.quaternion.setFromUnitVectors(V(0, 1, 0), d.normalize()); m.castShadow = true; parent.add(m); return m;
+}
+const bike = { group: new THREE.Group(), body: new THREE.Group(), pos: V(3, 0.15, -5.3), vel: V(), yaw: -Math.PI / 2, speed: 0, steer: 0, lean: 0.14, onGround: true, riding: false, fallen: false, crank: 0, wheels: [] };
+{
+  const frame = std(0xff5d3a, 0.35, { metalness: 0.4 }), dark = std(0x1d1f26, 0.6), chrome = std(0xc8ccd4, 0.25, { metalness: 0.8 });
+  bike.group.rotation.order = 'YXZ'; bike.group.add(bike.body); scene.add(bike.group);
+  const B = bike.body, Rr = V(0, 0.34, -0.52), Ff = V(0, 0.34, 0.52), C = V(0, 0.33, 0), S = V(0, 0.84, -0.17), Ht = V(0, 0.92, 0.38), Hb = V(0, 0.68, 0.43);
+  tube(B, C, S, 0.025, frame); tube(B, S, Ht, 0.025, frame); tube(B, C, Hb, 0.028, frame); tube(B, Rr, C, 0.018, frame); tube(B, Rr, S, 0.016, frame);
+  tube(B, Hb, Ff, 0.02, chrome); tube(B, Ht, Hb, 0.028, frame); tube(B, Ht, V(0, 1.0, 0.33), 0.02, chrome);
+  box(0.6, 0.03, 0.03, chrome, 0, 0.99, 0.33, { parent: B }); for (const x of [0.27, -0.27]) box(0.06, 0.05, 0.05, dark, x, 0.98, 0.33, { parent: B });
+  box(0.13, 0.05, 0.26, dark, 0, 0.86, -0.2, { parent: B });
+  for (const p of [Rr, Ff]) {
+    const w = new THREE.Group(); w.position.copy(p); B.add(w);
+    const tire = new THREE.Mesh(new THREE.TorusGeometry(0.31, 0.04, 8, 28), dark); tire.rotation.y = Math.PI / 2; tire.castShadow = true; w.add(tire);
+    for (let k = 0; k < 4; k++) { const s = box(0.01, 0.6, 0.01, chrome, 0, -0.3, 0, { parent: w, cast: false }); s.rotation.x = k * Math.PI / 4; s.position.y = 0; }
+    bike.wheels.push(w);
+  }
+  bike.crankG = new THREE.Group(); bike.crankG.position.copy(C); B.add(bike.crankG);
+  for (const s of [1, -1]) { const a = box(0.02, 0.17, 0.03, chrome, s * 0.07, -0.17 * (s > 0 ? 1 : 0), 0, { parent: bike.crankG }); a.position.y = s > 0 ? -0.085 : 0.085; box(0.1, 0.02, 0.06, dark, s * 0.12, s > 0 ? -0.17 : 0.17, 0, { parent: bike.crankG }); }
+}
+
+// =====================================================================
+//  Moving cars
+// =====================================================================
+const traffic = [];
+const LANES = [
+  { axis: 'x', dir: -1, fixed: -1.4, from: 80, to: -200, t: 1 },
+  { axis: 'x', dir: 1, fixed: 1.4, from: -200, to: 80, t: 4 },
+  ...CROSS.flatMap((c) => [{ axis: 'z', dir: 1, fixed: c - 1.4, from: -92, to: 92, t: rand(2, 8), cross: c }, { axis: 'z', dir: -1, fixed: c + 1.4, from: 92, to: -92, t: rand(2, 8), cross: c }]),
+];
+function spawnCar(lane) {
+  if (traffic.some((c) => c.lane === lane && Math.abs(c.s - lane.from) < 14)) return;
+  const mesh = makeCar(CAR_COLORS[(Math.random() * CAR_COLORS.length) | 0]);
+  mesh.rotation.y = lane.axis === 'x' ? (lane.dir < 0 ? -Math.PI / 2 : Math.PI / 2) : (lane.dir > 0 ? 0 : Math.PI);
+  scene.add(mesh);
+  const cruise = lane.axis === 'x' ? rand(9, 12.5) : rand(7, 10);
+  traffic.push({ mesh, lane, s: lane.from, speed: cruise, cruise, honkCd: 0 });
+}
+
+// =====================================================================
+//  State
+// =====================================================================
+let T = 0, playing = false, paused = false, ended = false, elapsed = 0;
+const player = { pos: V(-3.2, 3, -22.1), vel: V(), onGround: true, facing: 0, stun: 0, climb: null };
+const flags = { shoes: false, decoy: false, windowOpen: false, outside: false, down: false, bike: false, park: false, friends: false };
+const stats = { sidewalk: 0, top: 0, honks: 0, bumps: 0, checks: 0 };
+let suspicion = 0, suspWho = '', momT = 28, momState = 'idle', momAnimT = 0, warned = false;
+const cam = { yaw: 0, pitch: -0.18, dist: 3, lastMouse: -10 };
+const keys = {}, touch = { mx: 0, my: 0, sprint: false };
+const inRoom = (p) => p.x > ROOM.x0 - 0.1 && p.x < ROOM.x1 + 0.1 && p.z > ROOM.z0 && p.z < ROOM.z1 + 0.05 && p.y > 2.5 && p.y < 6;
+
+// =====================================================================
+//  Audio
+// =====================================================================
+const Sfx = (() => {
+  let ctx = null, master = null, nb = null, whirr = null;
+  function init() {
+    if (ctx) { ctx.resume?.(); return; }
+    try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    master = ctx.createGain(); master.gain.value = 0.4; master.connect(ctx.destination);
+    nb = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate); const d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const s = ctx.createBufferSource(); s.buffer = nb; s.loop = true; const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 700; f.Q.value = 0.8; const g = ctx.createGain(); g.gain.value = 0;
+    s.connect(f).connect(g).connect(master); s.start(); whirr = { f, g };
+  }
+  function noise(dur, f0, f1, q, vol, type = 'bandpass', delay = 0) {
+    if (!ctx) return; const t = ctx.currentTime + delay, s = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    s.buffer = nb; f.type = type; f.Q.value = q; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur); s.connect(f).connect(g).connect(master); s.start(t); s.stop(t + dur + 0.05);
+  }
+  function tone(dur, f0, f1, type, vol, delay = 0) {
+    if (!ctx) return; const t = ctx.currentTime + delay, o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g).connect(master); o.start(t); o.stop(t + dur + 0.05);
+  }
+  return {
+    init,
+    bell: () => { tone(0.7, 2350, 2300, 'sine', 0.3); tone(0.7, 2350, 2300, 'sine', 0.25, 0.16); tone(0.5, 4700, 4600, 'sine', 0.06); },
+    honk: () => { tone(0.45, 392, 390, 'square', 0.08); tone(0.45, 494, 492, 'square', 0.07); },
+    thud: () => { tone(0.25, 120, 45, 'sine', 0.8); noise(0.2, 600, 120, 0.7, 0.5, 'lowpass'); },
+    soft: () => noise(0.4, 1800, 400, 0.7, 0.35),
+    creak: () => { tone(0.6, 520, 380, 'sawtooth', 0.04); noise(0.5, 900, 1500, 6, 0.2); },
+    step: (d = 0) => { tone(0.12, 90, 60, 'sine', 0.5, d); noise(0.08, 400, 200, 1, 0.2, 'lowpass', d); },
+    pickup: () => { tone(0.12, 660, 990, 'sine', 0.25); tone(0.18, 990, 1320, 'sine', 0.2, 0.09); },
+    door: () => noise(0.5, 300, 900, 2, 0.35),
+    bump: () => { tone(0.15, 220, 90, 'triangle', 0.4); noise(0.1, 800, 300, 1, 0.3); },
+    busted: () => { tone(0.25, 523, 520, 'square', 0.12); tone(0.25, 415, 412, 'square', 0.12, 0.25); tone(0.6, 311, 290, 'square', 0.12, 0.5); },
+    win: () => [523, 659, 784, 1047].forEach((f, i) => tone(0.35, f, f, 'triangle', 0.2, i * 0.12)),
+    chirp: () => { const f = rand(2600, 3800); tone(0.08, f, f * 1.3, 'sine', 0.06); tone(0.08, f * 1.1, f * 1.4, 'sine', 0.05, 0.12); },
+    whirr(speed) { if (!ctx) return; const t = ctx.currentTime; whirr.g.gain.setTargetAtTime(Math.min(0.12, speed * 0.012), t, 0.1); whirr.f.frequency.setTargetAtTime(300 + speed * 90, t, 0.1); },
+  };
+})();
+
+// =====================================================================
+//  UI helpers
+// =====================================================================
+let toastT = 0, speechT = 0;
+function toast(text, dur = 2.6) { const el = $('toast'); el.textContent = text; el.className = 'show'; toastT = dur; }
+function say(who, text, kind = '', dur = 3.2) {
+  $('speechWho').textContent = who; $('speechText').textContent = text;
+  $('speech').className = 'show ' + kind; speechT = dur;
+}
+const PLAN = [
+  ['shoes', 'Put on your sneakers', 'at the foot of your bed'],
+  ['decoy', 'Stuff pillows under the blanket', 'optional: fools Mom'],
+  ['windowOpen', 'Open the window', ''],
+  ['outside', 'Climb out onto the porch roof', ''],
+  ['down', 'Get down to the yard', 'aim for the bushes'],
+  ['bike', 'Grab your bike', 'on the sidewalk out front'],
+  ['park', 'Ride to Maple Park', '2 blocks down, on the right'],
+  ['friends', 'Find Maya, Theo and Jay', 'by the picnic table'],
+];
+function currentGoal() { for (const [k] of PLAN) if (k !== 'decoy' && !flags[k]) return k; return null; }
+function renderPlan() {
+  const now = currentGoal();
+  $('plan').innerHTML = PLAN.map(([k, t, s]) => `<li class="${flags[k] ? 'done' : k === now ? 'now' : ''}">${t}${s ? `<small>${s}</small>` : ''}</li>`).join('');
+}
+function goalTarget(k) {
+  switch (k) {
+    case 'shoes': return V(-4.3, 3.3, -21.5);
+    case 'windowOpen': case 'outside': return V(-3.1, 4.6, -20.4);
+    case 'down': return V(-3.5, 1.4, -15.6);
+    case 'bike': return bike.pos.clone().setY(bike.pos.y + 1.2);
+    case 'park': return V(-127.5, 1.4, -7);
+    case 'friends': return V(FRIENDS_AT.x, 2.2, FRIENDS_AT.z);
+  }
+  return null;
+}
+const marker = new THREE.Group();
+{
+  const mm = new THREE.MeshBasicMaterial({ color: 0xffe98a, toneMapped: false });
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.45, 12), mm); cone.rotation.x = Math.PI; marker.add(cone);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.035, 6, 24), mm); ring.position.y = 0.42; ring.rotation.x = Math.PI / 2; marker.add(ring);
+  scene.add(marker);
+}
+
+// --- map
+const mapCv = $('map'), mapG = mapCv.getContext('2d');
+const MAP = { x0: -195, x1: 65, z0: -85, z1: 85 };
+const mx = (x) => (x - MAP.x0) / (MAP.x1 - MAP.x0) * mapCv.width, mz = (z) => (z - MAP.z0) / (MAP.z1 - MAP.z0) * mapCv.height;
+const mapBg = document.createElement('canvas'); mapBg.width = mapCv.width; mapBg.height = mapCv.height;
+{
+  const g = mapBg.getContext('2d');
+  const rect = (x0, x1, z0, z1, c) => { g.fillStyle = c; g.fillRect(mx(x0), mz(z0), mx(x1) - mx(x0), mz(z1) - mz(z0)); };
+  rect(MAP.x0, MAP.x1, MAP.z0, MAP.z1, '#6f9a4e');
+  rect(PARK.x0, PARK.x1, PARK.z0, PARK.z1, '#3f7a35');
+  for (const s of sidewalks) rect(s.x0, s.x1, s.z0, s.z1, '#d9d4ca');
+  for (const r of roads) rect(r.x0, r.x1, r.z0, r.z1, '#4a4c54');
+  for (const [x, s] of [[52, -1], [27, -1], [-19, -1], [-55, -1], [-82, -1], [52, 1], [27, 1], [0, 1], [-19, 1], [-55, 1], [-82, 1], [-125, 1], [-150, 1], [-175, 1]]) rect(x - 6, x + 6, s < 0 ? -30 : 20, s < 0 ? -20 : 30, '#efe6d8');
+  rect(-6, 6, -30, -20, '#ff9c5b');
+  g.fillStyle = '#1a1630'; g.font = 'bold 20px Rubik, sans-serif'; g.textAlign = 'center';
+  g.fillText('HOME', mx(0), mz(-25) + 7);
+  g.fillStyle = '#fdf6ec'; g.fillText('MAPLE PARK', mx(-148), mz(-48));
+}
+function drawMap() {
+  mapG.drawImage(mapBg, 0, 0);
+  mapG.fillStyle = '#ffe98a'; mapG.beginPath(); mapG.arc(mx(FRIENDS_AT.x), mz(FRIENDS_AT.z), 7, 0, 7); mapG.fill();
+  mapG.fillStyle = '#ff5d6c'; for (const c of traffic) { const p = c.mesh.position; mapG.fillRect(mx(p.x) - 3, mz(p.z) - 3, 6, 6); }
+  if (!bike.riding) { mapG.fillStyle = '#ff5d3a'; mapG.fillRect(mx(bike.pos.x) - 4, mz(bike.pos.z) - 4, 8, 8); }
+  const p = hostPos(), yaw = bike.riding ? bike.yaw : player.facing;
+  mapG.save(); mapG.translate(mx(p.x), mz(p.z)); mapG.rotate(-yaw + Math.PI);
+  mapG.fillStyle = '#ffffff'; mapG.strokeStyle = '#1a1630'; mapG.lineWidth = 3;
+  mapG.beginPath(); mapG.moveTo(0, -11); mapG.lineTo(8, 8); mapG.lineTo(0, 4); mapG.lineTo(-8, 8); mapG.closePath(); mapG.stroke(); mapG.fill();
+  mapG.restore();
+}
+
+// =====================================================================
+//  Interactions
+// =====================================================================
+const interactables = [
+  { at: V(-4.3, 3, -21.5), r: 1.2, label: () => (!flags.shoes ? 'Put on your sneakers' : null),
+    use() { flags.shoes = true; me.shoeMat.color.setHex(SNEAKERS); shoesMesh.visible = false; Sfx.pickup(); toast('Sneakers on. Now you can go out.'); } },
+  { at: V(-4.4, 3, -23.4), r: 1.3, label: () => (!flags.decoy ? 'Stuff pillows under the blanket' : null),
+    use() { flags.decoy = true; decoy.visible = true; blanket.visible = false; Sfx.soft(); toast('Looks just like you sleeping. Mostly.'); } },
+  { at: V(-3.1, 3, -20.8), r: 1.25, label: () => (inRoom(player.pos) ? (!flags.windowOpen ? 'Open the window' : 'Climb out the window') : null),
+    use() {
+      if (!flags.windowOpen) {
+        if (!flags.shoes) { toast("You can't ride a bike in socks. Sneakers first."); return; }
+        flags.windowOpen = true; removeWindowCollider(); Sfx.creak(); toast('The window slides up with a squeak. Hope Mom didn\'t hear.');
+        makeNoise(0.15);
+        if (!flags.decoy) toast('Mom checks on you every so often. Pillows under the blanket would buy you time.', 4);
+      } else startClimb(V(-3.1, 3, -19.2), 0);
+    } },
+  { at: V(-3.1, 3, -19.3), r: 1.1, label: () => (!inRoom(player.pos) && flags.windowOpen && player.pos.y > 2.5 ? 'Climb back in' : null),
+    use() { startClimb(V(-3.1, 3, -21.0), Math.PI); } },
+  { at: V(-1.55, 3, -24.0), r: 1.1, label: () => 'Try the door',
+    use() { say('YOU', "Locked. Mom's rule: you're not leaving this room tonight. Ha.", '', 2.6); } },
+  { at: V(-1.4, 3, -22.7), r: 1.1, label: () => 'Check your messages',
+    use() { showTexts(); } },
+  { at: V(2.6, 0, -19.2), r: 1.2, label: () => (player.pos.y < 1 ? 'Climb the trellis' : null),
+    use() { startClimb(V(1.0, 3, -18.6), Math.PI, 1.0); } },
+  { at: bike.pos, r: 1.7, label: () => (bike.riding ? null : bike.fallen ? 'Pick up your bike' : 'Get on your bike'),
+    use() { mountBike(); } },
+];
+const shoesMesh = new THREE.Group();
+{ const sm = std(SNEAKERS, 0.6); for (const x of [-0.12, 0.12]) box(0.16, 0.1, 0.28, sm, -4.3 + x, 3, -21.5, { parent: shoesMesh }); room.add(shoesMesh); }
+function removeWindowCollider() { const i = colliders.indexOf(windowCol); if (i >= 0) colliders.splice(i, 1); sashOpen = true; }
+let sashOpen = false;
+function showTexts() {
+  const msgs = [['MAYA', "we're at maple park!! 2 blocks down from ur house, on the right"], ['THEO', 'by the picnic table. streetlights = we gotta go home'], ['JAY', 'just climb out ur window lol. ur bike is right there']];
+  msgs.forEach(([w, t], i) => setTimeout(() => say(w, t, 'text', 2.6), i * 2700));
+}
+let promptFor = null;
+function nearestInteract() {
+  const p = player.pos;
+  let best = null, bd = 1e9;
+  for (const it of interactables) {
+    if (Math.abs(it.at.y - p.y) > 1.6 && it !== interactables[interactables.length - 1]) continue;
+    const d = Math.hypot(it.at.x - p.x, it.at.z - p.z);
+    if (d > it.r || d > bd) continue;
+    const l = it.label(); if (!l) continue;
+    best = { it, l }; bd = d;
+  }
+  return best;
+}
+function use() {
+  if (!playing || paused) return;
+  if (bike.riding) { dismount(); return; }
+  if (player.climb || player.stun > 0) return;
+  const n = nearestInteract(); if (n) n.it.use();
+}
+function startClimb(to, facing, dur = 0.8) {
+  player.climb = { from: player.pos.clone(), to: to.clone(), t: 0, dur, facing };
+  Sfx.soft();
+}
+// noise from you makes Mom come check sooner
+function makeNoise(amount) { if (momState === 'idle') momT = Math.min(momT, Math.max(7, momT - amount * 60)); }
+
+// --- bike
+function mountBike() {
+  if (bike.fallen) { bike.fallen = false; }
+  bike.riding = true; flags.bike = true;
+  bike.speed = 0; bike.vel.set(0, 0, 0); bike.steer = 0;
+  bike.group.add(me.root); me.root.position.set(0, 0.07, -0.22); me.root.rotation.set(0, 0, 0);
+  if (!startedRide) { startedRide = true; toast('Maple Park is 2 blocks down, on the right. The sidewalk is faster… and off-limits.', 4); }
+  Sfx.pickup();
+}
+let startedRide = false;
+function dismount(knock = null) {
+  bike.riding = false;
+  bike.group.remove(me.root); scene.add(me.root);
+  const right = V(-Math.cos(bike.yaw), 0, Math.sin(bike.yaw));
+  player.pos.copy(bike.pos).addScaledVector(right, 0.8);
+  pushOut(player.pos, 0.3, player.pos.y, 1.5);
+  player.vel.set(0, 0, 0);
+  if (knock) { player.vel.copy(knock); player.onGround = false; player.stun = 1.3; bike.fallen = true; }
+  player.facing = bike.yaw;
+  Sfx.whirr(0);
+}
+function crash(dir, why) {
+  if (!bike.riding) { player.vel.copy(dir).multiplyScalar(6); player.vel.y = 4; player.onGround = false; player.stun = 1.2; }
+  else dismount(dir.clone().multiplyScalar(6).setY(4.5));
+  Sfx.thud(); shake = 0.5;
+  suspicion = Math.min(100, suspicion + 18); suspWho = 'The driver';
+  stats.bumps++;
+  say('DRIVER', why || 'WHOA! Watch where you\'re going, kid!', '', 2.4);
+}
+
+// =====================================================================
+//  Input
+// =====================================================================
+let lockOK = false;
+addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (e.repeat || !playing) return;
+  if (e.code === 'Space') { e.preventDefault(); jump(); }
+  else if (e.code === 'KeyE' || e.code === 'Enter') use();
+  else if (e.code === 'KeyF' || e.code === 'KeyQ') bell();
+  else if (e.code === 'KeyH' || (e.code === 'Escape' && !lockOK)) paused ? resume() : pause();
+});
+addEventListener('keyup', (e) => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+const canvas = renderer.domElement;
+canvas.addEventListener('mousedown', () => { if (playing && !paused && !isTouch && lockOK && document.pointerLockElement !== canvas) requestLock(); });
+addEventListener('mousemove', (e) => {
+  if (!playing || paused || isTouch) return;
+  if (lockOK && document.pointerLockElement !== canvas) return;
+  cam.yaw -= (e.movementX || 0) * 0.0024; cam.pitch = clamp(cam.pitch - (e.movementY || 0) * 0.0022, -1.1, 0.55); cam.lastMouse = T;
+});
+function requestLock() { try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* mouse look still works without lock */ } }
+document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement === canvas) lockOK = true; else if (lockOK && playing && !paused && !ended) pause(); });
+if (isTouch) {
+  $('touch').hidden = false;
+  const zone = $('stickZone'), base = $('stickBase'), knob = $('stickKnob');
+  let sid = null, sx = 0, sy = 0;
+  zone.addEventListener('pointerdown', (e) => { sid = e.pointerId; sx = e.clientX; sy = e.clientY; const r = zone.getBoundingClientRect(); base.style.left = sx - r.left + 'px'; base.style.top = sy - r.top + 'px'; zone.setPointerCapture(sid); });
+  zone.addEventListener('pointermove', (e) => { if (e.pointerId !== sid) return; let dx = e.clientX - sx, dy = e.clientY - sy; const l = Math.hypot(dx, dy); if (l > 50) { dx *= 50 / l; dy *= 50 / l; } knob.style.transform = `translate(${dx}px,${dy}px)`; touch.mx = dx / 50; touch.my = -dy / 50; });
+  const end = (e) => { if (e.pointerId !== sid) return; sid = null; touch.mx = touch.my = 0; knob.style.transform = ''; };
+  zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
+  const look = $('lookZone'); let lid = null, lx = 0, ly = 0;
+  look.addEventListener('pointerdown', (e) => { lid = e.pointerId; lx = e.clientX; ly = e.clientY; look.setPointerCapture(lid); });
+  look.addEventListener('pointermove', (e) => { if (e.pointerId !== lid) return; cam.yaw -= (e.clientX - lx) * 0.0065; cam.pitch = clamp(cam.pitch - (e.clientY - ly) * 0.005, -1.1, 0.55); lx = e.clientX; ly = e.clientY; cam.lastMouse = T; });
+  const endL = (e) => { if (e.pointerId === lid) lid = null; };
+  look.addEventListener('pointerup', endL); look.addEventListener('pointercancel', endL);
+  document.querySelectorAll('#touch .tb').forEach((b) => {
+    b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); b.classList.add('down'); const a = b.dataset.act; if (a === 'sprint') touch.sprint = true; else if (a === 'use') use(); else if (a === 'jump') jump(); else if (a === 'bell') bell(); });
+    const up = () => { b.classList.remove('down'); if (b.dataset.act === 'sprint') touch.sprint = false; };
+    b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('pointerleave', up);
+  });
+}
+function moveInput() {
+  let x = 0, y = 0;
+  if (keys.KeyW || keys.ArrowUp) y += 1; if (keys.KeyS || keys.ArrowDown) y -= 1;
+  if (keys.KeyA || keys.ArrowLeft) x -= 1; if (keys.KeyD || keys.ArrowRight) x += 1;
+  x += touch.mx; y += touch.my; const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
+  return { x, y };
+}
+const sprinting = () => keys.ShiftLeft || keys.ShiftRight || touch.sprint;
+function jump() {
+  if (!playing || paused || player.climb || player.stun > 0) return;
+  if (bike.riding) { if (bike.onGround) { bike.vel.y = 4.6; bike.onGround = false; Sfx.soft(); } return; }
+  if (player.onGround) { player.vel.y = 7; player.onGround = false; }
+}
+function bell() {
+  if (!playing || paused || !bike.riding) return;
+  Sfx.bell();
+  for (const p of peds) if (p.p.root.position.distanceTo(bike.pos) < 16) p.aside = 4;
+}
+
+// =====================================================================
+//  Updates
+// =====================================================================
+let shake = 0;
+function hostPos() { return bike.riding ? bike.pos : player.pos; }
+function updatePlayer(dt) {
+  if (player.climb) {
+    const c = player.climb; c.t += dt / c.dur;
+    const k = Math.min(1, c.t), arc = Math.sin(k * Math.PI) * 0.6;
+    player.pos.lerpVectors(c.from, c.to, k); player.pos.y += arc;
+    player.facing = angLerp(player.facing, c.facing, damp(10, dt));
+    if (k >= 1) { player.climb = null; player.vel.set(0, 0, 0); player.onGround = true; if (!inRoom(player.pos)) flags.outside = true; }
+    me.root.position.copy(player.pos); me.root.rotation.y = player.facing;
+    animPerson(me, dt, 0, 'climb');
+    return;
+  }
+  const inp = player.stun > 0 ? { x: 0, y: 0 } : moveInput();
+  player.stun = Math.max(0, player.stun - dt);
+  const fx = Math.sin(cam.yaw), fz = Math.cos(cam.yaw);
+  const wx = fx * inp.y - fz * inp.x, wz = fz * inp.y + fx * inp.x;
+  const indoors = inRoom(player.pos);
+  const speed = sprinting() && !indoors ? 6 : indoors ? 2.6 : 3.6;
+  const rate = player.onGround ? 12 : 2;
+  if (player.onGround || wx * wx + wz * wz > 0.01) {
+    player.vel.x = lerp(player.vel.x, wx * speed, damp(rate, dt));
+    player.vel.z = lerp(player.vel.z, wz * speed, damp(rate, dt));
+  }
+  const wasRoom = indoors;
+  moveBody(player.pos, player.vel, dt, 0.3, 1.5, player);
+  avoidCars(player.pos, 0.3);
+  if (player.landed > 8.5) {
+    if (player.supportC && player.supportC.soft) { Sfx.soft(); toast('Floomp. Right into the bushes. Quiet landing.'); }
+    else { Sfx.thud(); shake = 0.35; toast('THUD! That was loud…'); makeNoise(0.5); }
+  }
+  const hs = Math.hypot(player.vel.x, player.vel.z);
+  if (hs > 0.4) player.facing = angLerp(player.facing, Math.atan2(player.vel.x, player.vel.z), damp(12, dt));
+  me.root.position.copy(player.pos); me.root.rotation.y = player.facing;
+  animPerson(me, dt, hs, player.stun > 0 ? 'fall' : player.onGround ? 'walk' : 'air');
+  if (wasRoom && !inRoom(player.pos) && player.pos.z > ROOM.z1) flags.outside = true;
+}
+function updateBike(dt) {
+  if (bike.riding) {
+    const inp = player.stun > 0 ? { x: 0, y: 0 } : moveInput();
+    const surface = onSidewalk(bike.pos.x, bike.pos.z) ? 'walk' : onRoad(bike.pos.x, bike.pos.z) ? 'road' : 'grass';
+    const maxS = (sprinting() ? 11.5 : 8) * (surface === 'grass' ? 0.6 : 1);
+    if (bike.onGround) {
+      if (inp.y > 0) bike.speed += (sprinting() ? 6 : 4.2) * inp.y * dt;
+      else if (inp.y < 0) bike.speed += inp.y * (bike.speed > 0 ? 10 : 2.5) * dt;
+      else bike.speed -= bike.speed * 0.3 * dt;
+      if (bike.speed > maxS) bike.speed = lerp(bike.speed, maxS, damp(3, dt));
+      bike.speed = Math.max(bike.speed, -2);
+    }
+    bike.steer = lerp(bike.steer, -inp.x, damp(8, dt));
+    const s = Math.abs(bike.speed);
+    bike.yaw += bike.steer * 2.0 * clamp(s / 2.5, 0.25, 1) * (1 - 0.4 * clamp(s / 12, 0, 1)) * Math.sign(bike.speed || 1) * dt;
+    const fx = Math.sin(bike.yaw), fz = Math.cos(bike.yaw);
+    bike.vel.x = lerp(bike.vel.x, fx * bike.speed, damp(bike.onGround ? 10 : 0.5, dt));
+    bike.vel.z = lerp(bike.vel.z, fz * bike.speed, damp(bike.onGround ? 10 : 0.5, dt));
+    const hit = moveBody(bike.pos, bike.vel, dt, 0.42, 1.5, bike);
+    if (hit) {
+      if (bike.hitSpeed > 6.5) { crashWall(); return; }
+      if (bike.hitSpeed > 2) Sfx.bump();
+      bike.speed = bike.vel.x * fx + bike.vel.z * fz;
+    }
+    avoidCars(bike.pos, 0.45);
+    if (!bike.riding) return;
+    if (bike.landed > 6) { Sfx.thud(); shake = 0.15; }
+    bike.lean = lerp(bike.lean, -bike.steer * clamp(s / 9, 0, 1) * 0.35, damp(6, dt));
+    bike.crank += bike.speed * dt * 1.6; me.crank = bike.crank;
+    player.pos.copy(bike.pos); player.vel.copy(bike.vel); player.facing = bike.yaw;
+    if (surface === 'walk' && s > 1) stats.sidewalk += s * dt;
+    stats.top = Math.max(stats.top, s);
+    Sfx.whirr(s);
+    animPerson(me, dt, 0, 'ride');
+  } else {
+    bike.lean = lerp(bike.lean, bike.fallen ? 1.45 : 0.14, damp(8, dt));
+    bike.vel.x *= Math.exp(-3 * dt); bike.vel.z *= Math.exp(-3 * dt);
+    moveBody(bike.pos, bike.vel, dt, 0.42, 1.0, bike);
+  }
+  for (const w of bike.wheels) w.rotation.x += bike.speed * dt / 0.34 * (bike.riding ? 1 : 0);
+  bike.crankG.rotation.x = bike.crank;
+  bike.group.position.set(bike.pos.x, bike.pos.y + (bike.fallen ? 0.08 : 0), bike.pos.z);
+  bike.group.rotation.set(0, bike.yaw, bike.lean);
+}
+function crashWall() {
+  const back = V(-Math.sin(bike.yaw), 0, -Math.cos(bike.yaw));
+  dismount(back.multiplyScalar(3.5).setY(4)); Sfx.thud(); shake = 0.4; stats.bumps++;
+  toast('Ouch! Press E by your bike to pick it up.');
+}
+// keep you out of car bodies, and get knocked over if one is moving
+function avoidCars(pos, r) {
+  for (const c of traffic) {
+    const p = c.mesh.position, along = c.lane.axis === 'x';
+    const da = (along ? pos.x - p.x : pos.z - p.z), dl = (along ? pos.z - p.z : pos.x - p.x);
+    if (Math.abs(da) > 2.15 + r || Math.abs(dl) > 0.95 + r || pos.y > 1.5) continue;
+    if (c.speed > 2.2) {
+      const dir = along ? V(c.lane.dir * 0.6, 0, Math.sign(dl || 1)) : V(Math.sign(dl || 1), 0, c.lane.dir * 0.6);
+      crash(dir.normalize()); c.speed = 0; Sfx.honk();
+      return;
+    }
+    const pa = 2.15 + r - Math.abs(da), pl = 0.95 + r - Math.abs(dl);
+    if (pa < pl) { if (along) pos.x += Math.sign(da) * pa; else pos.z += Math.sign(da) * pa; }
+    else { if (along) pos.z += Math.sign(dl || 1) * pl; else pos.x += Math.sign(dl || 1) * pl; }
+  }
+}
+function updateTraffic(dt) {
+  for (const lane of LANES) if ((lane.t -= dt) <= 0) { spawnCar(lane); lane.t = lane.axis === 'x' ? rand(3.5, 7) : rand(6, 12); }
+  const hp = hostPos();
+  for (let i = traffic.length - 1; i >= 0; i--) {
+    const c = traffic[i], L = c.lane;
+    let want = c.cruise;
+    const pa = ((L.axis === 'x' ? hp.x : hp.z) - c.s) * L.dir, pl = (L.axis === 'x' ? hp.z : hp.x) - L.fixed;
+    if (pa > 0 && pa < 11 && Math.abs(pl) < 1.9 && hp.y < 1.5) {
+      want = 0;
+      if (c.honkCd <= 0 && pa < 9) { Sfx.honk(); c.honkCd = 3; stats.honks++; if (Math.random() < 0.6) say('DRIVER', ['Get out of the road!', 'HEY! Kid!', 'Are you crazy?!'][(Math.random() * 3) | 0], '', 1.6); }
+    }
+    for (const o of traffic) {
+      if (o === c) continue;
+      if (o.lane === L) { const gap = (o.s - c.s) * L.dir; if (gap > 0 && gap < 9) want = Math.min(want, gap < 6 ? 0 : o.speed); }
+      else if (L.axis === 'z' && o.lane.axis === 'x') {
+        const toInt = (0 - c.s) * L.dir; // distance to the main street centre
+        if (toInt > 4 && toInt < 11 && Math.abs(o.s - L.cross) < 16) want = 0;
+      } else if (L.axis === 'x' && o.lane.axis === 'z' && Math.abs(o.s) < 6) {
+        const toInt = (o.lane.cross - c.s) * L.dir;
+        if (toInt > 4 && toInt < 13) want = 0;
+      }
+    }
+    c.honkCd -= dt;
+    c.speed = want < c.speed ? Math.max(want, c.speed - 14 * dt) : Math.min(want, c.speed + 4 * dt);
+    c.s += c.speed * L.dir * dt;
+    if (L.axis === 'x') c.mesh.position.set(c.s, 0, L.fixed); else c.mesh.position.set(L.fixed, 0, c.s);
+    if ((c.s - L.to) * L.dir > 0) { scene.remove(c.mesh); traffic.splice(i, 1); }
+  }
+}
+function updatePeds(dt) {
+  const hp = hostPos(), riding = bike.riding, bs = Math.abs(bike.speed);
+  for (const p of peds) {
+    p.hitCd -= dt; p.aside = Math.max(0, p.aside - dt); p.stumble = Math.max(0, p.stumble - dt);
+    const moving = p.stumble <= 0;
+    if (moving) { p.x += p.dir * p.speed * dt; if (p.x < p.x0 || p.x > p.x1) { p.dir *= -1; p.x = clamp(p.x, p.x0, p.x1); } }
+    const lawn = p.z < 0 ? -1 : 1;
+    p.offset = lerp(p.offset, p.aside > 0 ? lawn * 1.7 : 0, damp(4, dt));
+    const z = p.z + p.offset;
+    const onWalk = Math.abs(p.offset) < 1.1;
+    p.p.root.position.set(p.x, onWalk ? 0.15 : 0, z);
+    p.p.root.rotation.y = p.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+    animPerson(p.p, dt, moving ? p.speed : 0, p.stumble > 0 ? 'stumble' : 'walk');
+    if (p.dog) { p.dog.position.set(p.x + p.dir * 1.3, onWalk ? 0.15 : 0, z + 0.4 * lawn); p.dog.rotation.y = p.p.root.rotation.y; }
+    const d = Math.hypot(hp.x - p.x, hp.z - z);
+    if (d < 0.75 && p.hitCd <= 0 && Math.abs(hp.y - 0.15) < 1) {
+      if (riding && bs > 2.2) {
+        p.hitCd = 3; p.stumble = 1.4; bike.speed *= 0.25; Sfx.bump(); shake = 0.2; stats.bumps++;
+        suspicion = Math.min(100, suspicion + 22); suspWho = 'Someone on the sidewalk';
+        say('PEDESTRIAN', ['HEY! Sidewalks are for WALKING!', 'Watch it! I\'m telling your parents!', 'Ring a bell or something!'][(Math.random() * 3) | 0], '', 2.4);
+      } else if (!riding) { const k = (0.75 - d) / (d || 1); player.pos.x += (hp.x - p.x) * k; player.pos.z += (hp.z - z) * k; }
+    }
+  }
+}
+function updateNeighbors(dt) {
+  const hp = hostPos();
+  const naughty = bike.riding && onSidewalk(hp.x, hp.z) && Math.abs(bike.speed) > 1;
+  let watched = false;
+  for (const n of neighbors) {
+    const dx = hp.x - n.at[0], dz = hp.z - n.at[1], d = Math.hypot(dx, dz);
+    const look = Math.atan2(dx, dz);
+    let diff = look - n.yaw; diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+    const sees = naughty && d < 15 && Math.abs(diff) < 1.15;
+    n.watch = lerp(n.watch, sees ? 1 : 0, damp(sees ? 8 : 2, dt));
+    n.alert.material.opacity = n.watch;
+    n.alert.position.y = 2.3 + Math.sin(T * 6) * 0.05;
+    n.p.root.rotation.y = angLerp(n.p.root.rotation.y, d < 22 ? n.yaw + clamp(diff, -1.2, 1.2) : n.yaw, damp(3, dt));
+    animPerson(n.p, dt, 0, sees ? 'arms' : n.pose);
+    if (sees) {
+      watched = true;
+      suspicion = Math.min(100, suspicion + 14 * dt); suspWho = n.name;
+      if (T - n.lineT > 5) { n.lineT = T; say(n.name.toUpperCase(), n.lines[n.lineI++ % n.lines.length], '', 2.6); }
+    }
+  }
+  if (!watched) suspicion = Math.max(0, suspicion - (T - lastSuspUp > 2 ? 5 : 0) * dt);
+  else lastSuspUp = T;
+}
+let lastSuspUp = -9;
+function updateMom(dt) {
+  if (momState === 'idle') {
+    momT -= dt;
+    if (momT < 6 && !warned) { warned = true; $('warn').className = 'show'; for (let i = 0; i < 6; i++) Sfx.step(i * 0.55); }
+    if (momT <= 0) { momState = 'open'; momAnimT = 0; mom.root.visible = true; Sfx.door(); $('warn').className = ''; stats.checks++; }
+  } else {
+    momAnimT += dt;
+    const open = momState === 'open' ? Math.min(1, momAnimT / 0.8) : Math.max(0, 1 - momAnimT / 0.8);
+    door.rotation.y = -1.35 * open;
+    mom.root.position.z = -24.75 + open * 0.65;
+    animPerson(mom, dt, 0, 'arms');
+    if (momState === 'open' && momAnimT > 0.9 && !momJudged) {
+      momJudged = true;
+      if (inRoom(player.pos)) say('MOM', flags.windowOpen ? "Why is it so drafty in here? Close that window and get to bed." : "Lights out soon. And you're still grounded, mister.", 'mom', 3.2);
+      else if (flags.decoy) say('MOM', '(whispering) Aww. Out like a light. Goodnight, sweetie.', 'mom', 3.2);
+      else return lose('BUSTED', 'Mom opened your door and found an empty bed and an open window.', 'mom');
+    }
+    if (momState === 'open' && momAnimT > 3.4) { momState = 'close'; momAnimT = 0; }
+    if (momState === 'close' && momAnimT > 0.9) { momState = 'idle'; mom.root.visible = false; momJudged = false; warned = false; momT = inRoom(player.pos) ? rand(32, 45) : rand(45, 65); }
+  }
+}
+let momJudged = false;
+function updateFriends(dt) {
+  const hp = hostPos(), d = Math.hypot(hp.x - FRIENDS_AT.x, hp.z - FRIENDS_AT.z);
+  for (const f of friends) {
+    const r = f.p.root;
+    if (d < 28) r.rotation.y = angLerp(r.rotation.y, Math.atan2(hp.x - r.position.x, hp.z - r.position.z), damp(4, dt));
+    animPerson(f.p, dt, 0, flags.friends ? 'cheer' : d < 28 ? 'wave' : 'arms');
+  }
+  if (!flags.park && inRect(PARK, hp.x, hp.z)) { flags.park = true; toast('Maple Park! Find your friends by the picnic table.'); }
+  if (!flags.friends && d < 4.2) win();
+}
+
+// =====================================================================
+//  Camera
+// =====================================================================
+const camT = V(-3.2, 4.3, -22.1), _dir = V(), _want = V(), _v = V();
+const ray = new THREE.Raycaster();
+function updateCamera(dt) {
+  const hp = hostPos(), indoors = inRoom(player.pos) || (player.climb && player.pos.y > 2.5 && player.pos.z < -19);
+  const tgt = _v.set(hp.x, hp.y + (bike.riding ? 1.5 : 1.3), hp.z);
+  camT.lerp(tgt, damp(14, dt));
+  if (!playing) cam.yaw += dt * 0.08;
+  if (bike.riding && T - cam.lastMouse > 1.0 && Math.abs(bike.speed) > 1) {
+    cam.yaw = angLerp(cam.yaw, bike.yaw, damp(2.2, dt)); cam.pitch = lerp(cam.pitch, -0.2, damp(2, dt));
+  }
+  const want = indoors ? 2.8 : bike.riding ? 4.6 + Math.abs(bike.speed) * 0.08 : 3.8;
+  cam.dist = lerp(cam.dist, want, damp(4, dt));
+  const cp = Math.cos(cam.pitch);
+  _dir.set(Math.sin(cam.yaw) * cp, Math.sin(cam.pitch), Math.cos(cam.yaw) * cp);
+  _want.copy(camT);
+  let dist = cam.dist;
+  ray.set(_want, _v.copy(_dir).negate()); ray.near = 0; ray.far = cam.dist;
+  const hits = ray.intersectObjects(camMeshes, false);
+  if (hits.length) dist = Math.max(0.6, hits[0].distance - 0.25);
+  camera.position.copy(_want).addScaledVector(_dir, -dist);
+  if (camera.position.y < 0.3) camera.position.y = 0.3;
+  if (shake > 0) { camera.position.x += (Math.random() - 0.5) * shake * 0.4; camera.position.y += (Math.random() - 0.5) * shake * 0.4; shake = Math.max(0, shake - dt * 2); }
+  camera.lookAt(_v.copy(camera.position).add(_dir));
+}
+
+// =====================================================================
+//  Time of day
+// =====================================================================
+const HEMI_A = new THREE.Color(0xbcc8ff), HEMI_B = new THREE.Color(0x5a5aa0);
+const _sd = V();
+function updateSky(p) {
+  skyU.top.value.copy(SKY.early.top).lerp(SKY.late.top, p);
+  skyU.mid.value.copy(SKY.early.mid).lerp(SKY.late.mid, p);
+  skyU.low.value.copy(SKY.early.low).lerp(SKY.late.low, p);
+  const elev = THREE.MathUtils.degToRad(lerp(11, -4, p));
+  const sd = _sd.set(-Math.cos(elev) * 0.9, Math.sin(elev), -Math.cos(elev) * 0.42).normalize();
+  skyU.sunDir.value.copy(sd);
+  skyU.sunCol.value.setRGB(1, lerp(0.72, 0.4, p), lerp(0.42, 0.3, p)).multiplyScalar(1 - p * 0.7);
+  scene.fog.color.copy(skyU.mid.value).lerp(skyU.low.value, 0.35);
+  const hp = hostPos();
+  sun.position.set(hp.x + sd.x * 80, hp.y + Math.max(8, sd.y * 80 + 6), hp.z + sd.z * 80);
+  sun.target.position.copy(hp);
+  sun.intensity = lerp(2.6, 0.25, clamp(p * 1.15, 0, 1));
+  sun.color.setRGB(1, lerp(0.76, 0.5, p), lerp(0.54, 0.4, p));
+  hemi.intensity = lerp(0.95, 0.35, p);
+  hemi.color.copy(HEMI_A).lerp(HEMI_B, p);
+  for (const w of windowGlow) { if (w.material.transparent) w.material.opacity = clamp((p - 0.35) * 1.6, 0, 0.9); else w.material.emissive?.setRGB(clamp(p - 0.3, 0, 1), clamp(p - 0.3, 0, 1) * 0.75, clamp(p - 0.3, 0, 1) * 0.4); }
+  const lit = p >= 1 ? 1 : 0;
+  lampHeadMat.emissiveIntensity = lit * 2.2;
+  for (const g of streetLamps) g.material.opacity = lit * 0.75;
+}
+
+// =====================================================================
+//  HUD
+// =====================================================================
+let hudT = 0;
+function clockText(sec) { const m = 42 + Math.floor(sec / 10); const h = 7 + Math.floor(m / 60); return `${h}:${String(m % 60).padStart(2, '0')} PM`; }
+function updateHUD(dt) {
+  if (toastT > 0 && (toastT -= dt) <= 0) $('toast').className = '';
+  if (speechT > 0 && (speechT -= dt) <= 0) $('speech').className = $('speech').className.replace('show', '');
+  if ((hudT -= dt) > 0) return;
+  hudT = 0.1;
+  $('clockT').textContent = clockText(elapsed);
+  const left = LIMIT - elapsed;
+  $('clock').classList.toggle('late', left < 60);
+  $('clockS').textContent = left < 60 ? 'Streetlights any minute now!' : 'Streetlights come on at 8:15';
+  $('susp').classList.toggle('show', suspicion > 0.5);
+  $('suspFill').style.transform = `scaleX(${suspicion / 100})`;
+  $('suspWho').textContent = suspicion > 0.5 ? suspWho : '';
+  renderPlan();
+  const n = !bike.riding && !player.climb ? nearestInteract() : null;
+  const label = bike.riding ? 'Get off your bike' : n ? n.l : null;
+  if (label !== promptFor) {
+    promptFor = label;
+    $('prompt').hidden = !label;
+    if (label) $('prompt').innerHTML = `<kbd>${isTouch ? 'USE' : 'E'}</kbd>${label}`;
+  }
+  $('speedo').hidden = !bike.riding;
+  if (bike.riding) {
+    $('speedN').textContent = Math.round(Math.abs(bike.speed) * 3.6);
+    const w = onSidewalk(bike.pos.x, bike.pos.z);
+    $('speedL').textContent = w ? 'KM/H · ON THE SIDEWALK' : 'KM/H';
+    $('speedL').className = w ? 'walk' : '';
+  }
+  if (isTouch) { $('tbJump').textContent = bike.riding ? 'Hop' : 'Jump'; $('tbSprint').textContent = bike.riding ? 'Pedal' : 'Run'; $('tbBell').style.visibility = bike.riding ? 'visible' : 'hidden'; }
+  drawMap();
+}
+
+// =====================================================================
+//  Win / lose
+// =====================================================================
+function fmtTime(s) { return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`; }
+function showEnd(eyebrow, title, text, lose) {
+  ended = true; playing = false;
+  $('endEyebrow').textContent = eyebrow; $('endTitle').textContent = title; $('endTitle').className = lose ? 'lose' : ''; $('endText').textContent = text;
+  const st = [[fmtTime(elapsed), 'time since 7:42'], [`${Math.round(stats.sidewalk)} m`, 'ridden on the forbidden sidewalk'], [`${Math.round(stats.top * 3.6)} km/h`, 'top speed'], [stats.honks, 'honks'], [stats.bumps, 'bumps and crashes'], [stats.checks, 'times Mom checked']];
+  $('endStats').innerHTML = st.map(([b, s]) => `<div><b>${b}</b><span>${s}</span></div>`).join('');
+  setTimeout(() => { $('end').hidden = false; if (document.pointerLockElement) document.exitPointerLock(); }, lose ? 900 : 2200);
+  Sfx.whirr(0);
+}
+function win() {
+  flags.friends = true; renderPlan();
+  say('MAYA', 'YOU MADE IT!! We thought you were grounded!', '', 3);
+  Sfx.win();
+  const caught = !flags.decoy;
+  showEnd(`Maple Park · ${clockText(elapsed)}`, 'You made it!', caught
+    ? 'Maya, Theo and Jay cheer as you skid up to the picnic table. You did forget the pillow trick, though. Better hope Mom doesn\'t check again before you get home.'
+    : 'Maya, Theo and Jay cheer as you skid up to the picnic table. Back home, Mom thinks you\'re fast asleep. Legend.', false);
+}
+function lose(title, text, kind) {
+  if (ended) return;
+  Sfx.busted();
+  if (kind === 'mom') say('MOM', 'WHERE. IS. MY. CHILD?!', 'mom', 3);
+  showEnd(kind === 'time' ? 'Streetlights on · 8:15 PM' : 'Game over', title, text, true);
+}
+
+// =====================================================================
+//  Main loop
+// =====================================================================
+const lastGood = V();
+const badVec = (v) => !Number.isFinite(v.x) || !Number.isFinite(v.y) || !Number.isFinite(v.z);
+function sanitize() {
+  if (!badVec(player.pos) && !badVec(player.vel) && !badVec(bike.pos) && !badVec(bike.vel) && !badVec(camT) && Number.isFinite(cam.yaw + cam.pitch + bike.yaw + player.facing)) { lastGood.copy(hostPos()); return; }
+  player.pos.copy(lastGood); player.vel.set(0, 0, 0); bike.pos.copy(lastGood); bike.vel.set(0, 0, 0); bike.speed = 0;
+  camT.copy(lastGood).y += 1.4;
+  if (!Number.isFinite(cam.yaw)) cam.yaw = 0; if (!Number.isFinite(cam.pitch)) cam.pitch = -0.2;
+  if (!Number.isFinite(bike.yaw)) bike.yaw = 0; if (!Number.isFinite(player.facing)) player.facing = 0;
+}
+lastGood.copy(player.pos);
+let chirpT = 2;
+function update(dt) {
+  sanitize();
+  T += dt;
+  if (playing) {
+    elapsed += dt;
+    if (elapsed >= LIMIT) { elapsed = LIMIT; updateSky(1); lose('Too late', 'The streetlights flicked on. Maya, Theo and Jay rode home without you.', 'time'); }
+    if (bike.riding) updateBike(dt); else { updatePlayer(dt); updateBike(dt); }
+    if (!flags.down && flags.outside && player.pos.y < 0.5 && !bike.riding) { flags.down = true; toast('Feet on the grass. Your bike is on the sidewalk out front.'); }
+    updateMom(dt);
+    if (suspicion >= 100 && !ended) lose('BUSTED', `${suspWho === 'Someone on the sidewalk' || suspWho === 'The driver' ? 'Somebody' : suspWho} called your mom. She's already in the car.`, 'neighbor');
+    if ((chirpT -= dt) < 0) { chirpT = rand(3, 9) * (1 + elapsed / LIMIT); if (!inRoom(player.pos)) Sfx.chirp(); }
+  } else {
+    animPerson(me, dt, 0, 'arms');
+  }
+  updateTraffic(dt);
+  updatePeds(dt);
+  updateNeighbors(dt);
+  updateFriends(dt);
+  // the window sash slides up once opened
+  sash.position.y = lerp(sash.position.y, sashOpen ? 4.75 : 4.2, damp(6, dt));
+  sashFrame.position.y = sash.position.y + 0.27 - 0.025;
+  // objective marker
+  const goal = currentGoal(), gt = goal && playing ? goalTarget(goal) : null;
+  marker.visible = !!gt;
+  if (gt) { marker.position.set(gt.x, gt.y + 0.6 + Math.sin(T * 3) * 0.12, gt.z); marker.rotation.y += dt * 2; }
+  updateSky(Math.min(1, elapsed / LIMIT));
+  updateCamera(dt);
+  sky.position.copy(camera.position);
+  updateHUD(dt);
+}
+let last = performance.now();
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (!paused && dt > 0.0005) update(dt);
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(frame);
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+
+// =====================================================================
+//  Menus
+// =====================================================================
+const CONTROLS = isTouch ? [
+  ['Left thumb', 'Walk / steer'], ['Right thumb', 'Look around'], ['Use', 'Open, grab, climb, get on/off bike'],
+  ['Jump', 'Jump · on the bike: bunny hop'], ['Run', 'Run · on the bike: pedal hard'], ['Bell', 'Ring your bike bell'],
+] : [
+  ['WASD', 'Walk / ride'], ['Mouse', 'Look around'], ['E', 'Open, grab, climb, get on/off bike'], ['Shift', 'Run · pedal hard'],
+  ['Space', 'Jump · bunny hop'], ['F', 'Ring your bike bell'], ['H / Esc', 'Pause'],
+];
+const fill = (id) => { $(id).innerHTML = CONTROLS.map(([k, v]) => `<div><kbd>${k}</kbd><span>${v}</span></div>`).join(''); };
+fill('ctrlList'); fill('ctrlList2');
+if (isTouch) $('startFoot').textContent = 'Turn your phone sideways for the best view.';
+renderPlan(); drawMap();
+cam.yaw = Math.PI * 0.9;
+$('playBtn').addEventListener('click', () => {
+  Sfx.init();
+  playing = true; $('start').hidden = true;
+  cam.yaw = 0.15; cam.pitch = -0.25;
+  if (!isTouch) requestLock();
+  setTimeout(() => showTexts(), 600);
+});
+function pause() { if (!playing || paused) return; paused = true; $('pause').hidden = false; for (const k in keys) keys[k] = false; if (document.pointerLockElement) document.exitPointerLock(); }
+function resume() { paused = false; $('pause').hidden = true; last = performance.now(); if (!isTouch && lockOK) requestLock(); }
+$('resumeBtn').addEventListener('click', resume);
+$('againBtn').addEventListener('click', () => location.reload());
+</script>
+</body>
+</html>
