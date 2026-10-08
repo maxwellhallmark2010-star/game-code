@@ -16,6 +16,7 @@ The bots armor you, move you, and can turn into anything.
 - **Blast (F):** half your bots explode outward and knock nearby drones down.
 - **Buggy (E):** 600 bots flow off your body and form a car around you. Drive with W/A/S/D, Shift to boost, Space to hop.
 - **Build (B):** shape bots into cubes, walls, ramps, decks, pillars and launch pads (keys 1–6, R rotates, right click takes a piece apart and the bots come back).
+- **Shed (G):** take the swarm off to see what you really look like. The bots slide off into a blob that follows you around and watches you, and the camera swings around to show your face. Press G again and they crawl back onto you. While unbonded you have no powers and no armor, so drone shots hurt.
 - **Surge (V):** when the hunger bar fills, let the swarm take control. You get bigger and spiky, and the bots steer you toward drones and attack on their own. Wait too long and they take over anyway.
 
 ### Rules

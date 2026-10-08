@@ -49,6 +49,7 @@
   .chip { font: 700 11px/1 var(--display); letter-spacing: 0.16em; padding: 5px 8px; border: 1px solid var(--bio); color: var(--bio); }
   .chip.drive { border-color: #ffd27d; color: #ffd27d; }
   .chip.build { border-color: #9dff9a; color: #9dff9a; }
+  .chip.bare { border-color: #ffb48a; color: #ffb48a; }
   .chip.surge { border-color: var(--surge); color: #fff; background: var(--surge); }
 
   #cross { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%); }
@@ -97,7 +98,7 @@
   #stickBase { position: absolute; width: 110px; height: 110px; margin: -55px 0 0 -55px; border: 1px solid var(--line); border-radius: 50%; background: rgba(8, 10, 16, 0.35); left: 90px; top: calc(100% - 110px); }
   #stickKnob { position: absolute; left: 50%; top: 50%; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(125, 243, 255, 0.35); border: 1px solid var(--bio); }
   .tcluster { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(3, 64px); gap: 8px; pointer-events: auto; }
-  .trow { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); top: calc(118px + env(safe-area-inset-top, 0px)); display: flex; gap: 6px; pointer-events: auto; }
+  .trow { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); top: calc(136px + env(safe-area-inset-top, 0px)); display: flex; gap: 6px; pointer-events: auto; }
   .tb { font: 700 11px/1.1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); background: rgba(8, 10, 16, 0.55); border: 1px solid var(--line); height: 64px; padding: 0 4px; touch-action: none; }
   .tb.small { height: 38px; min-width: 52px; font-size: 10px; }
   .tb.hot { border-color: var(--bio); color: var(--bio); }
@@ -149,6 +150,7 @@
     <button class="tb small" data-act="car" id="tbCar">Car</button>
     <button class="tb small" data-act="build" id="tbBuild">Build</button>
     <button class="tb small" data-act="surge" id="tbSurge">Surge</button>
+    <button class="tb small" data-act="shed" id="tbShed">Shed</button>
     <button class="tb small" data-act="help">?</button>
   </div>
   <div class="tcluster">
@@ -186,7 +188,7 @@ import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
 //  Constants
 // =====================================================================
 const MAX_BOTS = 3000, START_BOTS = 1200, MIN_BODY = 150, VEH_COST = 600;
-const BODY = 0, VEH = 1, BLOCK = 2, TENDRIL = 3, FX = 4, LOOSE = 5;
+const BODY = 0, VEH = 1, BLOCK = 2, TENDRIL = 3, FX = 4, LOOSE = 5, SHED = 6;
 const G = 28, STEP = 0.55, SNAP = 0.3, WORLD = 118;
 const STRIKE_RANGE = 20, GRAPPLE_RANGE = 48, BUILD_RANGE = 16;
 
@@ -565,9 +567,12 @@ const bodyParts = [];
 const playerRoot = new THREE.Group();
 scene.add(playerRoot);
 const hips = new THREE.Group(); hips.position.y = 0.95; playerRoot.add(hips);
-const matHood = new THREE.MeshStandardMaterial({ color: 0x3a5480, roughness: 0.85 });
-const matSkin = new THREE.MeshStandardMaterial({ color: 0xd9a27e, roughness: 0.7 });
-const matJeans = new THREE.MeshStandardMaterial({ color: 0x2c3a5c, roughness: 0.9 });
+const mat = (color, roughness = 0.8) => new THREE.MeshStandardMaterial({ color, roughness });
+const matHood = mat(0x3a5480, 0.85), matHoodDark = mat(0x2a3f63, 0.9);
+const matSkin = mat(0xd9a27e, 0.7), matSkinDark = mat(0xc48a66, 0.7);
+const matJeans = mat(0x2c3a5c, 0.9), matHair = mat(0x2b1d14, 0.95);
+const matShoe = mat(0xeceff4, 0.6), matSole = mat(0x1d1f26);
+const matWhite = mat(0xf4f4f0, 0.4), matIris = mat(0x4a2e18, 0.3), matMouth = mat(0x8a4a3a);
 function bodyPart(parent, size, pos, mat, weight = 1) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(...size), mat);
   m.position.set(...pos);
@@ -576,17 +581,46 @@ function bodyPart(parent, size, pos, mat, weight = 1) {
   bodyParts.push({ mesh: m, size, weight });
   return m;
 }
-bodyPart(hips, [0.5, 0.62, 0.28], [0, 0.33, 0], matHood);
+// Small details that sit under the bot layer: you only see them once you shed the swarm.
+function detail(parent, size, pos, m) {
+  const d = new THREE.Mesh(new THREE.BoxGeometry(...size), m);
+  d.position.set(...pos);
+  parent.add(d);
+  return d;
+}
+const torso = bodyPart(hips, [0.5, 0.62, 0.28], [0, 0.33, 0], matHood);
+detail(torso, [0.38, 0.13, 0.1], [0, 0.29, -0.16], matHoodDark);     // hood bunched at the neck
+detail(torso, [0.3, 0.13, 0.012], [0, -0.14, 0.144], matHoodDark);   // front pocket
+detail(torso, [0.5, 0.05, 0.29], [0, -0.285, 0], matHoodDark);       // waistband
+for (const x of [0.05, -0.05]) detail(torso, [0.014, 0.14, 0.012], [x, 0.2, 0.146], matWhite); // drawstrings
 const neck = new THREE.Group(); neck.position.y = 0.65; hips.add(neck);
-bodyPart(neck, [0.28, 0.3, 0.28], [0, 0.15, 0], matSkin, 1.6);
+const head = bodyPart(neck, [0.28, 0.3, 0.28], [0, 0.15, 0], matSkin, 1.6);
+detail(head, [0.3, 0.07, 0.3], [0, 0.16, -0.005], matHair);          // hair
+detail(head, [0.3, 0.2, 0.06], [0, 0.06, -0.125], matHair);
+detail(head, [0.3, 0.05, 0.04], [0, 0.115, 0.125], matHair);
+for (const s of [1, -1]) {
+  detail(head, [0.03, 0.12, 0.2], [s * 0.145, 0.08, -0.03], matHair);
+  detail(head, [0.065, 0.04, 0.01], [s * 0.062, 0.03, 0.141], matWhite); // eyes
+  detail(head, [0.03, 0.04, 0.012], [s * 0.058, 0.03, 0.143], matIris);
+  detail(head, [0.075, 0.016, 0.012], [s * 0.064, 0.075, 0.142], matHair); // eyebrows
+  detail(head, [0.025, 0.07, 0.05], [s * 0.15, 0.01, 0.01], matSkinDark); // ears
+}
+detail(head, [0.04, 0.07, 0.035], [0, -0.015, 0.155], matSkinDark);  // nose
+detail(head, [0.085, 0.018, 0.01], [0, -0.075, 0.141], matMouth);    // mouth
 const shL = new THREE.Group(); shL.position.set(0.32, 0.6, 0); hips.add(shL);
 const shR = new THREE.Group(); shR.position.set(-0.32, 0.6, 0); hips.add(shR);
-bodyPart(shL, [0.14, 0.64, 0.14], [0, -0.3, 0], matHood);
-bodyPart(shR, [0.14, 0.64, 0.14], [0, -0.3, 0], matHood);
+for (const sh of [shL, shR]) {
+  const sleeve = bodyPart(sh, [0.14, 0.54, 0.14], [0, -0.27, 0], matHood);
+  detail(sleeve, [0.15, 0.05, 0.15], [0, -0.25, 0], matHoodDark);   // cuff
+  bodyPart(sh, [0.11, 0.13, 0.12], [0, -0.61, 0], matSkin, 1.3);     // hand
+}
 const hipL = new THREE.Group(); hipL.position.set(0.125, 0, 0); hips.add(hipL);
 const hipR = new THREE.Group(); hipR.position.set(-0.125, 0, 0); hips.add(hipR);
-bodyPart(hipL, [0.19, 0.95, 0.2], [0, -0.475, 0], matJeans);
-bodyPart(hipR, [0.19, 0.95, 0.2], [0, -0.475, 0], matJeans);
+for (const hp of [hipL, hipR]) {
+  bodyPart(hp, [0.19, 0.84, 0.2], [0, -0.42, 0], matJeans);
+  const shoe = bodyPart(hp, [0.2, 0.12, 0.3], [0, -0.89, 0.04], matShoe, 1.2);
+  detail(shoe, [0.21, 0.035, 0.31], [0, -0.045, 0], matSole);
+}
 
 // The swarm's eyes: they fade in as the bots close over the face.
 const eyeShape = new THREE.Shape();
@@ -598,6 +632,19 @@ const eyeL = new THREE.Mesh(new THREE.ShapeGeometry(eyeShape), eyeMat);
 eyeL.position.set(0.018, 0.15, 0.185);
 const eyeR = eyeL.clone(); eyeR.scale.x = -1; eyeR.position.x = -0.018;
 neck.add(eyeL, eyeR);
+
+// When you shed the swarm it waits beside you as a blob, watching you with the same eyes.
+const pile = { pos: V(), prev: V(), r: 0.8 };
+const pileEyeMat = eyeMat.clone();
+const pileEyes = new THREE.Group();
+{
+  const l = new THREE.Mesh(eyeL.geometry, pileEyeMat);
+  l.scale.setScalar(2.6); l.position.x = 0.04;
+  const r = l.clone(); r.scale.x = -2.6; r.position.x = -0.04;
+  pileEyes.add(l, r);
+}
+pileEyes.visible = false;
+scene.add(pileEyes);
 
 const player = {
   pos: V(0, 0, 0), vel: V(), onGround: true, facing: 0, airJumps: 0,
@@ -689,7 +736,7 @@ const B = {
   vSlot: new Int16Array(MAX_BOTS), until: new Float32Array(MAX_BOTS), tU: new Float32Array(MAX_BOTS),
   ref: new Array(MAX_BOTS).fill(null),
 };
-const counts = new Int32Array(6);
+const counts = new Int32Array(7);
 {
   const tmp = new Float32Array(6), q = new THREE.Quaternion(), e = new THREE.Euler(), m = new THREE.Matrix4();
   const weights = bodyParts.map((p) => 2 * (p.size[0] * p.size[1] + p.size[1] * p.size[2] + p.size[0] * p.size[2]) * p.weight);
@@ -718,7 +765,7 @@ botMesh.frustumCulled = false;
 botMesh.castShadow = true;
 botMesh.count = 0;
 scene.add(botMesh);
-const ROLE_SCALE = [1, 1.15, 1.05, 1.1, 1, 0.75];
+const ROLE_SCALE = [1, 1.15, 1.05, 1.1, 1, 0.75, 1.05];
 
 function setRole(i, role, rate) {
   B.role[i] = role; B.settled[i] = 0; B.rate[i] = rate * rand(0.7, 1.3);
@@ -728,11 +775,18 @@ function addBots(n, pos, spread = 0.5) {
   for (let k = 0; k < n && B.n < MAX_BOTS; k++) {
     const i = B.n++;
     B.px[i] = pos.x + rand(-spread, spread); B.py[i] = pos.y + rand(-spread, spread); B.pz[i] = pos.z + rand(-spread, spread);
-    setRole(i, BODY, rand(1.2, 2.6));
+    if (shed) toPile(i, rand(1.2, 2.6)); else setRole(i, BODY, rand(1.2, 2.6));
     added++;
   }
   botMesh.count = B.n;
   return added;
+}
+function toPile(i, rate) {
+  let x, y, z;
+  do { x = rand(-1, 1); y = rand(0, 1); z = rand(-1, 1); } while (x * x + y * y + z * z > 1);
+  B.gx[i] = x; B.gy[i] = y; B.gz[i] = z;
+  setRole(i, SHED, rate);
+  B.ref[i] = null;
 }
 let takeCursor = 0;
 function takeBodyBots(n) {
@@ -975,11 +1029,11 @@ function removeOrb(k) { scene.remove(orbs[k].mesh); orbs.splice(k, 1); }
 // =====================================================================
 //  Game state
 // =====================================================================
-let T = 0, started = false, paused = false;
+let T = 0, started = false, paused = false, shed = false;
 let score = 0, hunger = 0, surgeT = 0, restless = 0, surgeVis = 0, strikeCd = 0, blastCd = 0, autoCd = 0;
 let shake = 0, droneTimer = 2, voiceTimer = 0;
 const build = { on: false, piece: 0, rot: 0, ghost: null, ghostKey: '', place: null };
-const cam = { yaw: 0, pitch: -0.22, dist: 5.2, lastMouse: -10, fov: 65 };
+const cam = { yaw: 0, pitch: -0.22, dist: 5.2, lastMouse: -10, fov: 65, showT: 0, showFrom: 0 };
 const hostPos = () => (car.active ? car.pos : player.pos);
 
 function addShake(a) { shake = Math.min(1, shake + a); }
@@ -1087,6 +1141,7 @@ function castAim(range, { build: forBuild = false, drones: withDrones = true, as
 //  Abilities
 // =====================================================================
 function strike(forced = null) {
+  if (shed) return needSuit();
   if (strikeCd > 0) return;
   const surge = surgeT > 0;
   strikeCd = surge ? 0.22 : 0.38;
@@ -1122,6 +1177,7 @@ function strike(forced = null) {
 }
 function grapple() {
   if (car.active) return;
+  if (shed) return needSuit();
   const aim = castAim(GRAPPLE_RANGE, { drones: false });
   if (!aim || aim.kind === 'crate' || aim.point.distanceTo(player.pos) > GRAPPLE_RANGE + 2 || (aim.kind === 'ground' && aim.point.distanceTo(player.pos) < 6)) {
     toast('Nothing to latch onto', true); return;
@@ -1135,6 +1191,7 @@ function grapple() {
   Sfx.swarm();
 }
 function blast() {
+  if (shed) return needSuit();
   if (blastCd > 0) return;
   const ids = takeBodyBots(Math.max(40, Math.floor(counts[BODY] * 0.55)));
   if (ids.length < 30) { toast('Not enough bots on you to blast', true); return; }
@@ -1169,13 +1226,14 @@ function jump() {
   }
   if (player.grapple) { player.grapple = null; player.vel.y = Math.max(player.vel.y, 8); return; }
   if (player.onGround) { player.vel.y = 10; player.onGround = false; player.airJumps = 0; }
-  else if (player.airJumps < 1 && freeBots() > 40) {
+  else if (!shed && player.airJumps < 1 && freeBots() > 40) {
     player.airJumps++; player.vel.y = 13;
     springFx(player.pos); Sfx.whoosh();
   }
 }
 function toggleCar() {
   if (car.active) return exitCar();
+  if (shed) return needSuit();
   if (build.on) setBuild(false);
   if (player.grapple) player.grapple = null;
   if (freeBots() < VEH_COST) { toast(`A vehicle takes ${VEH_COST} free bots. You have ${freeBots()}.`, true); return; }
@@ -1204,6 +1262,7 @@ function exitCar() {
 }
 function setBuild(on) {
   if (on && car.active) { toast('Dismount first (E)', true); return; }
+  if (on && shed) return needSuit();
   build.on = on;
   $('palette').hidden = !on;
   if (build.ghost) build.ghost.visible = on;
@@ -1211,11 +1270,41 @@ function setBuild(on) {
 }
 function startSurge(forced = false) {
   if (surgeT > 0) return;
+  if (shed) return needSuit();
   if (!forced && hunger < 100) { toast(`The swarm isn't hungry enough yet (${Math.floor(hunger)}%)`, true); return; }
   surgeT = 9; hunger = 100; restless = 0;
   if (build.on) setBuild(false);
   voice(forced ? 'YOU WAITED TOO LONG. WE DRIVE NOW.' : 'LET US HANDLE THIS.', 2.6);
   Sfx.surge(); addShake(0.5);
+}
+function needSuit() { toast('The swarm is off you. Press G to put it back on.', true); }
+function toggleShed() {
+  if (shed) return rebond();
+  if (surgeT > 0) { toast('The swarm will not let go in the middle of a surge', true); return; }
+  if (car.active) exitCar();
+  if (build.on) setBuild(false);
+  shed = true;
+  player.grapple = null;
+  tendrils.length = 0;
+  const a = player.facing + 2.3;
+  pile.pos.set(player.pos.x + Math.sin(a) * 1.8, 0, player.pos.z + Math.cos(a) * 1.8);
+  pushOut(pile.pos, 0.6, player.pos.y, 1);
+  pile.pos.y = supportHeight(pile.pos.x, pile.pos.z, player.pos.y + 0.5, 0.5);
+  pile.prev.copy(pile.pos);
+  for (let i = 0; i < B.n; i++) {
+    const r = B.role[i];
+    if (r === BODY || r === TENDRIL || r === FX) toPile(i, rand(2, 4));
+  }
+  cam.showT = 3.2; cam.showFrom = T;
+  voice('FINE. TAKE A LOOK AT YOURSELF.', 2.4);
+  Sfx.whoosh();
+}
+function rebond() {
+  shed = false;
+  for (let i = 0; i < B.n; i++) if (B.role[i] === SHED) setRole(i, BODY, rand(1.5, 3.2));
+  cam.showT = 0;
+  voice('WE MISSED YOU.', 1.8);
+  Sfx.swarm();
 }
 function damageDrone(d, dmg, dir) {
   if (!d.alive) return;
@@ -1258,12 +1347,13 @@ function hurtHost() {
     toast('Bots knocked loose. They will crawl back.', true);
   } else {
     player.health -= 22; Sfx.hurt(); flashHurt();
-    toast('Your armor is too thin. Get your bots back!', true);
+    toast(shed ? 'No swarm to protect you! Press G to bond again.' : 'Your armor is too thin. Get your bots back!', true);
     if (player.health <= 0) die();
   }
 }
 function die() {
   if (car.active) exitCar();
+  shed = false; cam.showT = 0;
   player.grapple = null;
   for (let i = 0; i < B.n; i++) if (B.role[i] !== BLOCK) { setRole(i, BODY, rand(0.8, 2)); B.ref[i] = null; }
   tendrils.length = 0;
@@ -1301,6 +1391,7 @@ function action(name) {
     case 'build': setBuild(!build.on); break;
     case 'surge': startSurge(); break;
     case 'piece': setPiece(build.piece + 1); break;
+    case 'shed': toggleShed(); break;
     case 'help': pause(); break;
   }
 }
@@ -1316,6 +1407,7 @@ addEventListener('keydown', (e) => {
   else if (e.code === 'KeyR' && build.on) build.rot = (build.rot + 1) % 4;
   else if (/^Digit[1-6]$/.test(e.code) && build.on) setPiece(+e.code.slice(5) - 1);
   else if (e.code === 'KeyQ' && build.on) setPiece(build.piece + 1);
+  else if (e.code === 'KeyG') action('shed');
   else if (e.code === 'KeyH') { paused ? resume() : pause(); }
   else if (e.code === 'KeyM') toast(Sfx.toggleMute() ? 'Sound off' : 'Sound on');
   else if (e.code === 'Escape' && !lockOK) { paused ? resume() : pause(); }
@@ -1630,13 +1722,13 @@ function animatePlayer(dt) {
 // =====================================================================
 const partE = [];
 const prevRoot = V(), rootNow = V(), prevCar = V();
-let bodyDX = 0, bodyDY = 0, bodyDZ = 0, carDX = 0, carDY = 0, carDZ = 0;
+let bodyDX = 0, bodyDY = 0, bodyDZ = 0, carDX = 0, carDY = 0, carDZ = 0, pileDX = 0, pileDY = 0, pileDZ = 0;
 function updateBots(dt) {
   counts.fill(0);
   for (let p = 0; p < bodyParts.length; p++) partE[p] = bodyParts[p].mesh.matrixWorld.elements;
   const ce = car.group.matrixWorld.elements;
   const hp = hostPos();
-  const hx = hp.x, hz = hp.z, catchR = car.active ? 3.2 : 2.4;
+  const hx = shed ? pile.pos.x : hp.x, hz = shed ? pile.pos.z : hp.z, catchR = shed ? 1.2 : car.active ? 3.2 : 2.4;
   const wspin = car.wheelSpin, t = T;
   const arr = botMesh.instanceMatrix.array;
   const breathe = 0.012;
@@ -1685,11 +1777,21 @@ function updateBots(dt) {
       B.px[i] += bodyDX; B.py[i] += bodyDY; B.pz[i] += bodyDZ;
     } else if (role === FX) {
       tx = B.gx[i]; ty = B.gy[i]; tz = B.gz[i];
+    } else if (role === SHED) {
+      const R = pile.r * (1 + 0.05 * Math.sin(t * 3));
+      tx = pile.pos.x + B.gx[i] * R + 0.04 * Math.sin(t * 6 + ph * 9);
+      ty = pile.pos.y + 0.05 + B.gy[i] * R * 0.8;
+      tz = pile.pos.z + B.gz[i] * R + 0.04 * Math.cos(t * 5 + ph * 7);
+      B.px[i] += pileDX; B.py[i] += pileDY; B.pz[i] += pileDZ;
+      B.rate[i] = Math.min(14, B.rate[i] + dt * 5);
     } else { // LOOSE: fly out, land, then crawl home
       if (t < B.until[i]) { tx = B.gx[i]; ty = B.gy[i]; tz = B.gz[i]; }
       else {
         const dx = hx - B.px[i], dz = hz - B.pz[i], d = Math.hypot(dx, dz);
-        if (d < catchR) { setRole(i, BODY, 5); counts[BODY]++; writeBot(arr, i, 1); continue; }
+        if (d < catchR) {
+          if (shed) { toPile(i, 5); counts[SHED]++; } else { setRole(i, BODY, 5); counts[BODY]++; }
+          writeBot(arr, i, 1); continue;
+        }
         const stepL = Math.min(d, (3.2 + d * 0.35) * dt) / d;
         B.px[i] += dx * stepL; B.pz[i] += dz * stepL;
         if ((i + frameNo) % 4 === 0) B.gy[i] = supportHeight(B.px[i], B.pz[i], B.py[i], 0) + 0.04;
@@ -1714,6 +1816,29 @@ function updateBots(dt) {
   }
   botMesh.count = B.n;
   botMesh.instanceMatrix.needsUpdate = true;
+}
+function updatePile(dt) {
+  if (shed) {
+    // crawl after the host, keeping a couple of meters away
+    const dx = player.pos.x - pile.pos.x, dz = player.pos.z - pile.pos.z, d = Math.hypot(dx, dz);
+    if (d > 2.6) {
+      const s = Math.min(d - 2.6, Math.min(14, 2 + d * 1.5) * dt) / d;
+      pile.pos.x += dx * s; pile.pos.z += dz * s;
+      pushOut(pile.pos, 0.6, pile.pos.y, 1);
+    }
+    pile.pos.y = lerp(pile.pos.y, supportHeight(pile.pos.x, pile.pos.z, pile.pos.y + 0.6, 0.5), damp(10, dt));
+  }
+  pileDX = pile.pos.x - pile.prev.x; pileDY = pile.pos.y - pile.prev.y; pileDZ = pile.pos.z - pile.prev.z;
+  pile.prev.copy(pile.pos);
+  pile.r = clamp(0.25 + Math.cbrt(counts[SHED]) * 0.065, 0.3, 1.4);
+  pileEyeMat.opacity = lerp(pileEyeMat.opacity, shed && counts[SHED] > 80 ? 1 : 0, damp(4, dt));
+  pileEyes.visible = pileEyeMat.opacity > 0.02;
+  if (pileEyes.visible) {
+    const head = _v1.set(player.pos.x, player.pos.y + 1.7, player.pos.z);
+    const dx = head.x - pile.pos.x, dz = head.z - pile.pos.z, d = Math.hypot(dx, dz) || 1;
+    pileEyes.position.set(pile.pos.x + dx / d * pile.r * 0.7, pile.pos.y + pile.r * 0.55 + Math.sin(T * 3) * 0.03, pile.pos.z + dz / d * pile.r * 0.7);
+    pileEyes.lookAt(head);
+  }
 }
 function writeBot(a, i, mul) {
   const o = i * 16, r = i * 9, s = B.size[i] * mul, R = B.rot;
@@ -1841,9 +1966,18 @@ function updateCamera(dt) {
     cam.yaw = angLerp(cam.yaw, car.yaw, damp(2.2, dt));
     cam.pitch = lerp(cam.pitch, -0.2, damp(2, dt));
   }
-  const wantDist = car.active ? 9 + Math.abs(car.speed) * 0.05 : build.on ? 7.5 : surgeT > 0 ? 6.6 : 5.2;
+  // after shedding, swing round to the front so you can see your face (moving the mouse cancels it)
+  if (cam.showT > 0) {
+    cam.showT -= dt;
+    if (cam.lastMouse > cam.showFrom) cam.showT = 0;
+    else {
+      cam.yaw = angLerp(cam.yaw, player.facing + Math.PI, damp(3, dt));
+      cam.pitch = lerp(cam.pitch, -0.1, damp(3, dt));
+    }
+  }
+  const wantDist = car.active ? 9 + Math.abs(car.speed) * 0.05 : build.on ? 7.5 : surgeT > 0 ? 6.6 : shed ? (cam.showT > 0 ? 2.6 : 4.4) : 5.2;
   cam.dist = lerp(cam.dist, wantDist, damp(4, dt));
-  const shoulder = car.active ? 0 : 0.65;
+  const shoulder = car.active || cam.showT > 0 ? 0 : 0.65;
   const cp = Math.cos(cam.pitch);
   _dir.set(Math.sin(cam.yaw) * cp, Math.sin(cam.pitch), Math.cos(cam.yaw) * cp);
   _right.set(-Math.cos(cam.yaw), 0, Math.sin(cam.yaw));
@@ -1869,9 +2003,10 @@ function updateCamera(dt) {
 // =====================================================================
 //  HUD
 // =====================================================================
-const MODE = { walk: ['WALK', ''], build: ['BUILD', 'build'], drive: ['DRIVE', 'drive'], surge: ['SURGE', 'surge'] };
+const MODE = { unbonded: ['UNBONDED', 'bare'], walk: ['WALK', ''], build: ['BUILD', 'build'], drive: ['DRIVE', 'drive'], surge: ['SURGE', 'surge'] };
 const HINTS = {
-  walk: '<b>LMB</b> strike · <b>RMB</b> grapple · <b>Space×2</b> bot-spring · <b>F</b> blast · <b>E</b> form buggy · <b>B</b> build · <b>V</b> surge · <b>H</b> help',
+  walk: '<b>LMB</b> strike · <b>RMB</b> grapple · <b>Space×2</b> bot-spring · <b>F</b> blast · <b>E</b> form buggy · <b>B</b> build · <b>V</b> surge · <b>G</b> shed · <b>H</b> help',
+  unbonded: 'The swarm is off you and follows you around. <b>G</b> put it back on · <b>WASD</b> walk · <b>Space</b> jump · drag the mouse to look at yourself',
   build: '<b>LMB</b> place · <b>RMB</b> dismantle · <b>R</b> rotate · <b>1–6</b>/<b>wheel</b> piece · <b>B</b> done',
   drive: '<b>W/S</b> throttle · <b>A/D</b> steer · <b>Shift</b> boost · <b>Space</b> hop · <b>LMB</b> strike · <b>E</b> dismount',
   surge: 'The swarm is steering. <b>WASD</b> only nudges it.',
@@ -1884,14 +2019,14 @@ function updateHUD(dt) {
   hudT = 0.1;
   $('botsNum').textContent = counts[BODY] + counts[TENDRIL] + counts[FX];
   $('botsTotal').textContent = B.n;
-  $('botsBreak').textContent = `vehicle ${counts[VEH]} · built ${counts[BLOCK]} · loose ${counts[LOOSE]}`;
+  $('botsBreak').textContent = (shed ? `off you ${counts[SHED]} · ` : '') + `vehicle ${counts[VEH]} · built ${counts[BLOCK]} · loose ${counts[LOOSE]}`;
   $('hpFill').style.transform = `scaleX(${clamp(player.health / 100, 0, 1)})`;
   $('hpFill').style.background = player.health < 40 ? 'var(--danger)' : '';
   $('surgeFill').style.transform = `scaleX(${surgeT > 0 ? surgeT / 9 : hunger / 100})`;
   $('surgeBar').classList.toggle('ready', hunger >= 100 && surgeT <= 0);
   $('surgeLbl').textContent = surgeT > 0 ? 'SURGE' : hunger >= 100 ? 'READY·V' : 'HUNGER';
   $('score').textContent = score;
-  const mode = surgeT > 0 ? 'surge' : car.active ? 'drive' : build.on ? 'build' : 'walk';
+  const mode = surgeT > 0 ? 'surge' : shed ? 'unbonded' : car.active ? 'drive' : build.on ? 'build' : 'walk';
   if (mode !== lastMode) {
     lastMode = mode;
     $('modeChip').textContent = MODE[mode][0];
@@ -1905,6 +2040,7 @@ function updateHUD(dt) {
       $('tbJump').textContent = car.active ? 'Hop' : 'Jump';
       $('tbCar').textContent = car.active ? 'Exit' : 'Car';
       $('tbBuild').textContent = build.on ? 'Done' : 'Build';
+      $('tbShed').textContent = shed ? 'Bond' : 'Shed';
     }
   }
   if (isTouch) $('tbSurge').classList.toggle('hot', hunger >= 100 && surgeT <= 0);
@@ -1935,7 +2071,7 @@ function update(dt) {
     if (surgeT > 0) {
       surgeT -= dt;
       if (surgeT <= 0) { surgeT = 0; hunger = 0; voice('...FOR NOW.', 1.6); }
-    } else {
+    } else if (!shed) {
       hunger = Math.min(100, hunger + dt * 2.2);
       if (hunger >= 100) {
         restless += dt;
@@ -1963,6 +2099,7 @@ function update(dt) {
   prevRoot.copy(rootNow);
   carDX = car.pos.x - prevCar.x; carDY = car.pos.y - prevCar.y; carDZ = car.pos.z - prevCar.z;
   prevCar.copy(car.pos);
+  updatePile(dt);
   updateTendrils(dt);
   updateBots(dt);
   updateBlocks();
@@ -2022,11 +2159,11 @@ addEventListener('resize', () => {
 const CONTROLS = isTouch ? [
   ['Left thumb', 'Move'], ['Right thumb', 'Look around'], ['Strike', 'Swarm fist, reaches 20 m'], ['Grapple', 'Tendril pulls you to a wall or roof'],
   ['Jump ×2', 'Mid-air bot-spring'], ['Blast', 'Bots burst outward, knocks drones down'], ['Car', 'Bots form a buggy around you'],
-  ['Build', 'Shape bots into ramps, walls, pads'], ['Surge', 'Let the swarm take control'],
+  ['Build', 'Shape bots into ramps, walls, pads'], ['Surge', 'Let the swarm take control'], ['Shed', 'Take the swarm off and see yourself'],
 ] : [
   ['WASD', 'Move'], ['Mouse', 'Look'], ['Shift', 'Sprint / boost'], ['Space', 'Jump · again mid-air: bot-spring'],
   ['Left click', 'Swarm strike (20 m reach)'], ['Right click', 'Grapple tendril'], ['F', 'Swarm blast'],
-  ['E', 'Form or dissolve the buggy'], ['B', 'Build mode: 1–6, R rotate, right-click dismantle'], ['V', 'Surge: the swarm takes control'],
+  ['E', 'Form or dissolve the buggy'], ['B', 'Build mode: 1–6, R rotate, right-click dismantle'], ['V', 'Surge: the swarm takes control'], ['G', 'Shed the swarm / put it back on'],
   ['H / Esc', 'Pause and controls'], ['M', 'Sound on/off'],
 ];
 function fillControls(id) {
