@@ -57,18 +57,29 @@
   #vbar { height: 6px; margin-top: 6px; background: rgba(255, 255, 255, 0.12); border-radius: 3px; overflow: hidden; }
   #vbar i { display: block; height: 100%; background: var(--signal); transform-origin: left; }
 
-  #cross { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; transform: translate(-50%, -50%); }
-  #cross::before, #cross::after { content: ""; position: absolute; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 2px #000; }
-  #cross::before { left: 12px; top: 0; width: 2px; height: 26px; clip-path: polygon(0 0,100% 0,100% 35%,0 35%,0 65%,100% 65%,100% 100%,0 100%); }
-  #cross::after { top: 12px; left: 0; height: 2px; width: 26px; clip-path: polygon(0 0,35% 0,35% 100%,0 100%,0 0,65% 0,100% 0,100% 100%,65% 100%); }
-  #cross.big { width: 60px; height: 60px; border: 2px solid rgba(255, 255, 255, 0.7); border-radius: 50%; }
-  #cross.big::before, #cross.big::after { display: none; }
+  /* dynamic crosshair: the gap shows how far your shots can stray right now */
+  #cross { position: absolute; left: 50%; top: 50%; width: 0; height: 0; --gap: 8px; }
+  #cross i, #cross b { position: absolute; background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 2px rgba(0, 0, 0, 0.9); }
+  #cross i:nth-child(1) { left: -1px; width: 2px; height: 9px; top: calc(-1 * var(--gap) - 9px); }
+  #cross i:nth-child(2) { left: -1px; width: 2px; height: 9px; top: var(--gap); }
+  #cross i:nth-child(3) { top: -1px; height: 2px; width: 9px; left: calc(-1 * var(--gap) - 9px); }
+  #cross i:nth-child(4) { top: -1px; height: 2px; width: 9px; left: var(--gap); }
+  #cross b { left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; }
+  #cross.enemy i, #cross.enemy b { background: var(--red); }
+  #cross.big { width: 60px; height: 60px; margin: -32px 0 0 -32px; border: 2px solid rgba(255, 255, 255, 0.7); border-radius: 50%; }
+  #cross.big i, #cross.big b { display: none; }
+  #scope { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at center, transparent 0, transparent 34vmin, rgba(8, 8, 6, 0.94) 34.6vmin); }
+  #scope::before { content: ""; position: absolute; left: 50%; top: 50%; width: 68vmin; height: 68vmin; margin: -34vmin 0 0 -34vmin;
+    background: linear-gradient(#0c0c0a, #0c0c0a) left center / 45% 2px no-repeat, linear-gradient(#0c0c0a, #0c0c0a) right center / 45% 2px no-repeat,
+      linear-gradient(#0c0c0a, #0c0c0a) center top / 2px 45% no-repeat, linear-gradient(#0c0c0a, #0c0c0a) center bottom / 2px 45% no-repeat; }
+  #scopeDot { position: fixed; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: var(--red); pointer-events: none; }
   #sight { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border: 2px solid var(--signal); border-radius: 50%; }
   #hitm { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; }
   #hitm::before, #hitm::after { content: ""; position: absolute; background: #fff; }
   #hitm::before { left: 10px; top: 0; width: 2px; height: 22px; clip-path: polygon(0 0,100% 0,100% 35%,0 35%,0 65%,100% 65%,100% 100%,0 100%); }
   #hitm::after { top: 10px; left: 0; height: 2px; width: 22px; clip-path: polygon(0 0,35% 0,35% 100%,0 100%,0 0,65% 0,100% 0,100% 100%,65% 100%); }
   #hitm.kill::before, #hitm.kill::after { background: var(--red); }
+  #hitm.head::before, #hitm.head::after { background: #ffc83a; }
   #dmg { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(170, 20, 10, 0.55)); }
   #dmgDir { position: absolute; left: 50%; top: 50%; width: 220px; height: 220px; margin: -110px 0 0 -110px; opacity: 0; }
   #dmgDir::before { content: ""; position: absolute; left: 50%; top: 0; width: 46px; height: 14px; margin-left: -23px; background: var(--red); clip-path: polygon(0 100%, 50% 0, 100% 100%); }
@@ -140,7 +151,8 @@
     <div id="wExtra"></div>
     <div id="vbar" hidden><i id="vfill"></i></div>
   </div>
-  <div id="cross"></div>
+  <div id="scope" hidden></div><div id="scopeDot" hidden></div>
+  <div id="cross"><i></i><i></i><i></i><i></i><b></b></div>
   <div id="sight" hidden></div>
   <div id="hitm"></div>
   <div id="dmgDir"></div>
@@ -646,7 +658,12 @@ const Sfx = (() => {
   return {
     init,
     frame() { budget = 4; },
-    shot(p, kind = 'rifle') { if (!ctx) return; const a = att(p, 220); if (a < 0.02) return; if (p && budget-- <= 0) return; noise(kind === 'smg' ? 0.08 : 0.16, 3000, 400, 0.7, (kind === 'mg' ? 0.35 : 0.5) * a, 'lowpass'); tone(0.07, 200, 60, 'square', 0.06 * a); },
+    shot(p, kind = 'rifle') {
+      if (!ctx) return; const a = att(p, 220); if (a < 0.02) return; if (p && budget-- <= 0) return;
+      noise(kind === 'smg' ? 0.08 : 0.16, 3000, 400, 0.7, (kind === 'mg' ? 0.35 : 0.5) * a, 'lowpass'); tone(0.07, 200, 60, 'square', 0.06 * a);
+      if (!p) { tone(kind === 'smg' ? 0.08 : 0.14, 110, 40, 'sine', kind === 'smg' ? 0.35 : 0.6); noise(0.05, 5000, 2500, 1.5, 0.25); }
+    },
+    headshot() { tone(0.09, 1600, 1500, 'triangle', 0.18); tone(0.12, 2400, 2300, 'sine', 0.1, 0.03); },
     boom(p, big) { const a = att(p, big ? 900 : 600); noise(big ? 1.8 : 1.1, big ? 900 : 1500, 35, 0.6, (big ? 1.1 : 0.85) * a + 0.015, 'lowpass'); tone(0.8, 85, 26, 'sine', 0.9 * a); },
     cannon(p) { const a = att(p, 600); noise(0.7, 1200, 60, 0.6, 0.9 * a, 'lowpass'); tone(0.35, 120, 40, 'square', 0.15 * a); },
     flak(p) { const a = att(p, 500); noise(0.3, 1600, 300, 0.8, 0.5 * a, 'lowpass'); },
@@ -743,6 +760,177 @@ function poseSoldier(md, dt, pose, speed = 0, aimPitch = 0) {
   md.shL.rotation.z = lerp(md.shL.rotation.z, azL, k); md.shR.rotation.z = lerp(md.shR.rotation.z, azR, k);
   md.hips.rotation.x = lerp(md.hips.rotation.x, lean, k); md.hips.position.y = lerp(md.hips.position.y, hy, k) + bob;
   md.rifle.visible = gun;
+  // hit flinch: jerk back and twist away from the bullet, then recover
+  if (md.flinch > 0) {
+    md.hips.rotation.x -= md.flinch * 0.55; md.hips.rotation.z = md.flinch * 0.35 * md.flinchSide;
+    md.neck.rotation.x = -md.flinch * 0.45; md.shR.rotation.x += md.flinch * 0.6;
+    md.flinch = Math.max(0, md.flinch - dt * 3.5);
+  } else { md.hips.rotation.z = 0; md.neck.rotation.x = lerp(md.neck.rotation.x, 0, k); }
+}
+function flinch(md, dir, facing) {
+  md.flinch = 1;
+  md.flinchSide = dir ? Math.sign(Math.sin(Math.atan2(dir.x, dir.z) - facing)) || 1 : (Math.random() < 0.5 ? -1 : 1);
+}
+
+// =====================================================================
+//  Ragdolls: verlet skeletons with a little "euphoria".
+//  Bodies stagger before collapsing, clutch the wound, throw an arm out to
+//  break the fall, flail when blown up, and the wounded writhe and reach up.
+// =====================================================================
+const RD = { HEAD: 0, CHEST: 1, PELV: 2, SHL: 3, HAL: 4, SHR: 5, HAR: 6, HIPL: 7, FTL: 8, HIPR: 9, FTR: 10 };
+const RD_LINKS = [[0, 1], [1, 2], [1, 3], [1, 5], [3, 5], [3, 2], [5, 2], [3, 4], [5, 6], [2, 7], [2, 9], [7, 9], [7, 1], [9, 1], [7, 8], [9, 10], [0, 3], [0, 5], [3, 7], [5, 9]];
+const RD_MIN = [[0, 2, 0.75], [8, 1, 0.6], [10, 1, 0.6], [8, 10, 0.16], [4, 6, 0.12], [4, 2, 0.14], [6, 2, 0.14], [4, 0, 0.14], [6, 0, 0.14]];
+const RD_ACC = new Float32Array(33);
+const _rv = V(), _rw = V(), _rx = V(), _ry = V(), _rz = V(), _rm = new THREE.Matrix4(), _rinv = new THREE.Quaternion();
+const DOWNV = V(0, -1, 0), UPV = V(0, 1, 0);
+function startRagdoll(ent, o = {}) {
+  const md = ent.model;
+  md.root.updateMatrixWorld(true);
+  const pts = [
+    md.neck.localToWorld(V(0, 0.13, 0)), md.hips.localToWorld(V(0, 0.58, 0)), md.hips.localToWorld(V(0, 0, 0)),
+    md.shL.localToWorld(V(0, 0, 0)), md.shL.localToWorld(V(0, -0.62, 0)), md.shR.localToWorld(V(0, 0, 0)), md.shR.localToWorld(V(0, -0.62, 0)),
+    md.hipL.localToWorld(V(0, 0, 0)), md.hipL.localToWorld(V(0, -0.86, 0)), md.hipR.localToWorld(V(0, 0, 0)), md.hipR.localToWorld(V(0, -0.86, 0)),
+  ];
+  const rd = { p: new Float32Array(33), q: new Float32Array(33), len: new Float32Array(RD_LINKS.length), t: 0, still: 0, awake: true,
+    mode: o.mode || 'drop', clutch: -1, clutchHand: RD.HAL, braceHand: RD.HAR, flailT: 0, flail: new Float32Array(12), writhe: !!o.writhe, phase: Math.random() * 6 };
+  const step = 1 / 60, v = ent.vel || V();
+  pts.forEach((pt, i) => { const j = i * 3; rd.p[j] = pt.x; rd.p[j + 1] = pt.y; rd.p[j + 2] = pt.z; rd.q[j] = pt.x - v.x * step; rd.q[j + 1] = pt.y - v.y * step; rd.q[j + 2] = pt.z - v.z * step; });
+  RD_LINKS.forEach(([a, b], k) => { rd.len[k] = pts[a].distanceTo(pts[b]); });
+  if (o.dir) {
+    const f = (o.force || 3.5) * step, blast = rd.mode === 'blast';
+    let ni = RD.CHEST;
+    if (o.point) { let bd = 1e9; pts.forEach((pt, i) => { const d = pt.distanceTo(o.point); if (d < bd) { bd = d; ni = i; } }); }
+    for (let i = 0; i < 11; i++) {
+      const k = blast ? rand(0.75, 1.25) : i === ni ? 1 : i === RD.HEAD || i === RD.CHEST ? 0.55 : 0.25, j = i * 3;
+      rd.q[j] -= o.dir.x * f * k; rd.q[j + 1] -= (o.dir.y * f + (blast ? f * 0.5 : 0)) * k; rd.q[j + 2] -= o.dir.z * f * k;
+    }
+    if (!blast && [RD.HEAD, RD.CHEST, RD.PELV, RD.SHL, RD.SHR].includes(ni)) {
+      rd.clutch = ni;
+      rd.clutchHand = ni === RD.SHR ? RD.HAL : ni === RD.SHL ? RD.HAR : Math.random() < 0.5 ? RD.HAL : RD.HAR;
+      rd.braceHand = rd.clutchHand === RD.HAL ? RD.HAR : RD.HAL;
+    }
+  }
+  if (rd.writhe && rd.clutch < 0) { rd.clutch = RD.CHEST; rd.clutchHand = RD.HAL; rd.braceHand = RD.HAR; }
+  ent.rd = rd;
+  return rd;
+}
+function kickRagdoll(rd, dir, force, point = null, blast = false) {
+  if (!rd) return;
+  rd.awake = true; rd.still = 0;
+  const f = force / 60;
+  let ni = -1;
+  if (point) { let bd = 1e9; for (let i = 0; i < 11; i++) { const d = Math.hypot(rd.p[i * 3] - point.x, rd.p[i * 3 + 1] - point.y, rd.p[i * 3 + 2] - point.z); if (d < bd) { bd = d; ni = i; } } }
+  for (let i = 0; i < 11; i++) {
+    const k = blast ? rand(0.7, 1.3) : i === ni ? 1 : 0.2, j = i * 3;
+    rd.q[j] -= dir.x * f * k; rd.q[j + 1] -= (dir.y * f + (blast ? f * 0.6 : 0)) * k; rd.q[j + 2] -= dir.z * f * k;
+  }
+  if (blast) { rd.mode = 'blast'; rd.t = Math.min(rd.t, 0.2); }
+}
+function stepRagdoll(rd, dt, near) {
+  if (!rd.awake) return;
+  rd.t += dt;
+  const P = rd.p, Q = rd.q, A = RD_ACC, dt2 = dt * dt;
+  A.fill(0);
+  for (let i = 0; i < 11; i++) A[i * 3 + 1] = -20;
+  const px = (i) => P[i * 3], py = (i) => P[i * 3 + 1], pz = (i) => P[i * 3 + 2];
+  const pull = (i, tx, ty, tz, k) => { A[i * 3] += (tx - px(i)) * k; A[i * 3 + 1] += (ty - py(i)) * k; A[i * 3 + 2] += (tz - pz(i)) * k; };
+  // stagger: the body fights to stay up for a moment before the knees give
+  if (rd.mode === 'bullet' && rd.t < 0.75) { const k = 1 - rd.t / 0.75; for (const i of [RD.HEAD, RD.CHEST, RD.PELV]) A[i * 3 + 1] += 20 * 0.9 * k; }
+  // clutch the wound
+  if (rd.clutch >= 0 && (rd.t < 2.4 || rd.writhe)) pull(rd.clutchHand, px(rd.clutch), py(rd.clutch) + 0.05, pz(rd.clutch), 45);
+  // throw an arm out to break the fall
+  if (rd.mode !== 'drop' && rd.t < 1.6) {
+    const c = RD.CHEST * 3, vx = (P[c] - Q[c]) / dt, vz = (P[c + 2] - Q[c + 2]) / dt, vy = (P[c + 1] - Q[c + 1]) / dt;
+    if (vy < -1) { const hv = Math.hypot(vx, vz) || 1; pull(rd.braceHand, px(RD.CHEST) + vx / hv * 0.7, py(RD.CHEST) - 0.8, pz(RD.CHEST) + vz / hv * 0.7, 28); }
+  }
+  // flail while flying through the air
+  if (rd.mode === 'blast' && rd.t < 2.2) {
+    rd.flailT -= dt;
+    if (rd.flailT <= 0) { rd.flailT = 0.11; for (let k = 0; k < 12; k++) rd.flail[k] = rand(-38, 38); }
+    [RD.HAL, RD.HAR, RD.FTL, RD.FTR].forEach((i, k) => { A[i * 3] += rd.flail[k * 3]; A[i * 3 + 1] += rd.flail[k * 3 + 1]; A[i * 3 + 2] += rd.flail[k * 3 + 2]; });
+  }
+  // the wounded writhe: one hand reaches up for help, legs draw up and kick
+  if (rd.writhe && near && rd.t > 1.2) {
+    const w = Math.max(0, Math.sin(T * 2.1 + rd.phase));
+    pull(rd.braceHand, px(rd.braceHand === RD.HAR ? RD.SHR : RD.SHL) + Math.sin(T * 3 + rd.phase) * 0.15, py(RD.CHEST) + 0.7, pz(rd.braceHand === RD.HAR ? RD.SHR : RD.SHL), 22 * (0.4 + w));
+    const c1 = Math.max(0, Math.sin(T * 1.5 + rd.phase)), c2 = Math.max(0, Math.sin(T * 1.5 + rd.phase + 2.2));
+    pull(RD.FTL, px(RD.PELV), py(RD.PELV) + 0.15, pz(RD.PELV), 9 * c1);
+    pull(RD.FTR, px(RD.PELV), py(RD.PELV) + 0.15, pz(RD.PELV), 9 * c2);
+  }
+  // integrate
+  let motion = 0;
+  for (let j = 0; j < 33; j++) {
+    const vel = (P[j] - Q[j]) * 0.992;
+    Q[j] = P[j]; P[j] += vel + A[j] * dt2;
+    motion = Math.max(motion, Math.abs(vel));
+  }
+  // keep bones the right length
+  for (let it = 0; it < 5; it++) {
+    for (let k = 0; k < RD_LINKS.length; k++) {
+      const a = RD_LINKS[k][0] * 3, b = RD_LINKS[k][1] * 3;
+      const dx = P[b] - P[a], dy = P[b + 1] - P[a + 1], dz = P[b + 2] - P[a + 2], l = Math.hypot(dx, dy, dz) || 1e-6;
+      const d = (l - rd.len[k]) / l * 0.5;
+      P[a] += dx * d; P[a + 1] += dy * d; P[a + 2] += dz * d; P[b] -= dx * d; P[b + 1] -= dy * d; P[b + 2] -= dz * d;
+    }
+    for (const [ia, ib, mn] of RD_MIN) {
+      const a = ia * 3, b = ib * 3, dx = P[b] - P[a], dy = P[b + 1] - P[a + 1], dz = P[b + 2] - P[a + 2], l = Math.hypot(dx, dy, dz) || 1e-6;
+      if (l >= mn) continue;
+      const d = (l - mn) / l * 0.5;
+      P[a] += dx * d; P[a + 1] += dy * d; P[a + 2] += dz * d; P[b] -= dx * d; P[b + 1] -= dy * d; P[b + 2] -= dz * d;
+    }
+  }
+  // ground, walls and friction
+  for (let i = 0; i < 11; i++) {
+    const j = i * 3;
+    const gy = supportHeight(P[j], P[j + 2], P[j + 1], 0, 0.5, 0.6) + 0.08;
+    if (P[j + 1] < gy) {
+      P[j + 1] = gy;
+      Q[j] = P[j] - (P[j] - Q[j]) * 0.55; Q[j + 2] = P[j + 2] - (P[j + 2] - Q[j + 2]) * 0.55; Q[j + 1] = P[j + 1];
+    }
+    if (i <= RD.PELV) {
+      // only real walls (taller than the point) push it, and only by a little; never teleport across a big block
+      _rv.set(P[j], P[j + 1], P[j + 2]);
+      if (pushOut(_rv, 0.14, P[j + 1], 0.2, 0.3) && Math.hypot(_rv.x - P[j], _rv.z - P[j + 2]) < 0.5) { P[j] = _rv.x; P[j + 2] = _rv.z; Q[j] = P[j]; Q[j + 2] = P[j + 2]; }
+    }
+  }
+  rd.still = motion < 0.004 ? rd.still + dt : 0;
+  if (rd.still > 0.6 && rd.t > 1.5 && !(rd.writhe && near)) rd.awake = false;
+}
+function poseFromRagdoll(md, rd) {
+  const P = rd.p;
+  const g = (i, out) => out.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+  const pel = g(RD.PELV, _rv), che = g(RD.CHEST, _rw);
+  _ry.subVectors(che, pel).normalize();
+  _rx.set(P[RD.SHL * 3] - P[RD.SHR * 3], P[RD.SHL * 3 + 1] - P[RD.SHR * 3 + 1], P[RD.SHL * 3 + 2] - P[RD.SHR * 3 + 2]);
+  _rx.addScaledVector(_ry, -_rx.dot(_ry)).normalize();
+  _rz.crossVectors(_rx, _ry);
+  _rm.makeBasis(_rx, _ry, _rz);
+  md.root.quaternion.setFromRotationMatrix(_rm);
+  md.hips.position.set(0, 0.88, 0); md.hips.rotation.set(0, 0, 0);
+  md.root.position.copy(pel).addScaledVector(_ry, -0.88);
+  _rinv.copy(md.root.quaternion).invert();
+  const limb = (joint, a, b, rest) => { _rv.set(P[b * 3] - P[a * 3], P[b * 3 + 1] - P[a * 3 + 1], P[b * 3 + 2] - P[a * 3 + 2]).applyQuaternion(_rinv).normalize(); joint.quaternion.setFromUnitVectors(rest, _rv); };
+  limb(md.shL, RD.SHL, RD.HAL, DOWNV); limb(md.shR, RD.SHR, RD.HAR, DOWNV);
+  limb(md.hipL, RD.HIPL, RD.FTL, DOWNV); limb(md.hipR, RD.HIPR, RD.FTR, DOWNV);
+  limb(md.neck, RD.CHEST, RD.HEAD, UPV);
+  md.rifle.visible = false;
+}
+function endRagdoll(ent, facing) {
+  ent.rd = null;
+  const md = ent.model;
+  md.root.quaternion.identity(); md.root.rotation.set(0, facing, 0);
+  for (const j of [md.shL, md.shR, md.hipL, md.hipR, md.neck, md.hips]) j.rotation.set(0, 0, 0);
+  md.hips.position.set(0, 0.88, 0);
+}
+function ragdollGround(ent) {
+  const P = ent.rd.p;
+  ent.pos.set(P[RD.PELV * 3], Math.min(P[RD.PELV * 3 + 1], P[RD.CHEST * 3 + 1]) - 0.2, P[RD.PELV * 3 + 2]);
+}
+function updateRagdoll(ent, dt) {
+  const near = camera.position.distanceToSquared(ent.pos) < 80 * 80;
+  stepRagdoll(ent.rd, dt, near);
+  poseFromRagdoll(ent.model, ent.rd);
+  ragdollGround(ent);
 }
 const NAMES = [['Mason', 'Reyes', 'Cole', 'Patel', 'Hughes', 'Brooks', 'Diaz', 'Kim', 'Novak', 'Shaw', 'Ortiz', 'Bell', 'Ward', 'Gray', 'Hayes', 'Silva', 'Quinn', 'Ford', 'Okafor', 'Lund'],
   ['Varn', 'Kessel', 'Orlo', 'Dask', 'Merin', 'Tobin', 'Rusk', 'Halvar', 'Pell', 'Corran', 'Steig', 'Ulric', 'Brann', 'Joss', 'Fenn', 'Garret', 'Ivo', 'Marek', 'Sorrel', 'Doyle']];
@@ -843,7 +1031,7 @@ function aiShoot(s, tgt) {
   tracer(from, end, s.team === BLUE ? 0xfff0b0 : 0xffc890);
   muzzleFlash(from, 0.7); Sfx.shot(from);
   if (hit) {
-    if (tgt.kind === 'soldier') damageSoldier(tgt, 24, s);
+    if (tgt.kind === 'soldier') damageSoldier(tgt, 24, s, { dir: _ld.clone(), point: to });
     else if (tgt.kind === 'player') damagePlayer(12, from);
     else if (tgt.kind === 'tank') { damageTank(tgt, 0.4, s); sparks(end, 2); }
     else if (tgt.kind === 'aa') damageAA(tgt, 1, s);
@@ -853,17 +1041,17 @@ function updateSoldier(s, dt) {
   const md = s.model;
   if (s.state === 'dead') {
     s.deadT += dt;
-    md.root.rotation.x = lerp(md.root.rotation.x, Math.PI / 2, damp(6, dt)); md.root.position.set(s.pos.x, s.pos.y + 0.14, s.pos.z);
-    poseSoldier(md, dt, 'dead');
+    if (s.rd) updateRagdoll(s, dt);
+    else { md.root.rotation.x = lerp(md.root.rotation.x, Math.PI / 2, damp(6, dt)); md.root.position.set(s.pos.x, s.pos.y + 0.14, s.pos.z); poseSoldier(md, dt, 'dead'); }
     if (s.deadT > 55) removeSoldier(s);
     return;
   }
   if (s.state === 'carried') { poseSoldier(md, dt, 'carried'); s.icon.visible = false; return; }
   if (s.state === 'down') {
     s.bleed -= dt;
-    md.root.rotation.x = lerp(md.root.rotation.x, -Math.PI / 2, damp(6, dt)); md.root.position.set(s.pos.x, s.pos.y + 0.14, s.pos.z); md.root.rotation.y = s.facing;
-    poseSoldier(md, dt, 'down');
-    s.icon.position.set(s.pos.x, s.pos.y + 1.1 + Math.sin(T * 4) * 0.06, s.pos.z);
+    if (s.rd) updateRagdoll(s, dt);
+    else { md.root.rotation.x = lerp(md.root.rotation.x, -Math.PI / 2, damp(6, dt)); md.root.position.set(s.pos.x, s.pos.y + 0.14, s.pos.z); md.root.rotation.y = s.facing; poseSoldier(md, dt, 'down'); }
+    s.icon.position.set(s.pos.x, s.pos.y + 1.2 + Math.sin(T * 4) * 0.06, s.pos.z);
     if (s.bleed <= 0) { killSoldier(s); if (s.team === BLUE && h2(s.pos, player.pos) < 60) feed(`${s.name} didn't make it`, 'bad'); }
     return;
   }
@@ -873,6 +1061,7 @@ function updateSoldier(s, dt) {
     if (s.healT <= 0) finishHeal(s);
     return;
   }
+  if (s.rd) endRagdoll(s, s.facing);
   md.root.rotation.x = lerp(md.root.rotation.x, 0, damp(8, dt));
   if (s.state === 'surrender') {
     s.surT -= dt; poseSoldier(md, dt, 'surrender');
@@ -937,16 +1126,25 @@ function updateSoldier(s, dt) {
 }
 function damageSoldier(s, dmg, src, o = {}) {
   if (s.state === 'dead' || s.state === 'carried' || s.state === 'heal') return;
-  if (s.state === 'down') { if (o.explosive && dmg > 40) killSoldier(s); return; }
+  let dir = o.dir;
+  if (!dir) { dir = src && src.pos ? V(s.pos.x - src.pos.x, 0, s.pos.z - src.pos.z) : V(rand(-1, 1), 0, rand(-1, 1)); dir.normalize(); }
+  if (s.state === 'down') {
+    if (s.rd) kickRagdoll(s.rd, dir, o.explosive ? o.force || 8 : 2.5, o.point, o.explosive);
+    if (o.explosive && dmg > 40) killSoldier(s);
+    return;
+  }
   s.hp -= dmg;
   if (src && src.kind === 'soldier' && s.state === 'move' && !s.target) s.target = src;
   if (s.hp > 0) {
+    flinch(s.model, dir, s.facing);
+    s.vel.x += dir.x * (o.explosive ? 4 : 1.6); s.vel.z += dir.z * (o.explosive ? 4 : 1.6);
     if (s.team === RED && !s.traitor && s.hp < 35 && Math.random() < 0.3 && s.state === 'move') surrender(s);
     return;
   }
   const byPlayer = src === player;
   if (byPlayer && s.team === RED) { stats.kills++; hitMarker(true); feed(`You took down ${s.name}`, 'good'); }
   const wound = (!o.explosive || Math.random() < 0.35) && Math.random() < (s.team === BLUE ? 0.6 : 0.45);
+  startRagdoll(s, { mode: o.explosive ? 'blast' : 'bullet', dir, point: o.point, force: o.explosive ? clamp(o.force || 9, 4, 15) : o.force || 3.2, writhe: wound });
   if (wound) {
     s.state = 'down'; s.bleed = 75; s.vel.set(0, 0, 0); s.target = null; s.crouch = false;
     setIcon(s, s.team === BLUE || s.ally ? 'medic' : 'enemyWounded');
@@ -955,8 +1153,9 @@ function damageSoldier(s, dmg, src, o = {}) {
 }
 let hintWounded = false;
 function killSoldier(s) {
-  s.state = 'dead'; s.deadT = 0; s.target = null; s.crouch = false; setIcon(s, null);
   if (player.carrying === s) dropCarried(null);
+  s.state = 'dead'; s.deadT = 0; s.target = null; s.crouch = false; setIcon(s, null);
+  if (s.rd) { s.rd.writhe = false; s.rd.clutch = -1; s.rd.awake = true; s.rd.still = 0; }
 }
 function surrender(s) {
   s.state = 'surrender'; s.surT = 40; s.target = null; s.crouch = false; setIcon(s, 'flag');
@@ -1248,7 +1447,7 @@ function crashPlane(p, water) {
   if (water) splash(p.pos, 2.5); else { fireball(p.pos, 2); crater(p.pos.x, p.pos.z, 4); }
   Sfx.boom(p.pos, true); addShakeAt(p.pos, 1);
   explode(p.pos, { radius: 8, dmgS: 120, dmgV: 40, team: null, src: null, quiet: true });
-  if (p.driver === 'player') { player.vehicle = null; player.alive = true; damagePlayer(999, p.pos); }
+  if (p.driver === 'player') { player.vehicle = null; player.alive = true; player.vel.copy(p.fwd).multiplyScalar(Math.min(p.speed, 25)); damagePlayer(999, p.pos, true); }
   scene.remove(p.md.g); planes.splice(planes.indexOf(p), 1);
 }
 function damagePlane(p, dmg, src) {
@@ -1473,9 +1672,14 @@ function explode(at, o) {
   }
   for (const s of soldiers) {
     if (team != null && s.team === team) continue;
-    const d = s.pos.distanceTo(at); if (d < radius) damageSoldier(s, dmgS * Math.pow(1 - d / radius, 0.7), src, { explosive: true });
+    const d = s.pos.distanceTo(at); if (d < radius) damageSoldier(s, dmgS * Math.pow(1 - d / radius, 0.7), src, { explosive: true, dir: V(s.pos.x - at.x, 0.35, s.pos.z - at.z).normalize(), force: 3 + 8 * (1 - d / radius), point: at });
   }
-  if (playing && player.alive && !player.vehicle && team !== BLUE) { const d = player.pos.distanceTo(at); if (d < radius) damagePlayer(dmgS * 0.55 * Math.pow(1 - d / radius, 0.8), at); }
+  // bodies already on the ground get thrown around too
+  for (const s of soldiers) {
+    if (!s.rd || (team != null && s.team === team && s.state !== 'dead')) continue;
+    const d = s.pos.distanceTo(at); if (d < radius * 1.4 && s.state === 'dead' && s.rd.t > 0) kickRagdoll(s.rd, V(s.pos.x - at.x, 0.4, s.pos.z - at.z).normalize(), 3 + 10 * (1 - d / (radius * 1.4)), null, true);
+  }
+  if (playing && player.alive && !player.vehicle && team !== BLUE) { const d = player.pos.distanceTo(at); if (d < radius) damagePlayer(dmgS * 0.55 * Math.pow(1 - d / radius, 0.8), at, true); }
   for (const t of tanks) if (t !== o.skip && !t.dead && (team == null || t.team !== team)) { const d = t.pos.distanceTo(at); if (d < radius + 2.5) damageTank(t, dmgV * (1 - d / (radius + 2.5)), src); }
   for (const p of planes) if (p !== o.skip && !p.dead && (team == null || p.team !== team)) { const d = p.pos.distanceTo(at); if (d < radius + 3) damagePlane(p, (o.flak ? dmgV : dmgV) * (1 - d / (radius + 3)) + (o.flak ? 2 : 0), src); }
   for (const a of aas) if (a !== o.skip && !a.dead && (team == null || a.team !== team)) { const d = a.pos.distanceTo(at); if (d < radius + 1.5) damageAA(a, dmgV * 1.2 * (1 - d / (radius + 1.5)), src); }
@@ -1519,9 +1723,9 @@ function rayHit(o, d, maxT, opt = {}) {
 //  The player
 // =====================================================================
 const WEAPONS = [
-  { id: 'rifle', name: 'Rifle', has: true, mag: 8, magSize: 8, reserve: 56, dmg: 34, rate: 0.32, spread: 0.012, auto: false, reload: 1.6 },
-  { id: 'smg', name: 'Enemy SMG', has: false, mag: 0, magSize: 30, reserve: 0, dmg: 15, rate: 0.085, spread: 0.032, auto: true, reload: 1.9 },
-  { id: 'rpg', name: 'Rocket launcher', has: false, mag: 0, magSize: 1, reserve: 0, dmg: 0, rate: 0.8, spread: 0.004, auto: false, reload: 2.3 },
+  { id: 'rifle', name: 'Rifle', has: true, mag: 8, magSize: 8, reserve: 56, dmg: 34, rate: 0.32, spread: 0.012, auto: false, reload: 1.6, recoil: 0.045, bloom: 0.012, bloomMax: 0.03 },
+  { id: 'smg', name: 'Enemy SMG', has: false, mag: 0, magSize: 30, reserve: 0, dmg: 15, rate: 0.085, spread: 0.026, auto: true, reload: 1.9, recoil: 0.013, bloom: 0.0045, bloomMax: 0.045 },
+  { id: 'rpg', name: 'Rocket launcher', has: false, mag: 0, magSize: 1, reserve: 0, dmg: 0, rate: 0.8, spread: 0.004, auto: false, reload: 2.3, recoil: 0.07, bloom: 0, bloomMax: 0 },
 ];
 const player = {
   kind: 'player', team: BLUE, pos: V(-70.6, FLOOR, 3), vel: V(), onGround: true, facing: Math.PI / 2, hp: 100, alive: true, crouch: false, aiming: false,
@@ -1541,7 +1745,11 @@ function aimTarget(maxT = 400, ignore = null) {
 }
 function updatePlayerFoot(dt) {
   const md = player.model;
-  if (!player.alive) { md.root.rotation.x = lerp(md.root.rotation.x, Math.PI / 2, damp(5, dt)); md.root.position.set(player.pos.x, player.pos.y + 0.14, player.pos.z); poseSoldier(md, dt, 'dead'); return; }
+  if (!player.alive) {
+    if (player.rd) updateRagdoll(player, dt);
+    else { md.root.rotation.x = lerp(md.root.rotation.x, Math.PI / 2, damp(5, dt)); md.root.position.set(player.pos.x, player.pos.y + 0.14, player.pos.z); poseSoldier(md, dt, 'dead'); }
+    return;
+  }
   md.root.rotation.x = lerp(md.root.rotation.x, 0, damp(8, dt));
   const inp = moveInput();
   const fx = Math.sin(cam.yaw), fz = Math.cos(cam.yaw);
@@ -1581,6 +1789,28 @@ function updatePlayerFoot(dt) {
   if (!player.onGround && !player.carrying) pose = 'run';
   poseSoldier(md, dt, pose, hs, shooting ? -cam.pitch * 0.9 : 0);
   md.root.position.copy(player.pos); md.root.rotation.y = player.facing;
+  md.root.visible = !(isScoped() && cam.dist < 1.2);
+}
+const isScoped = () => playing && player.alive && !player.vehicle && !player.para && !player.carrying && player.aiming && WEAPONS[player.w].id === 'rifle';
+// how far a shot can stray right now (radians): base spread, movement, stance, aiming and bloom from firing
+function currentSpread() {
+  const w = WEAPONS[player.w], moving = Math.hypot(player.vel.x, player.vel.z) > 1.5;
+  return w.spread * (isScoped() ? 0.06 : player.aiming ? 0.35 : 1) * (player.crouch ? 0.7 : 1) * (moving ? 1.8 : 1) * (player.onGround ? 1 : 2.5) + bloom;
+}
+let bloom = 0, recoilDebt = 0, aimOnEnemy = false;
+const muzzleLight = new THREE.PointLight(0xffc070, 0, 14, 2); scene.add(muzzleLight);
+// a light pull toward an enemy that's almost under the crosshair
+function assistAim(d) {
+  const cone = isTouch ? 0.06 : 0.022;
+  let best = null, ba = cone;
+  for (const s of soldiers) {
+    if (s.team === BLUE || !(isActive(s) || s.state === 'surrender')) continue;
+    const c = aimPoint(s, V()); const to = c.clone().sub(camera.position); const dist = to.length();
+    if (dist > 160) continue;
+    const ang = to.normalize().angleTo(d);
+    if (ang < ba && los(camera.position, c)) { ba = ang; best = to; }
+  }
+  return best;
 }
 let lastShotT = -9, firedThisPress = false;
 function playerFire() {
@@ -1589,10 +1819,17 @@ function playerFire() {
   if (w.mag <= 0) { if (w.reserve > 0) startReload(); else toast('Out of ammo! Search bodies or a supply crate (E).', 2); return true; }
   w.mag--; player.fireCd = w.rate; lastShotT = T;
   const d = camRay(V());
-  const sp = w.spread * (player.aiming ? 0.35 : 1) * (player.crouch ? 0.7 : 1) * (Math.hypot(player.vel.x, player.vel.z) > 3 ? 1.7 : 1);
+  const aimDir = d.clone();
+  const sp = currentSpread();
   d.x += rand(-sp, sp); d.y += rand(-sp, sp); d.z += rand(-sp, sp); d.normalize();
   const muzzle = playerMuzzle();
   muzzleFlash(muzzle, w.id === 'rpg' ? 2 : 1);
+  muzzleLight.position.copy(muzzle); muzzleLight.intensity = w.id === 'rpg' ? 30 : 14;
+  // recoil kicks the view up; most of it settles back on its own
+  const kick = w.recoil * (player.crouch ? 0.7 : 1) * (isScoped() ? 0.6 : 1);
+  cam.pitch = clamp(cam.pitch + kick, -1.2, 1.1); recoilDebt += kick * 0.75; cam.yaw += rand(-kick, kick) * 0.35;
+  bloom = Math.min(w.bloomMax, bloom + w.bloom);
+  if (w.id !== 'rpg') { const r = V(-Math.cos(player.facing), 0, Math.sin(player.facing)); smoke.spawn(muzzle.x, muzzle.y - 0.1, muzzle.z, -r.x * 2.5 + rand(-0.5, 0.5), rand(2, 3), -r.z * 2.5 + rand(-0.5, 0.5), 0.7, 0.07, 0.07, 0.85, 0.65, 0.25, 1, 14, 0.3); }
   if (w.id === 'rpg') {
     const h = rayHit(camera.position, d, 400, { minT: camMinT(), skipTeamSoldiers: BLUE });
     fireRocket(muzzle, h.point.clone().sub(muzzle).normalize(), BLUE, player);
@@ -1600,21 +1837,27 @@ function playerFire() {
     if (w.mag <= 0 && w.reserve > 0) startReload();
     return true;
   }
-  const h = rayHit(camera.position, d, 380, { minT: camMinT(), skipTeamSoldiers: BLUE });
+  let h = rayHit(camera.position, d, 380, { minT: camMinT(), skipTeamSoldiers: BLUE });
+  if (h.kind !== 'soldier') { const a = assistAim(aimDir); if (a) h = rayHit(camera.position, a, 380, { minT: camMinT(), skipTeamSoldiers: BLUE }); }
   tracer(muzzle, h.point, 0xfff0b8, 700);
   Sfx.shot(null, w.id);
   shake = Math.min(1, shake + 0.06);
-  bulletImpact(h, w.dmg, player);
+  bulletImpact(h, w.dmg, player, _ld.subVectors(h.point, camera.position).normalize().clone());
   if (w.mag <= 0 && w.reserve > 0) startReload();
   return true;
 }
-function bulletImpact(h, dmg, src) {
+function bulletImpact(h, dmg, src, dir = null) {
   switch (h.kind) {
     case 'soldier': {
       const s = h.ref, head = s.state !== 'down' && h.point.y > s.pos.y + (s.crouch ? 0.95 : 1.52);
       const was = s.state;
-      if (s.team !== BLUE) damageSoldier(s, head ? dmg * 2.3 : dmg, src);
-      if (s.team !== BLUE) { hitMarker(s.state !== was && s.state !== 'surrender'); Sfx.tick(); }
+      dust(h.point, 2, [0.45, 0.43, 0.38]);
+      if (s.team !== BLUE) damageSoldier(s, head && dmg ? dmg * 2.3 : dmg, src, { dir: dir || undefined, point: h.point, force: head ? 4.5 : 3.2 });
+      if (s.team !== BLUE && dmg) {
+        const downed = s.state !== was && s.state !== 'surrender';
+        hitMarker(downed ? 'kill' : head ? 'head' : '');
+        if (head) { Sfx.headshot(); if (downed) feed('Headshot!', 'good'); } else Sfx.tick();
+      }
       break;
     }
     case 'tank': damageTank(h.ref, 1, src); sparks(h.point, 4); break;
@@ -1647,9 +1890,12 @@ function useMedkit() {
   if (!player.alive || player.medkits <= 0 || player.hp >= 100 || player.vehicle) { if (player.medkits <= 0) toast('No medkits. Search bodies or a supply crate.', 1.5); return; }
   player.medkits--; player.hp = Math.min(100, player.hp + 55); Sfx.heal(); toast('Patched up. +55 health', 1.5);
 }
-function damagePlayer(dmg, from) {
+function damagePlayer(dmg, from, explosive = false) {
   if (!playing || !player.alive || player.vehicle || ended) return;
   player.hp -= dmg; player.lastHit = T;
+  player.hitDir = from ? V(player.pos.x - from.x, explosive ? 0.4 : 0, player.pos.z - from.z).normalize() : null;
+  player.hitExplosive = explosive; player.hitForce = explosive ? clamp(dmg / 6, 4, 14) : 3.5;
+  flinch(player.model, player.hitDir, player.facing); cam.pitch += explosive ? 0.05 : 0.015; cam.yaw += rand(-0.02, 0.02);
   flashDamage(clamp(dmg / 30, 0.25, 1));
   if (from) { const ang = Math.atan2(from.x - player.pos.x, from.z - player.pos.z); dmgDirAng = ang; dmgDirT = 1.2; }
   Sfx.hurt();
@@ -1658,15 +1904,17 @@ function damagePlayer(dmg, from) {
 let dmgFlash = 0, dmgDirAng = 0, dmgDirT = 0;
 function flashDamage(a) { dmgFlash = Math.max(dmgFlash, a); }
 let hitmT = 0;
-function hitMarker(kill) { const el = $('hitm'); el.className = kill ? 'kill' : ''; hitmT = 0.15; }
+function hitMarker(kind) { const el = $('hitm'); el.className = kind === true ? 'kill' : kind || ''; hitmT = kind === 'head' || kind === 'kill' || kind === true ? 0.25 : 0.15; }
 function playerDown() {
   player.alive = false; player.hp = 0; stats.deaths++; player.model.root.visible = true; player.vehicle = null;
   if (player.carrying) dropCarried(null);
+  startRagdoll(player, { mode: player.hitExplosive ? 'blast' : 'bullet', dir: player.hitDir, force: player.hitForce });
   player.para = null; chute.visible = false;
   setTimeout(() => { if (!ended) { $('dead').hidden = false; if (document.pointerLockElement) document.exitPointerLock(); } }, 1400);
 }
 function respawn(where) {
   $('dead').hidden = true;
+  endRagdoll(player, Math.PI / 2);
   player.alive = true; player.hp = 100; player.vel.set(0, 0, 0); player.crouch = false; player.lastHit = T;
   player.pos.copy(where === 'hq' ? V(-144, LAND, rand(-5, 5)) : spawnPointFor(BLUE));
   const w0 = WEAPONS[0]; w0.mag = w0.magSize; w0.reserve = Math.max(w0.reserve, 40);
@@ -1676,6 +1924,7 @@ function respawn(where) {
 }
 // --- carrying, looting, recruiting, vehicles
 function carry(s) {
+  if (s.rd) endRagdoll(s, s.facing);
   player.carrying = s; s.state = 'carried'; s.icon.visible = false;
   player.model.hips.add(s.model.root);
   s.model.root.position.set(1.0, 0.76, 0.02); s.model.root.rotation.set(0, 0, Math.PI / 2);
@@ -1684,15 +1933,19 @@ function carry(s) {
 function dropCarried(medic) {
   const s = player.carrying; if (!s) return;
   player.carrying = null;
-  scene.add(s.model.root); s.model.root.rotation.set(0, player.facing, 0);
   const right = V(-Math.cos(player.facing), 0, Math.sin(player.facing));
   if (medic && s.state === 'carried') {
+    scene.add(s.model.root); s.model.root.rotation.set(0, player.facing, 0);
     s.pos.set(medic.pos.x + rand(-0.8, 0.8), LAND, medic.pos.z + 1.6); s.state = 'heal'; s.healT = 4; s.bleed = 999; setIcon(s, null);
     stats.saved++; Sfx.heal(); toast(`The medic is treating ${s.name}.`, 2.5);
     return;
   }
-  s.pos.copy(player.pos).addScaledVector(right, 0.9);
+  // slide him off your shoulder: keep his pose in the world and let the ragdoll take over
+  scene.attach(s.model.root);
+  s.vel = player.vel.clone().addScaledVector(right, 1.2);
   if (s.state === 'carried') { s.state = 'down'; setIcon(s, s.team === BLUE || s.ally ? 'medic' : 'enemyWounded'); }
+  startRagdoll(s, { mode: 'drop', writhe: s.state === 'down' });
+  ragdollGround(s);
 }
 function lootBody(s) {
   s.looted = true; const L = s.loot, got = [];
@@ -1893,13 +2146,17 @@ function updateCamera(dt) {
   else if (v && v.kind === 'plane') { tgt = _v.copy(v.pos).add(V(0, 2.6, 0)); dist = 16 + v.speed * 0.04; fov = 68 + v.speed * 0.06; collide = false; }
   else if (v && v.kind === 'aa') { tgt = _v.set(v.pos.x, v.pos.y + 2.5, v.pos.z); dist = 3.2; fov = 55; }
   else if (player.para) { tgt = _v.set(player.pos.x, player.pos.y + 2, player.pos.z); dist = 8; }
-  else {
+  else if (isScoped()) {
+    tgt = _v.set(player.pos.x, player.pos.y + (player.crouch ? 1.05 : 1.55), player.pos.z);
+    dist = 0; shoulder = 0.12; fov = 22;
+  } else {
     tgt = _v.set(player.pos.x, player.pos.y + (player.crouch ? 1.15 : 1.6), player.pos.z);
-    dist = player.aiming ? 1.9 : 3.4; shoulder = 0.6; fov = player.aiming ? (WEAPONS[player.w].id === 'rifle' ? 40 : 52) : 65;
+    dist = player.aiming ? 1.8 : 3.4; shoulder = 0.6; fov = player.aiming ? 50 : 65;
   }
   camT.lerp(tgt, damp(v && v.kind === 'plane' ? 30 : 16, dt));
   if (v && v.kind === 'plane') camT.copy(tgt);
-  cam.dist = lerp(cam.dist, dist, damp(6, dt));
+  cam.dist = lerp(cam.dist, dist, damp(isScoped() ? 14 : 6, dt));
+  cam.sh = lerp(cam.sh ?? shoulder, shoulder, damp(10, dt)); shoulder = cam.sh;
   const cp = Math.cos(cam.pitch);
   _dir.set(Math.sin(cam.yaw) * cp, Math.sin(cam.pitch), Math.cos(cam.yaw) * cp);
   _right.set(-Math.cos(cam.yaw), 0, Math.sin(cam.yaw));
@@ -1966,6 +2223,14 @@ function updateHUD(dt) {
   $('dmgDir').style.opacity = Math.min(1, dmgDirT).toFixed(2);
   $('dmgDir').style.transform = `rotate(${(-wrapA(dmgDirAng - cam.yaw)) * 180 / Math.PI}deg)`;
   const v = player.vehicle;
+  // crosshair: gap shows the spread, red over an enemy, a scope when aiming the rifle
+  const scopeOn = isScoped() && cam.dist < 0.6;
+  $('scope').hidden = !scopeOn; $('scopeDot').hidden = !scopeOn;
+  const cross = $('cross');
+  cross.className = v && v.kind === 'aa' ? 'big' : aimOnEnemy && !v ? 'enemy' : '';
+  cross.style.display = (v && v.kind === 'plane') || scopeOn || !player.alive ? 'none' : '';
+  if (!v) { const gap = Math.tan(currentSpread()) / Math.tan(camera.fov * Math.PI / 360) * innerHeight / 2; cross.style.setProperty('--gap', `${clamp(gap + 4, 4, 80).toFixed(1)}px`); }
+  else cross.style.setProperty('--gap', '8px');
   // jet gunsight follows the nose
   if (v && v.kind === 'plane') {
     const p = _a.copy(v.pos).addScaledVector(v.fwd, 220).project(camera);
@@ -1987,8 +2252,7 @@ function updateHUD(dt) {
   $('statusLine').textContent = line.join(' · ');
   // weapon panel
   $('vbar').hidden = !v || v.kind === 'aa';
-  $('cross').className = v && v.kind === 'aa' ? 'big' : '';
-  $('cross').style.display = v && v.kind === 'plane' ? 'none' : '';
+
   if (v && v.kind === 'tank') { $('wName').textContent = v.origTeam === RED ? 'Stolen enemy tank' : 'Tank'; $('wAmmo').innerHTML = v.reload > 0 ? 'LOADING' : 'READY'; $('wExtra').textContent = 'Left click cannon · right click machine gun'; $('vfill').style.transform = `scaleX(${clamp(1 - v.reload / 2.4, 0, 1)})`; }
   else if (v && v.kind === 'plane') { $('wName').textContent = v.origTeam === RED ? 'Stolen enemy jet' : 'Jet'; $('wAmmo').innerHTML = `${Math.round(v.speed * 3.6)} <small>km/h</small>`; $('wExtra').textContent = `Altitude ${Math.max(0, Math.round(v.pos.y))} m · bombs ${v.bombs}`; $('vfill').style.transform = `scaleX(${v.bombs / 4})`; }
   else if (v && v.kind === 'aa') { $('wName').textContent = 'AA gun'; $('wAmmo').innerHTML = 'FLAK'; $('wExtra').textContent = 'Lead the planes. Shells burst near them.'; }
@@ -2033,7 +2297,7 @@ addEventListener('mousemove', (e) => {
   look(e.movementX || 0, e.movementY || 0, 0.0023);
 });
 function look(dx, dy, sens) {
-  const v = player.vehicle, sm = player.aiming ? 0.55 : 1;
+  const v = player.vehicle, sm = (isScoped() ? 0.3 : player.aiming ? 0.55 : 1) * (aimOnEnemy && !v ? 0.6 : 1);
   cam.yaw -= dx * sens * sm;
   const lim = v && v.kind === 'plane' ? [-1.4, 1.4] : v && v.kind === 'aa' ? [-0.1, 1.45] : v && v.kind === 'tank' ? [-0.45, 0.6] : [-1.2, 1.1];
   cam.pitch = clamp(cam.pitch - dy * sens * sm, lim[0], lim[1]);
@@ -2128,6 +2392,13 @@ function update(dt) {
   smoke.update(dt); fire.update(dt); updateTracers(dt);
   boomLight.intensity = Math.max(0, boomLight.intensity - dt * 220);
   seaTex.offset.x += dt * 0.004; seaTex.offset.y += dt * 0.002;
+  const back = recoilDebt * damp(7, dt); cam.pitch -= back; recoilDebt -= back;
+  bloom = Math.max(0, bloom - dt * (player.crouch ? 0.09 : 0.06));
+  muzzleLight.intensity = Math.max(0, muzzleLight.intensity - dt * 300);
+  if (playing && player.alive && !player.vehicle && (frameNo++ & 1) === 0) {
+    const h = rayHit(camera.position, camRay(_b), 250, { minT: camMinT(), skipTeamSoldiers: BLUE });
+    aimOnEnemy = h.kind === 'soldier' && h.ref.team !== BLUE && isActive(h.ref);
+  } else if (!playing || !player.alive || player.vehicle) aimOnEnemy = false;
   updateCamera(dt);
   sky.position.copy(camera.position);
   const focus = player.vehicle ? player.vehicle.pos : playing ? player.pos : camT;
@@ -2139,7 +2410,7 @@ function update(dt) {
   Sfx.loops(pv * 0.18, pf, ev, ef);
   updateHUD(dt);
 }
-let last = performance.now();
+let last = performance.now(), frameNo = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000); last = now;

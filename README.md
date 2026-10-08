@@ -22,6 +22,10 @@ The style is blocky with no blood: soldiers fall over when they're hit.
   E ejects with a parachute), and man anti-aircraft guns. Sneak behind enemy lines to steal their parked
   tanks and jets or take over their AA guns. Enemy tank crews bail out of badly damaged tanks, and then you can steal those too.
 - **The sea:** warships from both sides shell each other and the trenches. Bomb the enemy fleet from a jet.
+- **Ragdolls:** soldiers flinch and stumble when hit. When they go down, they stagger, clutch the wound and throw an
+  arm out to break the fall. Explosions send bodies flying with limbs flailing, and the wounded writhe and reach up for help.
+- **Aiming:** right click with the rifle looks through a zoomed scope. Guns kick up when fired, and the crosshair spreads
+  when you move or keep firing. It turns red over an enemy, your aim slows a little there, and near misses get pulled onto the target.
 
 Controls: WASD move, mouse aim, left click shoot, right click aim, E use, Shift sprint, C crouch,
 Space jump, R reload, G grenade, Q medkit, 1/2/3 weapons, H pause, M sound.
