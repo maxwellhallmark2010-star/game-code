@@ -42,5 +42,9 @@ pipeline: bloom, lens distortion, chromatic aberration, film grain, scanlines an
 - An endless procedural maze: open halls with pillars, tight corridors and dark zones
 - Find the exit door; the SIGNAL bars rise as you get closer
 - The battery icon is your sanity. Darkness drains it; almond water restores it
-- When the lights around you start to flicker, something is hunting you. Run (Shift)
+- When the lights around you start to flicker, the Grinning One is hunting you. Run (Shift).
+  Its body is a procedural 3D model rebuilt every frame: limbs plant and step with inverse
+  kinematics, knees bend backwards, the head twitches and tracks you, and its wisps are rope-simulated
+- Minimap (top left) of the rooms you have explored; press M or tap it to expand
+- Pause (P or Esc) has settings: static volume and master volume, saved in the browser
 - Synthesised audio: fluorescent hum, footsteps on carpet, distant knocking
