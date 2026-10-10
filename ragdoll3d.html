@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ragdoll Lab 3D</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #cfe3f2; font-family: system-ui, sans-serif; color: #e8e8ee; user-select: none; touch-action: none; }
+  canvas { display: block; cursor: crosshair; }
+  canvas.grab { cursor: grab; } canvas.grabbing { cursor: grabbing; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 230px; font-size: 13px; line-height: 1.5; background: rgba(10,10,14,.7); padding: 10px 12px; border-radius: 8px; pointer-events: none; }
+  .bar { height: 8px; background: #2a2c33; border-radius: 4px; overflow: hidden; margin: 2px 0 8px; }
+  .bar i { display: block; height: 100%; width: 100%; background: #c0272d; transition: width .15s; }
+  .bar.c i { background: #7aa7d9; }
+  #status { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+  #tools { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; width: 96vw; }
+  #tools button { font: inherit; font-size: 14px; padding: 9px 13px; border-radius: 8px; border: 2px solid #3a3d47; background: rgba(20,22,28,.88); color: #e8e8ee; cursor: pointer; }
+  #tools button.on { border-color: #fff; background: #3a3f4c; }
+  #tools button:hover { background: #2c2f38; }
+  #help { position: fixed; top: 12px; right: 12px; font-size: 12px; color: #26323f; text-align: right; line-height: 1.6; pointer-events: none; }
+  #injuries { margin-top: 4px; font-size: 12px; line-height: 1.45; color: #ffb4a8; white-space: pre-line; }
+  #therm { position: fixed; inset: 0; pointer-events: none; display: none; background: repeating-linear-gradient(0deg, rgba(0,0,0,.2) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 55%, rgba(0,0,10,.65)); }
+  #legend { position: fixed; right: 12px; top: 112px; font-size: 12px; line-height: 1.7; background: rgba(0,0,10,.7); padding: 8px 12px; border-radius: 8px; display: none; pointer-events: none; }
+  #legend i { display: inline-block; width: 11px; height: 11px; margin-right: 7px; border-radius: 2px; vertical-align: -1px; }
+  #thermTag { position: fixed; right: 14px; bottom: 16px; font-size: 13px; letter-spacing: .15em; color: #ffd070; display: none; pointer-events: none; }
+  #duelPanel { position: fixed; right: 12px; bottom: 14px; width: 232px; background: rgba(10,10,14,.78); padding: 10px 12px; border-radius: 8px; font-size: 13px; display: none; }
+  #duelPanel h4 { margin: 0 0 6px; font-size: 13px; letter-spacing: .08em; opacity: .85; }
+  #duelPanel .row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  #duelPanel button { font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 7px; border: 2px solid #3a3d47; background: rgba(28,30,38,.95); color: #e8e8ee; cursor: pointer; }
+  #duelPanel button:hover { background: #2f333e; } #duelPanel button.on { border-color: #fff; background: #3a3f4c; } #duelPanel button.act { flex: 1 1 45%; }
+  #duelPanel label { display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: .85; }
+  #deadMsg { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; text-shadow: 0 3px 12px #000; }
+  #deadMsg h1 { font-size: 54px; margin: 0; letter-spacing: .12em; color: #d94a4a; } #deadMsg p { margin: 6px 0 0; font-size: 16px; }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <div id="status">Standing</div>
+  Blood <span id="bloodTxt"></span><div class="bar"><i id="blood"></i></div>
+  <div id="consWrap">Consciousness<div class="bar c"><i id="cons"></i></div></div>
+  Wounds: <span id="wcount">0</span>
+  <div id="injuries"></div>
+</div>
+<div id="therm"></div>
+<div id="legend"><div><i style="background:#fff"></i>LETHAL: brain, heart</div><div><i style="background:#ff5a1c"></i>SERIOUS: head, torso</div><div><i style="background:#ffe030"></i>DISABLING: knees, feet (limp)</div><div><i style="background:#2f6bff"></i>NON-LETHAL: arms, legs</div><div><i style="background:#f4f4ff"></i>bones &middot; <i style="background:#ff2a2a"></i>broken</div></div>
+<div id="thermTag">THERMAL</div>
+<div id="help">Grab: drag him and he walks where you lead him<br>Hold Shift while grabbing to lift &amp; throw him<br>Drag empty space: orbit &middot; wheel: zoom<br>R reset &middot; Space slow-motion &middot; 1-6 tools &middot; T thermal vision</div>
+<div id="tools">
+  <button data-t="pistol">1 Pistol</button>
+  <button data-t="knife">2 Knife</button>
+  <button data-t="shove">3 Shove</button>
+  <button data-t="blast">4 Blast</button>
+  <button data-t="grab" class="on">5 Grab / lead</button>
+  <button data-t="throw">6 Throw knife</button>
+  <button id="modeBtn">Duel mode (walk)</button>
+  <button id="thermBtn">Thermal (T)</button>
+  <button id="reset">Reset (R)</button>
+</div>
+<div id="duelPanel">
+  <h4>ATTACKER (you choose)</h4>
+  <div class="row"><button class="act" data-a="shoot">1 Shoot</button><button class="act" data-a="throw">2 Throw knife</button><button class="act" data-a="shove">3 Shove</button><button class="act" data-a="grenade">4 Grenade</button></div>
+  <h4>AIM AT</h4>
+  <div class="row" id="regions"><button data-r="random" class="on">Random</button><button data-r="head">Head</button><button data-r="chest">Chest</button><button data-r="heart">Heart</button><button data-r="gut">Gut</button><button data-r="arm">Arm</button><button data-r="leg">Leg</button><button data-r="knee">Knee</button><button data-r="foot">Foot</button></div>
+  <label><input type="checkbox" id="autoAtk"> auto attacks</label>
+</div>
+<div id="deadMsg"><h1 id="deadTitle">YOU DIED</h1><p>press R to try again</p></div>
+<div id="flash"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const V3 = THREE.Vector3;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const wrapA = (a) => { a = (a + Math.PI) % (2 * Math.PI); if (a < 0) a += 2 * Math.PI; return a - Math.PI; };
+  const HIP_Y = 1.0, SUB = 4;
+
+  // ================= scene =================
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
+  document.body.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xcfe3f2); scene.fog = new THREE.Fog(0xcfe3f2, 25, 60);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+  scene.add(new THREE.HemisphereLight(0xdfeaff, 0x7d8896, 0.55));
+  // (no environment map: PMREM needs float render targets that some GPUs/browsers lack, and a failure turns everything black)
+  scene.add(new THREE.HemisphereLight(0xdfeaff, 0x7d8896, 0.35));
+  const rim = new THREE.DirectionalLight(0x9fc4ff, 0.55); rim.position.set(-4, 3, -5); scene.add(rim);
+  const sun = new THREE.DirectionalLight(0xfff1dc, 1.35);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004;
+  Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 40 });
+  scene.add(sun, sun.target);
+
+  const floorTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+    g.fillStyle = '#b9c4cf'; g.fillRect(0, 0, 256, 256); g.fillStyle = '#a9b6c3'; g.fillRect(0, 0, 128, 128); g.fillRect(128, 128, 128, 128);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30); t.anisotropy = 8; t.encoding = THREE.sRGBEncoding; return t;
+  })();
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 }));
+  floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+
+  // blood pools are painted onto a transparent decal over the floor
+  const POOL = 16, poolCv = document.createElement('canvas'); poolCv.width = poolCv.height = 1024;
+  const poolCtx = poolCv.getContext('2d'), poolTex = new THREE.CanvasTexture(poolCv); poolTex.encoding = THREE.sRGBEncoding;
+  const decal = new THREE.Mesh(new THREE.PlaneGeometry(POOL, POOL), new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  decal.rotation.x = -Math.PI / 2; decal.position.y = 0.003; scene.add(decal);
+  let poolDirty = false;
+  const poolCells = new Map();
+  function paintPool(x, z, amount) {
+    if (Math.abs(x) > POOL / 2 - 0.2 || Math.abs(z) > POOL / 2 - 0.2) return;
+    const k = Math.round(x * 12) + ',' + Math.round(z * 12), q = Math.min(0.6, (poolCells.get(k) || 0.012) + amount * 0.0045); poolCells.set(k, q);
+    const px = (x + POOL / 2) / POOL * 1024, py = (z + POOL / 2) / POOL * 1024, r = Math.max(1.2, q * 64);
+    const g = poolCtx.createRadialGradient(px, py, 0, px, py, r);
+    g.addColorStop(0, 'rgba(110,6,12,.55)'); g.addColorStop(0.7, 'rgba(120,8,14,.4)'); g.addColorStop(1, 'rgba(120,8,14,0)');
+    poolCtx.fillStyle = g; poolCtx.beginPath(); poolCtx.arc(px, py, r, 0, 6.283); poolCtx.fill(); poolDirty = true;
+  }
+
+  // ================= the pose rig (invisible; the upper-body pose the dummy tries to hold) =================
+  const rigRoot = new THREE.Object3D(); scene.add(rigRoot);
+  const O = (parent, x = 0, y = 0, z = 0) => { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; };
+  const hips = O(rigRoot, 0, HIP_Y, 0), torso = O(hips, 0, 0.1, 0), neck = O(torso, 0, 0.6, 0), headR = O(neck, 0, 0.1, 0);
+  const rArms = [-1, 1].map((s) => { const sh = O(torso, s * 0.255, 0.5, 0), upper = O(sh), fore = O(upper, 0, -0.3, 0), hand = O(fore, 0, -0.28, 0); return { sh, upper, fore, hand }; });
+  const rLegs = [-1, 1].map((s) => { const th = O(hips, s * 0.095, -0.02, 0), shin = O(th, 0, -0.45, 0), foot = O(shin, 0, -0.45, 0), toe = O(foot, 0, -0.05, 0.2); return { th, shin, foot, toe }; });
+  const spineM = O(torso, 0, 0.3, 0), headM = O(headR, 0, 0.12, 0);
+  // particle order: pelvis, spine, neck, head, shoulders(2), elbows(2), hands(2), hips(2), knees(2), ankles(2), toes(2)
+  // plus the middle of every long bone (upper arms, forearms, thighs, shins): that is where a bone can snap and the limb folds
+  const midM = [O(rArms[0].upper, 0, -0.15, 0), O(rArms[1].upper, 0, -0.15, 0), O(rArms[0].fore, 0, -0.14, 0), O(rArms[1].fore, 0, -0.14, 0),
+    O(rLegs[0].th, 0, -0.225, 0), O(rLegs[1].th, 0, -0.225, 0), O(rLegs[0].shin, 0, -0.225, 0), O(rLegs[1].shin, 0, -0.225, 0)];
+  const markers = [hips, spineM, neck, headM, rArms[0].sh, rArms[1].sh, rArms[0].fore, rArms[1].fore, rArms[0].hand, rArms[1].hand,
+    rLegs[0].th, rLegs[1].th, rLegs[0].shin, rLegs[1].shin, rLegs[0].foot, rLegs[1].foot, rLegs[0].toe, rLegs[1].toe, ...midM];
+  const N = markers.length;
+  const [PEL, SPN, NCK, HED, SHL, SHR, ELL, ELR, HAL, HAR, HPL, HPR, KNL, KNR, ANL, ANR, TOL, TOR, UAL, UAR, FAL, FAR, THL, THR, SNL, SNR] = [...Array(N).keys()];
+  const LEGS = [{ hip: HPL, knee: KNL, ank: ANL, toe: TOL }, { hip: HPR, knee: KNR, ank: ANR, toe: TOR }];
+  const ARMP = [[SHL, UAL, ELL, FAL, HAL], [SHR, UAR, ELR, FAR, HAR]], LEGP = [[HPL, THL, KNL, SNL, ANL, TOL], [HPR, THR, KNR, SNR, ANR, TOR]];
+  const armSideOf = new Int8Array(N).fill(-1), legSideOf = new Int8Array(N).fill(-1);
+  ARMP.forEach((a, s) => a.forEach((i) => (armSideOf[i] = s))); LEGP.forEach((a, s) => a.forEach((i) => (legSideOf[i] = s)));
+  const SIDE_NAME = ['right', 'left'];
+
+  // ================= physics particles (Verlet) =================
+  const radius = [0.1, 0.12, 0.05, 0.12, 0.07, 0.07, 0.05, 0.05, 0.05, 0.05, 0.08, 0.08, 0.07, 0.07, 0.06, 0.06, 0.04, 0.04, 0.05, 0.05, 0.045, 0.045, 0.07, 0.07, 0.06, 0.06];
+  const mass = [3, 3, 1, 2.5, 1.2, 1.2, 0.8, 0.8, 0.5, 0.5, 1.5, 1.5, 1, 1, 1.2, 1.2, 0.4, 0.4, 0.5, 0.5, 0.4, 0.4, 0.8, 0.8, 0.6, 0.6];
+  const tau = [0.12, 0.14, 0.12, 0.1, 0.14, 0.14, 0.12, 0.12, 0.09, 0.09, 0.1, 0.1, 0.07, 0.07, 0.04, 0.04, 0.04, 0.04, 0.11, 0.11, 0.1, 0.1, 0.09, 0.09, 0.06, 0.06];
+  const pos = markers.map(() => new V3()), prev = markers.map(() => new V3());
+  const BONES = [[PEL, SPN], [SPN, NCK], [NCK, HED], [NCK, SHL], [NCK, SHR], [SHL, UAL], [UAL, ELL], [ELL, FAL], [FAL, HAL], [SHR, UAR], [UAR, ELR], [ELR, FAR], [FAR, HAR],
+    [PEL, HPL], [PEL, HPR], [HPL, THL], [THL, KNL], [KNL, SNL], [SNL, ANL], [HPR, THR], [THR, KNR], [KNR, SNR], [SNR, ANR], [ANL, TOL], [ANR, TOR]];
+  // each long bone is also held straight by one long "rigid" constraint. When the bone breaks that constraint turns into a
+  // maximum-length one, so the limb can fold at the break; a minimum-length constraint stops it folding completely.
+  const BONE_ENDS = { armUp: [[SHL, ELL], [SHR, ELR]], armFore: [[ELL, HAL], [ELR, HAR]], thigh: [[HPL, KNL], [HPR, KNR]], shin: [[KNL, ANL], [KNR, ANR]] };
+  const BONE_NAME = { armUp: 'upper arm', armFore: 'forearm', thigh: 'thigh bone', shin: 'shin bone' };
+  const BRACES = [[SHL, SHR], [HPL, HPR], [SHL, HPL], [SHR, HPR], [SHL, HPR], [SHR, HPL], [PEL, SHL], [PEL, SHR], [SPN, HPL], [SPN, HPR], [HED, SHL], [HED, SHR], [PEL, NCK], [SPN, HED]];
+  const CONS = BONES.concat(BRACES).map(([a, b]) => ({ a, b, len: 0, type: 'rigid' }));
+  const CON_BONE = {};
+  for (const key in BONE_ENDS) CON_BONE[key] = BONE_ENDS[key].map(([a, b]) => {
+    const main = { a, b, len: 0, type: 'rigid' }, min = { a, b, len: 0, type: 'min', enabled: false, frac: 0.3 }; CONS.push(main, min); return { main, min };
+  });
+  const tmp = new V3(), tmp2 = new V3(), tmp3 = new V3();
+  const frame = { side: new V3(1, 0, 0), up: new V3(0, 1, 0), fwd: new V3(0, 0, 1) };
+  function bodyFrame() {
+    frame.side.subVectors(pos[SHR], pos[SHL]).normalize();
+    frame.up.subVectors(pos[NCK], pos[PEL]).normalize();
+    frame.fwd.crossVectors(frame.side, frame.up).normalize();
+    frame.side.crossVectors(frame.up, frame.fwd).normalize();
+  }
+  // two-bone IK: from root S toward T with segment lengths L1, L2, bending toward `pole`
+  function ik(S, T, L1, L2, pole, outMid, outEnd) {
+    const dv = new V3().subVectors(T, S), d = dv.length() || 1e-6, dc = clamp(d, Math.abs(L1 - L2) + 0.02, L1 + L2 - 0.003), dir = dv.divideScalar(d);
+    const a = (L1 * L1 - L2 * L2 + dc * dc) / (2 * dc), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+    const p = pole.clone().addScaledVector(dir, -pole.dot(dir)); if (p.lengthSq() < 1e-6) p.set(0, 0, 1); p.normalize();
+    outMid.copy(S).addScaledVector(dir, a).addScaledVector(p, h); outEnd.copy(S).addScaledVector(dir, dc);
+  }
+
+  // ================= upper-body pose =================
+  const G = { anchor: new V3(), yaw: 0, t: 0, lean: 0 };
+  function poseRig(dt, p) {
+    G.t += dt;
+    const idle = 1 - clamp(p.speed / 1.2, 0, 1);
+    G.lean = lerp(G.lean, p.lean, 1 - Math.exp(-dt * 6));
+    rigRoot.position.copy(G.anchor); rigRoot.rotation.y = G.yaw;
+    hips.position.y = HIP_Y - 0.25 * p.crouch;
+    hips.rotation.set(0, p.twist, Math.sin(G.t * 0.5) * 0.012 * idle + p.sway);
+    torso.rotation.set(G.lean + p.curl + Math.sin(G.t * 1.8) * 0.008 * idle, -p.twist * 1.4, p.sway * 0.5);
+    headR.rotation.x = p.headDrop;
+    for (let i = 0; i < 2; i++) {
+      const L = rLegs[i];                                                    // only used while airborne / down (dangling legs)
+      L.th.rotation.x = -0.15 - p.crouch * 0.85; L.shin.rotation.x = 0.3 + p.crouch * 1.5; L.foot.rotation.x = 0.2;
+      const A = rArms[i], out = (i ? -1 : 1);
+      A.upper.rotation.x = p.armSwing[i] - 0.55 * p.flail;
+      A.upper.rotation.z = out * (0.07 + 1.15 * p.flail + 0.03 * (1 - idle));
+      A.fore.rotation.x = -0.15 - 0.25 * (1 - idle) - 0.55 * p.flail;
+    }
+  }
+
+  // ================= the visible body (follows the particles) =================
+  // A tactical-operator character built from procedural meshes and textures: sculpted head with eyes, brows and hair,
+  // lofted jacket torso, plate carrier with pouches, cargo trousers, knee pads, gloves and boots. No external assets.
+  const bodyMeshes = [], decor = [];
+  // ---- procedural texture toolkit ----
+  const hash2 = (x, y) => { let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263); h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+  function vnoise(x, y) { const xi = Math.floor(x), yi = Math.floor(y), u = x - xi, v = y - yi, su = u * u * (3 - 2 * u), sv = v * v * (3 - 2 * v); const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1); return a + (b - a) * su + (c - a) * sv + (a - b - c + d) * su * sv; }
+  function fbm2(x, y, o = 4) { let s = 0, a = 0.5, n = 0; for (let i = 0; i < o; i++) { s += vnoise(x, y) * a; n += a; x *= 2; y *= 2; a *= 0.5; } return s / n; }
+  function paint(w, h, fn) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d', { willReadFrequently: true }), img = g.createImageData(w, h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = fn(x / w, y / h, x, y), i = (y * w + x) * 4; img.data[i] = o[0]; img.data[i + 1] = o[1]; img.data[i + 2] = o[2]; img.data[i + 3] = o[3] === undefined ? 255 : o[3]; }
+    g.putImageData(img, 0, 0); return c;
+  }
+  function normalFrom(hc, strength) {                                           // height map -> tangent-space normal map
+    const w = hc.width, h = hc.height, src = hc.getContext('2d').getImageData(0, 0, w, h).data, H = (x, y) => src[(((y + h) % h) * w + ((x + w) % w)) * 4] / 255;
+    return paint(w, h, (u, v, x, y) => {
+      const dx = (H(x + 1, y) - H(x - 1, y)) * strength, dy = (H(x, y + 1) - H(x, y - 1)) * strength, l = Math.hypot(dx, dy, 1);
+      return [(-dx / l * 0.5 + 0.5) * 255, (dy / l * 0.5 + 0.5) * 255, (1 / l * 0.5 + 0.5) * 255];
+    });
+  }
+  const aniso = renderer.capabilities.getMaxAnisotropy();
+  function tex(c, srgb, rep) { const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso; if (srgb) t.encoding = THREE.sRGBEncoding; if (rep) t.repeat.set(rep[0], rep[1]); return t; }
+  const rnd0 = (a, b) => a + Math.random() * (b - a);
+  const lin = (hex) => new THREE.Color(hex).convertSRGBToLinear();               // r128 treats hex colours as linear; textures are already sRGB-decoded
+
+  // ---- skin ----
+  const SKIN = [208, 154, 122];
+  const skinPlain = paint(384, 384, (u, v, x, y) => {
+    const n = fbm2(u * 9, v * 9, 4), n2 = vnoise(x * 0.9, y * 0.9), f = vnoise(x * 0.35, y * 0.35) > 0.93 ? 0.8 : 1;
+    const k = (0.94 + 0.12 * n) * (0.97 + 0.05 * n2) * f; return [SKIN[0] * k, SKIN[1] * k * (0.99 + 0.02 * n2), SKIN[2] * k];
+  });
+  const skinHeight = paint(384, 384, (u, v, x, y) => { const p = vnoise(x * 0.7, y * 0.7) * 0.6 + vnoise(x * 2.1, y * 2.1) * 0.4; return [p * 200 + 20, 0, 0]; });
+  const skinNormalMap = tex(normalFrom(skinHeight, 1.6), false, [3, 3]);
+  // The face is painted in the head sphere's own coordinates, so every painted feature lines up with the sculpted one.
+  const FW = 1024, FH = 512;
+  const dirAt = (u, vc, o) => { const th = vc * Math.PI, r = Math.sin(th), ang = (u - 0.25) * 6.283185; o[0] = r * Math.sin(ang); o[1] = Math.cos(th); o[2] = r * Math.cos(ang); };
+  const gs = (v, sg) => Math.exp(-(v * v) / (sg * sg));
+  const sst = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const segD = (px, py, ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, t = clamp(((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy), 0, 1); return Math.hypot(px - (ax + dx * t), py - (ay + dy * t)); };
+  const faceCanvas = document.createElement('canvas'), faceHeight = document.createElement('canvas');
+  {
+    faceCanvas.width = faceHeight.width = FW; faceCanvas.height = faceHeight.height = FH;
+    const gc = faceCanvas.getContext('2d', { willReadFrequently: true }), gh = faceHeight.getContext('2d', { willReadFrequently: true });
+    const ic = gc.createImageData(FW, FH), ih = gh.createImageData(FW, FH), d = [0, 0, 0];
+    for (let py = 0; py < FH; py++) for (let px = 0; px < FW; px++) {
+      dirAt(px / FW, py / FH, d); const x = d[0], y = d[1], z = d[2], ax = Math.abs(x);
+      const n = fbm2(px * 0.02, py * 0.02, 4), n2 = vnoise(px * 0.9, py * 0.9);
+      let r = SKIN[0], g = SKIN[1], b = SKIN[2], ao = 1, h = 0.32 * (vnoise(px * 0.8, py * 0.8) * 0.6 + vnoise(px * 2.2, py * 2.2) * 0.4);   // skin pores
+      const fr = sst(0.05, 0.45, z);                                                                       // how much this point faces forward
+      if (fr > 0) {
+        const fold = gs(segD(ax, y, 0.2, -0.3, 0.46, -0.54) / 0.024, 1) * fr; h -= 0.55 * fold; ao -= 0.2 * fold;                      // nasolabial folds
+        const crease = gs((y - (0.2 + 0.06 * Math.cos((ax - 0.4) * 3.2))) / 0.014, 1) * sst(0.18, 0.3, ax) * sst(0.62, 0.5, ax) * fr; h -= 0.35 * crease; ao -= 0.16 * crease;   // eyelid creases
+        const bag = gs((y + 0.02) / 0.05, 1) * gs((ax - 0.4) / 0.2, 1) * fr; ao -= 0.1 * bag; r -= 8 * bag; g -= 12 * bag; b -= 3 * bag;   // under-eye
+        const socket = gs(Math.hypot(ax - 0.4, y - 0.12) / 0.22, 1) * fr; ao -= 0.14 * socket;
+        for (let k = 0; k < 4; k++) h -= 0.13 * gs((y - (0.5 + k * 0.075)) / 0.012, 1) * sst(0.6, 0.3, ax) * fr * (0.5 + 0.5 * vnoise(px * 0.05, k * 3));   // forehead lines
+        const lipM = gs((y + 0.535) / 0.075, 1) * sst(0.36, 0.2, ax) * fr;                                                    // lips
+        r = r * (1 - lipM * 0.6) + 168 * lipM * 0.6; g = g * (1 - lipM * 0.7) + 84 * lipM * 0.7; b = b * (1 - lipM * 0.6) + 86 * lipM * 0.6; h += 0.14 * lipM;
+        const ml = gs((y + 0.512) / 0.009, 1) * sst(0.4, 0.22, ax) * fr; r = r * (1 - ml * 0.85) + 72 * ml * 0.85; g = g * (1 - ml * 0.85) + 30 * ml * 0.85; b = b * (1 - ml * 0.85) + 30 * ml * 0.85; h -= 0.5 * ml; ao -= 0.2 * ml;   // mouth line
+        const border = (gs((y + 0.43) / 0.006, 1) + gs((y + 0.598) / 0.006, 1)) * sst(0.3, 0.14, ax) * fr; h += 0.15 * border;   // vermilion border
+        h += 0.12 * gs((y + 0.38) / 0.04, 1) * gs(ax / 0.04, 1) * fr; ao -= 0.05 * gs((y + 0.34) / 0.03, 1) * gs(ax / 0.09, 1) * fr;   // philtrum
+        const nos = gs(Math.hypot(ax - 0.075, y + 0.34) / 0.02, 1) * fr; r = r * (1 - nos * 0.6) + 60 * nos * 0.6; g = g * (1 - nos * 0.6) + 26 * nos * 0.6; b = b * (1 - nos * 0.6) + 22 * nos * 0.6; h -= 0.3 * nos;   // nostrils
+        const side = gs((ax - 0.105) / 0.032, 1) * gs((y + 0.05) / 0.22, 1) * fr; ao -= 0.2 * side; r -= 8 * side;                 // shadowed nasal side-walls
+        const bridge = gs(ax / 0.038, 1) * gs((y + 0.0) / 0.24, 1) * fr; ao += 0.07 * bridge; r += 6 * bridge; g += 4 * bridge;       // lit bridge
+        const alarCrease = gs(segD(ax, y, 0.19, -0.26, 0.12, -0.36) / 0.014, 1) * fr; ao -= 0.28 * alarCrease; h -= 0.3 * alarCrease;    // crease where the nostril wing meets the cheek
+        const under = gs((y + 0.372) / 0.026, 1) * gs(ax / 0.13, 1) * fr; ao -= 0.3 * under;                                          // shadow under the nose
+        const hi = gs(ax / 0.04, 1) * gs((y + 0.285) / 0.04, 1) * fr; r += 10 * hi; g += 8 * hi; b += 8 * hi;                         // highlight on the tip
+        const tip = gs(ax / 0.1, 1) * gs((y + 0.28) / 0.07, 1) * fr; r += 16 * tip; g -= 14 * tip; b -= 9 * tip;                  // warm nose tip
+        const alar = gs((ax - 0.15) / 0.05, 1) * gs((y + 0.31) / 0.04, 1) * fr; r += 10 * alar; g -= 10 * alar; b -= 6 * alar;
+        const cheek = gs((ax - 0.5) / 0.2, 1) * gs((y + 0.22) / 0.2, 1) * fr; r += 9 * cheek; g -= 15 * cheek; b -= 9 * cheek;   // flushed cheeks
+        const jaw = sst(-0.28, -0.5, y) * sst(0.85, 0.5, ax) * fr + gs((y + 0.4) / 0.1, 1) * gs(ax / 0.32, 1) * 0.9 * fr;           // stubble: jaw, chin and upper lip
+        const st = vnoise(px * 1.9, py * 1.9) > 0.5 ? 1 : 0, sd = Math.min(1, jaw) * st * 0.12 * (1 - lipM * 0.9);
+        r *= 1 - sd; g *= 1 - sd * 0.95; b *= 1 - sd * 0.75; const fuzz = Math.min(1, jaw) * 0.07; r -= 9 * fuzz; g -= 7 * fuzz; b -= 3 * fuzz;
+        const hl = sst(0.5, 0.74, y) * fr * 0.22; ao -= hl;                                                          // darkening toward the hairline
+      }
+      const k = ao * (0.94 + 0.12 * n) * (0.97 + 0.05 * n2) * (vnoise(px * 0.33, py * 0.33) > 0.94 ? 0.84 : 1);
+      const i4 = (py * FW + px) * 4;
+      ic.data[i4] = clamp(r * k, 0, 255); ic.data[i4 + 1] = clamp(g * k, 0, 255); ic.data[i4 + 2] = clamp(b * k, 0, 255); ic.data[i4 + 3] = 255;
+      const hv = clamp(h * 255 + 40, 0, 255); ih.data[i4] = ih.data[i4 + 1] = ih.data[i4 + 2] = hv; ih.data[i4 + 3] = 255;
+    }
+    gc.putImageData(ic, 0, 0); gh.putImageData(ih, 0, 0);
+    // eyebrows: individual hairs, thick at the inner end and thinning toward the tail
+    const toPx = (x, y) => { const z = Math.sqrt(Math.max(0, 1 - x * x - y * y)); return [(0.25 + Math.atan2(x, z) / 6.283185) * FW, Math.acos(clamp(y, -1, 1)) / Math.PI * FH]; };
+    for (const sg of [-1, 1]) for (let i = 0; i < 240; i++) {
+      const t = Math.random(), tx = 0.17 + 0.56 * t, yb = 0.3 + 0.07 * Math.sin(Math.PI * Math.min(1, t * 0.95)) - 0.07 * t * t + (Math.random() - 0.5) * 0.05 * (1 - 0.5 * t);
+      const a = toPx(sg * tx, yb), bq = toPx(sg * (tx + 0.03), yb + 0.016 * (1 - t) - 0.012 * t), l = 0.6 + Math.random() * 0.5;
+      gc.strokeStyle = `rgba(${34 + Math.random() * 18},${22 + Math.random() * 12},${14 + Math.random() * 8},${0.55 + Math.random() * 0.4})`; gc.lineWidth = (1.3 - 0.5 * t) * (0.7 + Math.random() * 0.6);
+      gc.beginPath(); gc.moveTo(a[0], a[1]); gc.lineTo(a[0] + (bq[0] - a[0]) * l, a[1] + (bq[1] - a[1]) * l); gc.stroke();
+    }
+  }
+  const skinMat = new THREE.MeshPhysicalMaterial({ map: tex(skinPlain, true, [2, 2]), normalMap: skinNormalMap, normalScale: new THREE.Vector2(0.45, 0.45), roughness: 0.58, clearcoat: 0.1, clearcoatRoughness: 0.55 });
+  const faceMat = new THREE.MeshPhysicalMaterial({ map: tex(faceCanvas, true), normalMap: tex(normalFrom(faceHeight, 2.4), false), normalScale: new THREE.Vector2(0.38, 0.38), roughness: 0.5, clearcoat: 0.14, clearcoatRoughness: 0.45 });
+  try { skinMat.sheen = new THREE.Color(0x9a4a3a); faceMat.sheen = new THREE.Color(0xa05040); } catch (e) {}
+
+  // ---- cloth, leather, rubber ----
+  function fabric(base, alt, rep, weave, rough) {
+    const col = paint(256, 256, (u, v, x, y) => { const m = fbm2(u * 7, v * 7, 4) > 0.5 ? 1 : 0, n = vnoise(x * 0.8, y * 0.8), k = 0.9 + 0.2 * n, c = m ? base : alt; return [c[0] * k, c[1] * k, c[2] * k]; });
+    const hgt = paint(192, 192, (u, v, x, y) => { const g = ((x >> 2) % 2) ^ ((y >> 2) % 2) ? 120 : 150, rs = (x % 16 === 0 || y % 16 === 0) ? -35 : 0, n = vnoise(x * 0.5, y * 0.5) * 50; return [clamp(g + rs + n * (weave || 1), 0, 255), 0, 0]; });
+    return new THREE.MeshStandardMaterial({ map: tex(col, true, rep), normalMap: tex(normalFrom(hgt, 2.2), false, rep), normalScale: new THREE.Vector2(0.8, 0.8), roughness: rough || 0.88, metalness: 0 });
+  }
+  const jacketMat = fabric([66, 74, 56], [48, 55, 41], [2, 2], 1), pantsMat = fabric([78, 76, 66], [62, 61, 53], [2, 3], 1);
+  const vestMat = (() => {
+    const hgt = paint(256, 256, (u, v, x, y) => { const web = (y % 20 < 4) ? 40 : 160, stitch = (x % 12 < 2 && y % 20 >= 4) ? 90 : 0; return [clamp(web + stitch + vnoise(x * 0.6, y * 0.6) * 40, 0, 255), 0, 0]; });
+    return new THREE.MeshStandardMaterial({ color: lin(0x25282c), normalMap: tex(normalFrom(hgt, 3), false, [2, 2]), normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.75 });
+  })();
+  const leatherMat = (() => {
+    const hgt = paint(256, 256, (u, v, x, y) => [clamp(110 + vnoise(x * 0.18, y * 0.18) * 90 + vnoise(x * 0.9, y * 0.9) * 40, 0, 255), 0, 0]);
+    return new THREE.MeshStandardMaterial({ color: lin(0x1c1612), normalMap: tex(normalFrom(hgt, 3.2), false, [2, 2]), normalScale: new THREE.Vector2(1, 1), roughness: 0.5, metalness: 0.0 });
+  })();
+  const gloveMat = new THREE.MeshStandardMaterial({ color: lin(0x1d1e22), normalMap: leatherMat.normalMap, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.6 });
+  const rubberMat = (() => {
+    const hgt = paint(128, 128, (u, v, x, y) => [((x >> 3) % 2) ? 210 : 70, 0, 0]);
+    return new THREE.MeshStandardMaterial({ color: lin(0x151516), normalMap: tex(normalFrom(hgt, 2.5), false, [6, 2]), roughness: 0.9 });
+  })();
+  const metalMat = new THREE.MeshStandardMaterial({ color: lin(0x9a9da2), metalness: 0.9, roughness: 0.32 });
+  const padMat = new THREE.MeshStandardMaterial({ color: lin(0x2a2c2f), roughness: 0.55, metalness: 0.1 });
+  const hairColor = [52, 36, 26];
+
+  // ---- geometry helpers ----
+  function reg(m, kind, a, b, extra) { m.userData = Object.assign({ kind, a, b }, extra); m.castShadow = m.receiveShadow = true; scene.add(m); bodyMeshes.push(m); return m; }
+  function deco(m) { m.castShadow = m.receiveShadow = true; decor.push(m); return m; }
+  function superGeo(w, h, d, n, seg) {                                                   // rounded block (a superellipsoid)
+    const g = new THREE.BoxGeometry(w, h, d, seg, seg, seg), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i) / (w / 2), y = p.getY(i) / (h / 2), z = p.getZ(i) / (d / 2), k = 1 / Math.pow(Math.pow(Math.abs(x), n) + Math.pow(Math.abs(y), n) + Math.pow(Math.abs(z), n), 1 / n);
+      p.setXYZ(i, x * k * w / 2, y * k * h / 2, z * k * d / 2);
+    }
+    g.computeVertexNormals(); return g;
+  }
+  // a limb segment: unit length along +y, radius r0 -> r1 with an optional muscle bulge
+  function limbGeo(r0, r1, bulge, at, ex) {
+    const g = new THREE.CylinderGeometry(1, 1, 1, 22, 10, false), p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i) + 0.5, r = (r0 + (r1 - r0) * y) * (1 + (bulge || 0) * Math.exp(-Math.pow((y - (at === undefined ? 0.35 : at)) / 0.28, 2)));
+      p.setXYZ(i, p.getX(i) * r * (ex || 1), y, p.getZ(i) * r);
+    }
+    g.computeVertexNormals(); return g;
+  }
+  function loft(sec, segs, n) {                                                          // lofted body: rings of super-ellipses; unit height
+    const rings = sec.length, pos = [], uv = [], idx = [];
+    sec.forEach((s, ri) => {
+      for (let k = 0; k <= segs; k++) {
+        const a = k / segs * Math.PI * 2, c = Math.cos(a), sn = Math.sin(a), ex = 2 / n;
+        pos.push(Math.sign(c) * Math.pow(Math.abs(c), ex) * s.rx, s.t, (s.cz || 0) + Math.sign(sn) * Math.pow(Math.abs(sn), ex) * s.rz); uv.push(k / segs, s.t);
+      }
+    });
+    for (let r = 0; r < rings - 1; r++) for (let k = 0; k < segs; k++) { const a = r * (segs + 1) + k, b = a + segs + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g;
+  }
+
+  const limbs = [];
+  function limb(a, b, r0, r1, mat, kind, extra, bulge, at) { const m = reg(new THREE.Mesh(limbGeo(r0, r1, bulge, at), mat), kind, a, b, extra); limbs.push(m); return m; }
+  const balls = [];
+  function ball(i, r, mat, kind, extra) { const m = reg(new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), mat), kind, i, i, extra); balls.push(m); return m; }
+
+  // ---- torso (jacket), shoulders, pelvis ----
+  const torsoGeo = loft([
+    { t: 0.0, rx: 0.165, rz: 0.1, cz: 0 }, { t: 0.12, rx: 0.168, rz: 0.104, cz: 0.004 }, { t: 0.3, rx: 0.178, rz: 0.112, cz: 0.006 }, { t: 0.5, rx: 0.2, rz: 0.124, cz: 0.012 },
+    { t: 0.7, rx: 0.216, rz: 0.122, cz: 0.01 }, { t: 0.86, rx: 0.205, rz: 0.108, cz: 0.002 }, { t: 0.96, rx: 0.15, rz: 0.088, cz: -0.004 }, { t: 1.04, rx: 0.075, rz: 0.062, cz: -0.006 },
+  ], 40, 2.6);
+  const bodyParts = {
+    torso: reg(new THREE.Mesh(torsoGeo, jacketMat), 'chest', PEL, NCK),
+    shoulders: reg(new THREE.Mesh(superGeo(0.5, 0.12, 0.2, 3, 8), jacketMat), 'chest', NCK, NCK),
+    hips: reg(new THREE.Mesh(superGeo(0.35, 0.22, 0.21, 3, 10), pantsMat), 'pelvis', PEL, PEL),
+    feet: [0, 1].map((i) => {
+      const g = superGeo(0.105, 0.12, 0.29, 4, 12), p = g.attributes.position;
+      for (let k = 0; k < p.count; k++) {                                                   // tapered, upturned toe
+        const x = p.getX(k), y = p.getY(k), z = p.getZ(k), f = clamp((z - 0.02) / 0.125, 0, 1);
+        p.setXYZ(k, x * (1 - 0.32 * f * f), y > 0 ? y * (1 - 0.62 * f * f) : y + 0.012 * f * f, z);
+      }
+      g.computeVertexNormals(); return reg(new THREE.Mesh(g, leatherMat), 'foot', i ? ANR : ANL, i ? TOR : TOL);
+    }),
+  };
+  bodyParts.shoulders.scale.set(1, 1, 1);
+  // collars, boot shafts, soles, laces
+  bodyParts.feet.forEach((F) => {
+    const sole = new THREE.Mesh(superGeo(0.115, 0.032, 0.31, 4, 8), rubberMat); sole.position.set(0, -0.058, 0.005); F.add(sole); sole.castShadow = true; decor.push(sole);
+    const shaft = new THREE.Mesh(limbGeo(0.056, 0.058, 0, 0), leatherMat); shaft.scale.set(1, 0.15, 1); shaft.position.set(0, -0.02, -0.07); F.add(shaft); shaft.castShadow = true; decor.push(shaft);
+    const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.057, 0.008, 8, 24), padMat); cuff.rotation.x = Math.PI / 2; cuff.position.set(0, 0.13, -0.07); F.add(cuff); decor.push(cuff);
+    for (let k = 0; k < 4; k++) { const lace = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.07, 6), padMat); lace.rotation.z = Math.PI / 2; lace.position.set(0, 0.052 - k * 0.003, -0.02 + k * 0.032); F.add(lace); decor.push(lace); }
+  });
+  limb(NCK, HED, 0.062, 0.046, skinMat, 'head', undefined, 0.15, 0.1);
+  // arms: jacket sleeves, gloves
+  ARMP.forEach(([s, um, e, fm, h], side) => {
+    limb(s, um, 0.062, 0.058, jacketMat, 'arm', { bone: 'armUp', side }, 0.18, 0.55); limb(um, e, 0.058, 0.05, jacketMat, 'arm', { bone: 'armUp', side }, 0.06, 0.2);
+    limb(e, fm, 0.05, 0.047, jacketMat, 'arm', { bone: 'armFore', side }, 0.1, 0.25); limb(fm, h, 0.047, 0.038, jacketMat, 'arm', { bone: 'armFore', side }, 0, 0);
+    ball(s, 0.066, jacketMat, 'arm', { bone: 'armUp', side }); ball(um, 0.058, jacketMat, 'arm', { bone: 'armUp', side }); ball(e, 0.051, jacketMat, 'arm', { bone: 'armFore', side });
+    ball(fm, 0.047, jacketMat, 'arm', { bone: 'armFore', side });
+  });
+  // legs: cargo trousers
+  LEGP.forEach(([h, tm, k, sm, a], side) => {
+    limb(h, tm, 0.088, 0.082, pantsMat, 'leg', { bone: 'thigh', side }, 0.1, 0.35); limb(tm, k, 0.082, 0.064, pantsMat, 'leg', { bone: 'thigh', side }, 0.04, 0.3);
+    limb(k, sm, 0.064, 0.062, pantsMat, 'leg', { bone: 'shin', side }, 0.1, 0.25); limb(sm, a, 0.062, 0.05, pantsMat, 'leg', { bone: 'shin', side }, 0, 0);
+    ball(h, 0.088, pantsMat, 'leg', { bone: 'thigh', side }); ball(tm, 0.082, pantsMat, 'leg', { bone: 'thigh', side }); ball(k, 0.066, pantsMat, 'leg', { bone: 'thigh', side }); ball(sm, 0.063, pantsMat, 'leg', { bone: 'shin', side });
+  });
+  // gloves: palm + curled fingers + thumb, built along +y from the wrist
+  const hands = [0, 1].map((side) => {
+    const g = new THREE.Group(); scene.add(g);
+    const palm = reg(new THREE.Mesh(superGeo(0.075, 0.09, 0.034, 3, 6), gloveMat), 'arm', side ? HAR : HAL, side ? HAR : HAL, { bone: 'armFore', side }); palm.position.set(0, 0.05, 0); g.add(palm);
+    const inw = side === 0 ? 1 : -1;
+    for (let k = 0; k < 4; k++) {
+      const f = new THREE.Group(); f.position.set(-0.027 + k * 0.018, 0.092, 0); f.rotation.z = inw * 0.15;
+      const l1 = (k === 3 ? 0.032 : k === 1 ? 0.04 : 0.037), s1 = new THREE.Mesh(new THREE.CylinderGeometry(0.0082, 0.0088, l1, 8), gloveMat); s1.position.y = l1 / 2; f.add(s1);
+      const f2 = new THREE.Group(); f2.position.y = l1; f2.rotation.z = inw * 0.9; const s2 = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0082, 0.03, 8), gloveMat); s2.position.y = 0.015; f2.add(s2); f.add(f2);
+      g.add(f); s1.castShadow = s2.castShadow = true; decor.push(f);
+    }
+    const th = new THREE.Group(); th.position.set(-inw * 0.0, 0.03, 0.026); th.rotation.set(-0.5, 0, inw * -0.35); const ts = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.01, 0.045, 8), gloveMat); ts.position.y = 0.022; th.add(ts); g.add(th); decor.push(th);
+    return g;
+  });
+
+  // ---- gear: plate carrier with pouches, belt, knee pads ----
+  const torsoGear = new THREE.Group(); scene.add(torsoGear); decor.push(torsoGear);
+  const gear = (geo, mat, x, y, z, parent, ud) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; (parent || torsoGear).add(m);
+    m.userData = Object.assign({ kind: 'chest', a: PEL, b: NCK }, ud); bodyMeshes.push(m); return m;                  // shootable like the body underneath
+  };
+  gear(superGeo(0.3, 0.34, 0.04, 4, 6), vestMat, 0, 0.33, 0.138);                          // front plate
+  gear(superGeo(0.3, 0.34, 0.04, 4, 6), vestMat, 0, 0.33, -0.134);                         // back plate
+  [-0.1, 0, 0.1].forEach((x) => { gear(superGeo(0.075, 0.1, 0.05, 4, 6), vestMat, x, 0.12, 0.17); gear(superGeo(0.07, 0.012, 0.05, 3, 4), padMat, x, 0.175, 0.172); });   // mag pouches
+  gear(superGeo(0.09, 0.08, 0.05, 4, 6), vestMat, -0.13, 0.32, 0.168); gear(superGeo(0.07, 0.11, 0.045, 4, 6), vestMat, 0.14, 0.3, 0.166);
+  [-1, 1].forEach((s) => { gear(superGeo(0.05, 0.022, 0.28, 3, 4), vestMat, s * 0.125, 0.575, 0.0); gear(superGeo(0.04, 0.03, 0.045, 3, 4), padMat, s * 0.19, 0.28, 0.0); });   // shoulder straps, side buckles
+  gear(new THREE.TorusGeometry(0.058, 0.012, 8, 20), jacketMat, 0, 0.625, 0).rotation.x = Math.PI / 2;      // collar
+  gear(superGeo(0.09, 0.05, 0.02, 4, 4), padMat, 0, 0.36, 0.16);                                        // chest patch
+  const hipGear = new THREE.Group(); scene.add(hipGear); decor.push(hipGear);
+  const belt = new THREE.Mesh(new THREE.TorusGeometry(0.172, 0.017, 8, 40), leatherMat); belt.rotation.x = Math.PI / 2; belt.scale.set(1, 0.7, 1); belt.position.y = 0.06; belt.castShadow = true; hipGear.add(belt);
+  gear(superGeo(0.04, 0.032, 0.012, 3, 4), metalMat, 0, 0.06, 0.122, hipGear);                          // buckle
+  gear(superGeo(0.05, 0.14, 0.07, 4, 6), padMat, 0.17, -0.03, 0.02, hipGear, { kind: 'pelvis', a: PEL, b: PEL });                            // holster
+  gear(superGeo(0.07, 0.07, 0.06, 4, 6), vestMat, -0.17, 0.0, 0.03, hipGear, { kind: 'pelvis', a: PEL, b: PEL });
+  const kneePads = [0, 1].map((i) => { const g = new THREE.Group(), ud = { kind: 'leg', a: LEGP[i][0], b: LEGP[i][2], bone: 'thigh', side: i }; scene.add(g); decor.push(g); gear(superGeo(0.115, 0.15, 0.045, 4, 8), padMat, 0, 0, 0, g, ud); gear(superGeo(0.09, 0.02, 0.05, 3, 4), jacketMat, 0, 0.05, 0.0, g, ud); return g; });
+
+  // ---- head ----
+  const head = new THREE.Group(); scene.add(head);
+  const gauss = (v, s) => Math.exp(-(v * v) / (s * s));
+  const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  let headUnit = null;
+  function headGeometry() {
+    const g = new THREE.SphereGeometry(1, 96, 72), p = g.attributes.position; headUnit = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), ax = Math.abs(x); headUnit[i * 3] = x; headUnit[i * 3 + 1] = y; headUnit[i * 3 + 2] = z;
+      const front = smoothstep(0.0, 0.55, z), face = smoothstep(0.3, 0.85, z);
+      let X = x * 0.076, Y = y * 0.108, Z = z * 0.097;
+      const jaw = smoothstep(-0.25, -0.95, y); X *= 1 - 0.27 * jaw; Z *= 1 - 0.09 * jaw * (z < 0 ? 1 : 0.35);                       // jaw narrows toward the chin
+      X *= 1 - 0.05 * smoothstep(0.35, 0.95, y);                                                                                    // temples and crown a touch narrower
+      Z += 0.0145 * gauss(x / 0.32, 1) * gauss((y + 0.86) / 0.17, 1) * front;                                                        // chin
+      Z += 0.005 * gauss((y - 0.55) / 0.3, 1) * front * gauss(x / 0.7, 1);                                                           // forehead
+      Z += 0.0075 * gauss((y - (0.27 + 0.03 * (1 - Math.min(1, ax / 0.7)))) / 0.085, 1) * face * smoothstep(0.82, 0.18, ax) * 1.1;   // brow ridge
+      Z -= 0.0048 * gauss(Math.hypot(ax - 0.4, y - 0.1) / 0.17, 1) * face;                                                           // eye sockets
+      const nh = 0.0062 + 0.0148 * smoothstep(0.12, -0.3, y), nw = 0.05 + 0.062 * smoothstep(-0.05, -0.32, y);                         // nose: bridge widening to the base
+      Z += nh * gauss(x / nw, 1) * smoothstep(0.2, 0.1, y) * smoothstep(-0.36, -0.28, y) * face;
+      Z += 0.0095 * gauss((ax - 0.17) / 0.055, 1) * gauss((y + 0.305) / 0.05, 1) * face;                                              // nostril wings (alae)
+      Z += 0.006 * gauss(x / 0.075, 1) * gauss((y + 0.275) / 0.05, 1) * face;                                                          // rounded tip
+      X += Math.sign(x) * 0.0035 * gauss((ax - 0.16) / 0.07, 1) * gauss((y + 0.31) / 0.05, 1) * face;                                 // flared base
+      Z -= 0.0058 * gauss((ax - 0.085) / 0.03, 1) * gauss((y + 0.352) / 0.028, 1) * face;                                             // nostrils
+      Z += 0.0045 * gauss(x / 0.22, 1) * gauss((y + 0.385) / 0.06, 1) * face;                                                        // upper lip pad
+      Z += 0.0075 * gauss(x / 0.27, 1) * gauss((y + 0.47) / 0.04, 1) * face;                                                         // upper lip
+      Z += 0.0085 * gauss(x / 0.29, 1) * gauss((y + 0.575) / 0.05, 1) * face;                                                        // lower lip
+      Z -= 0.0042 * gauss(x / 0.3, 1) * gauss((y + 0.512) / 0.012, 1) * face;                                                        // mouth line
+      Z -= 0.003 * gauss(x / 0.2, 1) * gauss((y + 0.705) / 0.035, 1) * face;                                                         // chin crease
+      X += Math.sign(x) * 0.0045 * gauss((ax - 0.62) / 0.2, 1) * gauss((y + 0.1) / 0.24, 1) * front;                                 // cheekbones
+      Z += 0.0035 * gauss((ax - 0.5) / 0.25, 1) * gauss((y + 0.2) / 0.28, 1) * face;                                                 // cheek fullness
+      X += Math.sign(x) * 0.004 * gauss((y + 0.5) / 0.2, 1) * gauss((ax - 0.62) / 0.3, 1) * smoothstep(-0.2, 0.4, -z);               // jaw angle
+      p.setXYZ(i, X, Y, Z);
+    }
+    g.computeVertexNormals(); return g;
+  }
+  const headSphere = reg(new THREE.Mesh(headGeometry(), faceMat), 'head', HED, HED); scene.remove(headSphere); head.add(headSphere);
+  const headRay = new THREE.Raycaster();
+  function surfaceZ(x, y) { headSphere.updateMatrixWorld(true); headRay.set(new V3(x, y, 0.4), new V3(0, 0, -1)); const h = headRay.intersectObject(headSphere, false); return h.length ? h[0].point.z : 0.09; }
+  const faceBits = [];
+  const fb = (m, parent) => { (parent || head).add(m); faceBits.push(m); return m; };
+  // ears
+  [-1, 1].forEach((s) => { const e = new THREE.Mesh(superGeo(0.014, 0.05, 0.034, 3, 6), skinMat); e.position.set(s * 0.079, 0.002, -0.006); e.rotation.set(0, s * 0.2, s * 0.08); e.castShadow = true; fb(e); });
+  // hair: layered shells cut from the scalp itself. They thin out into a taper fade at the sides and nape, with extra
+  // volume on top at the front, and each layer is a strand texture with gaps so the darker layers show through.
+  const hairlineAt = (ux, uy, uz) => { const phi = Math.abs(Math.atan2(ux, uz)); let t = lerp(0.7, 0.16, smoothstep(0.35, 1.45, phi)); t = lerp(t, -0.6, smoothstep(1.5, 2.9, phi)); return uy - t; };
+  const hd = [0, 0, 0];
+  function hairTexture(seed, cover) {
+    return tex(paint(768, 384, (u, v, x, y) => {
+      dirAt(u, v, hd); const above = hairlineAt(hd[0], hd[1], hd[2]);                                                   // 0 at the hairline: strands thin out and dither away
+      const clump = vnoise(x * 0.34 + seed * 17, y * 0.012 + seed), fine = vnoise(x * 1.7 + seed * 5, y * 0.05), hi = vnoise(x * 0.5 + seed * 3, y * 0.03);
+      const edge = sst(-0.02, 0.22, above + (vnoise(x * 0.8, y * 0.8) - 0.5) * 0.16), a = sst(cover - 0.1, cover + 0.1, clump * 0.68 + fine * 0.32) * (cover < 0 ? 1 : edge), k = 0.55 + 0.9 * hi * (0.6 + 0.6 * fine);
+      return [hairColor[0] * k * 1.1 + 6 * hi, hairColor[1] * k, hairColor[2] * k * 0.9, a * 255];
+    }), true, [1, 1]);
+  }
+  const hSrc = headSphere.geometry, hp = hSrc.attributes.position, hn = hSrc.attributes.normal, hIdx = hSrc.index.array, hCount = hp.count, hMask = new Float32Array(hCount);
+  for (let i = 0; i < hCount; i++) {
+    const ux = headUnit[i * 3], uy = headUnit[i * 3 + 1], uz = headUnit[i * 3 + 2], phi = Math.abs(Math.atan2(ux, uz));
+    let t = lerp(0.7, 0.16, smoothstep(0.35, 1.45, phi)); t = lerp(t, -0.6, smoothstep(1.5, 2.9, phi)); hMask[i] = uy - t;    // height above the hairline
+  }
+  const hKeep = [], hBase = []; for (let i = 0; i < hIdx.length; i += 3) { const a = hMask[hIdx[i]], b = hMask[hIdx[i + 1]], c = hMask[hIdx[i + 2]]; if (Math.max(a, b, c) > -0.05) hKeep.push(hIdx[i], hIdx[i + 1], hIdx[i + 2]); if (Math.min(a, b, c) > 0.07) hBase.push(hIdx[i], hIdx[i + 1], hIdx[i + 2]); }
+  const hairLayers = [{ th: 0.0014, cover: -1 }, { th: 0.0042, cover: 0.46 }, { th: 0.0072, cover: 0.52 }, { th: 0.0104, cover: 0.58 }].map((L, li) => {
+    const g = new THREE.BufferGeometry(), pos = new Float32Array(hCount * 3), col = new Float32Array(hCount * 3);
+    for (let i = 0; i < hCount; i++) {
+      const m = hMask[i], w = smoothstep(0, 0.2, m), uy = headUnit[i * 3 + 1], uz = headUnit[i * 3 + 2];
+      const vol = 0.0075 * smoothstep(0.42, 0.95, uy) * smoothstep(-0.35, 0.6, uz) * (L.th / 0.0104);                              // quiff: more height on top toward the front
+      const off = L.th * w + vol + 0.0006 * (li ? 1 : 0);
+      pos[i * 3] = hp.getX(i) + hn.getX(i) * off; pos[i * 3 + 1] = hp.getY(i) + hn.getY(i) * off; pos[i * 3 + 2] = hp.getZ(i) + hn.getZ(i) * off;
+      const f = smoothstep(-0.02, 0.3, m), sk = li === 0 ? 0.55 + 0.45 * f : 0.35 + 0.65 * f;                                           // short stubble toward the fade
+      col[i * 3] = sk * (1 + 0.04 * (1 - f)); col[i * 3 + 1] = sk; col[i * 3 + 2] = sk * 0.95;
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('uv', hSrc.attributes.uv); g.setAttribute('color', new THREE.BufferAttribute(col, 3)); g.setIndex(li === 0 ? hBase : hKeep); g.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ map: hairTexture(li + 1, L.cover < 0 ? 0 : L.cover), vertexColors: true, roughness: 0.52, metalness: 0, side: THREE.DoubleSide, alphaTest: li ? 0.5 : 0 });
+    if (li === 0) mat.map = null, mat.color = lin((hairColor[0] * 0.55 << 16 | hairColor[1] * 0.55 << 8 | hairColor[2] * 0.55));
+    const mesh = new THREE.Mesh(g, mat); mesh.castShadow = li < 2; fb(mesh); return mesh;
+  });
+  // eyes: sclera + iris texture, glassy cornea, lids, brows
+  const irisTex = (() => {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256; const g = c.getContext('2d');
+    g.fillStyle = '#e9e3dc'; g.fillRect(0, 0, 512, 256);
+    for (let i = 0; i < 60; i++) { g.strokeStyle = `rgba(190,80,70,${Math.random() * 0.12})`; g.beginPath(); const x = Math.random() * 512, y = 128 + (Math.random() - 0.5) * 120; g.moveTo(x, y); g.lineTo(x + (Math.random() - 0.5) * 40, y + (Math.random() - 0.5) * 20); g.stroke(); }
+    const cx = 128, cy = 128, r = 40, gr = g.createRadialGradient(cx, cy, 4, cx, cy, r); gr.addColorStop(0, '#2a1a10'); gr.addColorStop(0.35, '#6a4a2a'); gr.addColorStop(0.75, '#8a6a3a'); gr.addColorStop(1, '#2a1c12');
+    g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, r, 0, 6.283); g.fill();
+    for (let i = 0; i < 90; i++) { const a = Math.random() * 6.283; g.strokeStyle = `rgba(${Math.random() < 0.5 ? '40,24,12' : '160,120,70'},.35)`; g.lineWidth = 1; g.beginPath(); g.moveTo(cx + Math.cos(a) * 9, cy + Math.sin(a) * 9); g.lineTo(cx + Math.cos(a) * (r - 3), cy + Math.sin(a) * (r - 3)); g.stroke(); }
+    g.fillStyle = '#050403'; g.beginPath(); g.arc(cx, cy, 11, 0, 6.283); g.fill(); g.strokeStyle = 'rgba(15,10,6,.9)'; g.lineWidth = 4; g.beginPath(); g.arc(cx, cy, r, 0, 6.283); g.stroke();
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = aniso; return t;
+  })();
+  const eyeMat = new THREE.MeshStandardMaterial({ map: irisTex, roughness: 0.3 }), corneaMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.12, roughness: 0.02, clearcoat: 1, clearcoatRoughness: 0.02, depthWrite: false });
+  const browMat = new THREE.MeshStandardMaterial({ color: lin((hairColor[0] << 16) | (hairColor[1] << 8) | hairColor[2]), roughness: 0.7 });
+  const eyes = [];
+  [-1, 1].forEach((s) => {
+    const ex = s * 0.031, ey = 0.012, ez = surfaceZ(ex, ey) - 0.0102;
+    const grp = new THREE.Group(); grp.position.set(ex, ey, ez); fb(grp);
+    const ball0 = new THREE.Mesh(new THREE.SphereGeometry(0.0129, 28, 20), eyeMat); ball0.rotation.y = 0; grp.add(ball0);
+    const cornea = new THREE.Mesh(new THREE.SphereGeometry(0.0139, 22, 16), corneaMat); grp.add(cornea);
+    const lidU = new THREE.Mesh(new THREE.SphereGeometry(0.0149, 22, 12, 0, Math.PI * 2, 0, Math.PI / 2), faceMat); lidU.castShadow = true; grp.add(lidU);
+    const lash = new THREE.Mesh(new THREE.TorusGeometry(0.0148, 0.0007, 5, 22, Math.PI), new THREE.MeshStandardMaterial({ color: 0x080504, roughness: 0.7 })); lash.rotation.x = Math.PI / 2; lidU.add(lash);
+    const lidL = new THREE.Mesh(new THREE.SphereGeometry(0.0149, 22, 12, 0, Math.PI * 2, 0, Math.PI / 2), faceMat); lidL.rotation.x = Math.PI; grp.add(lidL);
+    const brow = new THREE.Object3D();                                                  // (brows are painted into the face texture now)
+    eyes.push({ grp, lidU, lidL, brow, brow0: brow.position.clone() });
+  });
+  // mouth (shown when he is in pain): dark interior and teeth
+  const mouthZ = surfaceZ(0, -0.0555);
+  const mouth = new THREE.Group(); mouth.position.set(0, -0.0555, mouthZ - 0.001); fb(mouth);
+  { const inner = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), new THREE.MeshBasicMaterial({ color: 0x1a0505 })); inner.scale.set(0.017, 0.012, 0.004); inner.position.z = -0.0005; mouth.add(inner);
+    const teeth = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.005, 0.003), new THREE.MeshStandardMaterial({ color: 0xe6dfd2, roughness: 0.4 })); teeth.position.set(0, 0.0045, 0.0008); mouth.add(teeth); mouth.userData.teeth = teeth; }
+  mouth.visible = false;
+
+  const Y = new V3(0, 1, 0), mat4 = new THREE.Matrix4();
+  function placeLimb(m, A, B) { tmp.subVectors(B, A); const len = Math.max(1e-4, tmp.length()); m.position.copy(A); m.quaternion.setFromUnitVectors(Y, tmp.divideScalar(len)); m.scale.set(1, len, 1); }
+  function basisQuat(side, up, fwd, out) { mat4.makeBasis(side, up, fwd); return out.setFromRotationMatrix(mat4); }
+  const qT = new THREE.Quaternion(), bx = new V3(), by = new V3(), bz = new V3();
+  function syncBody(f) {
+    bodyFrame();
+    for (const m of limbs) placeLimb(m, pos[m.userData.a], pos[m.userData.b]);
+    for (const m of balls) m.position.copy(pos[m.userData.a]);
+    const { side, up, fwd } = frame;
+    const T = bodyParts.torso, tl = Math.max(0.2, pos[PEL].distanceTo(pos[NCK]) - 0.14);
+    T.position.copy(pos[PEL]).addScaledVector(up, 0.1); basisQuat(side, up, fwd, T.quaternion); T.scale.set(1, tl, 1);
+    bodyParts.shoulders.position.copy(pos[NCK]).addScaledVector(up, -0.03); bodyParts.shoulders.quaternion.copy(T.quaternion);
+    bodyParts.hips.position.copy(pos[PEL]).addScaledVector(up, -0.01); bodyParts.hips.quaternion.copy(T.quaternion);
+    torsoGear.position.copy(T.position); torsoGear.quaternion.copy(T.quaternion); torsoGear.scale.set(1, tl / 0.56, 1);
+    hipGear.position.copy(pos[PEL]); hipGear.quaternion.copy(T.quaternion);
+    [0, 1].forEach((i) => {                                                                 // knee pads follow the legs
+      const k = pos[LEGS[i].knee], d = tmp2.subVectors(pos[LEGS[i].hip], pos[LEGS[i].ank]).normalize();     // d: up along the leg
+      by.copy(d); bz.copy(fwd).addScaledVector(d, -fwd.dot(d)).normalize(); bx.crossVectors(by, bz).normalize();
+      kneePads[i].position.copy(k).addScaledVector(bz, 0.066); basisQuat(bx, by, bz, kneePads[i].quaternion);
+    });
+    hands.forEach((g, i) => {                                                                // gloves follow the forearms
+      const w = pos[ARMP[i][4]], fa = pos[ARMP[i][3]]; by.subVectors(w, fa).normalize(); bz.copy(fwd).addScaledVector(by, -fwd.dot(by)).normalize(); bx.crossVectors(by, bz).normalize();
+      g.position.copy(w).addScaledVector(by, 0.005); basisQuat(bx, by, bz, g.quaternion);
+    });
+    [0, 1].forEach((i) => {
+      const a = pos[LEGS[i].ank], t = pos[LEGS[i].toe], F = bodyParts.feet[i];
+      tmp2.subVectors(t, a).normalize(); tmp3.crossVectors(tmp2, side).normalize(); const sd = new V3().crossVectors(tmp3, tmp2).normalize();
+      basisQuat(sd, tmp3, tmp2, F.quaternion); F.position.lerpVectors(a, t, 0.35).addScaledVector(tmp3, -0.03);
+    });
+    tmp.subVectors(pos[HED], pos[NCK]).normalize(); tmp2.crossVectors(side, tmp).normalize(); const sd2 = new V3().crossVectors(tmp, tmp2).normalize();
+    head.position.copy(pos[HED]).addScaledVector(tmp, -0.042); basisQuat(sd2, tmp, tmp2, head.quaternion); head.scale.setScalar(1.1);
+    // face: eyes open / squinting / shut, brows, mouth
+    const awake = f.c > 0.15 && !f.dead, pain = f.stun > 0.25 || f.wounds.length > 0, blink = (G.t % 4.2) > 4.08;
+    const open = f.dead ? -0.05 : !awake ? 1.1 : blink ? 1.0 : pain ? -0.2 : -0.52;
+    eyes.forEach((e, i) => {
+      e.lidU.rotation.x = open; e.lidL.rotation.x = open > 0.5 ? Math.PI - 0.9 : (pain && awake ? Math.PI - 0.45 : Math.PI - 0.12);
+      e.brow.position.y = (pain && awake ? -0.003 : f.dead ? 0.001 : 0); e.brow.rotation.z = (pain && awake ? (i ? 0.12 : -0.12) : 0);
+      e.grp.children[0].rotation.set(awake ? 0 : -0.15, 0, 0);
+    });
+    mouth.visible = awake && pain; if (mouth.visible) { const o = clamp(0.4 + f.stun * 0.8 + (f.heart ? 0.5 : 0), 0, 1.6); mouth.scale.set(1 + o * 0.2, 0.4 + o * 1.4, 1); }
+  }
+
+  // ================= thermal vision =================
+  // Body parts are re-coloured by how dangerous a hit there is, a skeleton shows through (broken bones in red), and the vital
+  // zones glow. The body also cools as he loses blood and after he dies.
+  let thermal = false;
+  const cold = new THREE.Color(0x1a0a58), tcol = new THREE.Color();
+  const TB = { head: 0xff8f2a, chest: 0xff5a1c, pelvis: 0xff7a24, armUp: 0x2f6bff, armFore: 0x2a4fd0, thigh: 0x3a7aff, shin: 0x2f58d8, foot: 0x3a2f9a, arm: 0x2a4fd0, leg: 0x2f58d8 };
+  bodyMeshes.forEach((m) => { m.userData.mat0 = m.material; m.userData.matT = new THREE.MeshBasicMaterial({ color: 0xffffff }); });
+  const zoneMats = (c) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.8, depthTest: false, depthWrite: false });
+  const zoneViz = ['brain', 'heart', 'knee0', 'knee1', 'foot0', 'foot1'].map((n) => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), zoneMats(n === 'brain' ? 0xffffff : n === 'heart' ? 0xff4040 : 0xffe030)); m.renderOrder = 6; m.visible = false; scene.add(m); return m;
+  });
+  const BONE_VIZ = [[PEL, SPN], [SPN, NCK], [NCK, HED], [SHL, NCK], [SHR, NCK], [HPL, PEL], [HPR, PEL], [ANL, TOL], [ANR, TOR]].map(([a, b]) => ({ a, b }));
+  ARMP.forEach((p, side) => { BONE_VIZ.push({ a: p[0], b: p[1], key: 'armUp', side }, { a: p[1], b: p[2], key: 'armUp', side }, { a: p[2], b: p[3], key: 'armFore', side }, { a: p[3], b: p[4], key: 'armFore', side }); });
+  LEGP.forEach((p, side) => { BONE_VIZ.push({ a: p[0], b: p[1], key: 'thigh', side }, { a: p[1], b: p[2], key: 'thigh', side }, { a: p[2], b: p[3], key: 'shin', side }, { a: p[3], b: p[4], key: 'shin', side }); });
+  const boneGeo = new THREE.CylinderGeometry(0.011, 0.011, 1, 6); boneGeo.translate(0, 0.5, 0);
+  BONE_VIZ.forEach((bv) => { bv.mesh = new THREE.Mesh(boneGeo, new THREE.MeshBasicMaterial({ color: 0xf4f4ff, depthTest: false, transparent: true, opacity: 0.95 })); bv.mesh.renderOrder = 5; bv.mesh.visible = false; scene.add(bv.mesh); });
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf4f4ff, wireframe: true, depthTest: false, transparent: true, opacity: 0.8 })); skull.renderOrder = 5; skull.visible = false; scene.add(skull);
+  const ribs = [0, 1, 2].map(() => { const m = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.006, 6, 18), new THREE.MeshBasicMaterial({ color: 0xf4f4ff, depthTest: false, transparent: true, opacity: 0.75 })); m.renderOrder = 5; m.visible = false; m.scale.set(1, 0.75, 1); scene.add(m); return m; });
+  function setThermal(on) {
+    thermal = on; decor.forEach((d) => (d.visible = !on));
+    scene.background = new THREE.Color(on ? 0x05050f : 0xcfe3f2); scene.fog.color.set(on ? 0x05050f : 0xcfe3f2);
+    floor.material.color.set(on ? 0x2a2150 : 0xffffff);
+    bodyMeshes.forEach((m) => (m.material = on ? m.userData.matT : m.userData.mat0));
+    $('therm').style.display = $('legend').style.display = $('thermTag').style.display = on ? 'block' : 'none';
+    $('thermBtn').classList.toggle('on', on);
+    zoneViz.forEach((z) => (z.visible = on)); BONE_VIZ.forEach((b) => (b.mesh.visible = on)); skull.visible = on; ribs.forEach((r) => (r.visible = on));
+    if (!on) faceBits.forEach((b) => (b.visible = true));
+  }
+  function updateThermal(f, now) {
+    const cool = clamp(1 - f.blood / 100, 0, 1) * 0.55 + (f.dead ? clamp(f.deadT / 25, 0, 1) * 0.85 : 0);
+    for (const m of bodyMeshes) {
+      const u = m.userData, base = TB[u.bone] || TB[u.kind] || 0xff7a24;
+      tcol.setHex(base).lerp(cold, cool); u.matT.color.copy(tcol);
+    }
+    faceBits.forEach((b) => (b.visible = false));
+    const zs = zoneList(), beat = f.dead ? 0 : (f.heart ? 1 + 0.35 * Math.sin(now * 0.03) : 1) * (0.5 + 0.5 * Math.pow(Math.max(0, Math.sin(now * (f.heart ? 0.016 : 0.008))), 3));
+    zoneViz.forEach((zv, i) => {
+      const z = zs[i], pulse = i === 1 ? 0.55 + 0.6 * beat : 0.9 + 0.15 * Math.sin(now * 0.004 + i);
+      zv.position.copy(z.c); zv.scale.setScalar(z.r * (i < 2 ? 0.7 : 0.62) * pulse * (f.dead ? 0.6 : 1));
+      zv.material.opacity = f.dead ? 0.25 : (i < 2 ? 0.95 : f.limp[z.side] > 0.5 ? 1 : 0.6);
+    });
+    for (const bv of BONE_VIZ) {
+      placeLimb(bv.mesh, pos[bv.a], pos[bv.b]); bv.mesh.scale.x = bv.mesh.scale.z = 1;
+      bv.mesh.material.color.setHex(bv.key && f.broken[bv.key][bv.side] ? 0xff2a2a : 0xf4f4ff);
+    }
+    skull.position.copy(pos[HED]); skull.quaternion.copy(head.quaternion);
+    ribs.forEach((r, k) => { r.position.copy(pos[SPN]).addScaledVector(frame.up, 0.08 - k * 0.07).addScaledVector(frame.fwd, 0.0); r.quaternion.setFromUnitVectors(new V3(0, 0, 1), frame.up); r.rotateZ(0); });
+  }
+
+  // ================= figure state =================
+  let fig, grab = null, slow = false, tool = 'grab';
+  let ANK_H = 0.07, TOE_DY = -0.04, TOE_FWD = 0.2, L_TH = 0.45, L_SH = 0.45;
+  const tgtSet = markers.map(() => new V3());
+  function newFig() {
+    G.anchor.set(0, 0, 0); G.yaw = 0; G.lean = 0;
+    poseRig(0.0001, { speed: 0, lean: 0, crouch: 0, twist: 0, sway: 0, curl: 0, headDrop: 0, armSwing: [0, 0], flail: 0 });
+    rLegs.forEach((L) => { L.th.rotation.x = 0; L.shin.rotation.x = 0; L.foot.rotation.x = 0; });
+    rigRoot.updateMatrixWorld(true);
+    markers.forEach((m, i) => { m.getWorldPosition(pos[i]); prev[i].copy(pos[i]); tgtSet[i].copy(pos[i]); });
+    CONS.forEach((c) => { c.len = pos[c.a].distanceTo(pos[c.b]) * (c.type === 'min' ? c.frac : 1); if (c.type === 'min') c.enabled = false; if (c.bone && c.type !== 'min') c.type = 'rigid'; });
+    for (const k in CON_BONE) CON_BONE[k].forEach((cb) => { cb.main.type = 'rigid'; cb.min.enabled = false; });
+    ANK_H = pos[ANL].y; TOE_DY = pos[TOL].y - pos[ANL].y; TOE_FWD = pos[TOL].z - pos[ANL].z;
+    L_TH = pos[HPL].distanceTo(pos[KNL]); L_SH = pos[KNL].distanceTo(pos[ANL]);
+    woundMeshes.slice().forEach(removeWoundVisuals);
+    const feet = [0, 1].map((i) => ({ p: new V3(pos[LEGS[i].ank].x, ANK_H, pos[LEGS[i].ank].z), yaw: 0, swing: null }));
+    return { wounds: [], blood: 100, c: 1, stun: 0, brain: 0, brainT: 0, dead: false, down: false, downT: 0, upT: 0, recover: 1, t: 0, flinch: 1, hands: [null, null],
+      bones: { armUp: [100, 100], armFore: [100, 100], thigh: [100, 100], shin: [100, 100] }, broken: { armUp: [false, false], armFore: [false, false], thigh: [false, false], shin: [false, false] },
+      limp: [0, 0], injuries: [], heart: false, deadT: 0, impactCD: new Float32Array(N), armOK: [true, true],
+      feet, free: false, lastFoot: 1, lurch: new V3(), lurchT: new V3(), lurchTimer: 0, buckle: [0, 0], legStr: [1, 1], s: 1, armC: 1, err: 0, steps: 0, walking: false };
+  }
+
+  // ================= bleeding =================
+  const DMAX = 1600, dropPos = new Float32Array(DMAX * 3), dropVel = new Float32Array(DMAX * 3), dropR = new Float32Array(DMAX);
+  let dropN = 0;
+  const dropMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 4), new THREE.MeshBasicMaterial({ color: 0xa3121a }), DMAX);
+  dropMesh.frustumCulled = false; scene.add(dropMesh);
+  function spawnDrop(p, vx, vy, vz, r) {
+    const i = dropN < DMAX ? dropN++ : (Math.random() * DMAX) | 0;
+    dropPos[i * 3] = p.x; dropPos[i * 3 + 1] = p.y; dropPos[i * 3 + 2] = p.z; dropVel[i * 3] = vx; dropVel[i * 3 + 1] = vy; dropVel[i * 3 + 2] = vz; dropR[i] = r;
+  }
+  const dm = new THREE.Object3D();
+  function stepDrops(dt) {
+    for (let i = 0; i < dropN; i++) {
+      dropVel[i * 3 + 1] -= 9.8 * dt;
+      dropPos[i * 3] += dropVel[i * 3] * dt; dropPos[i * 3 + 1] += dropVel[i * 3 + 1] * dt; dropPos[i * 3 + 2] += dropVel[i * 3 + 2] * dt;
+      if (dropPos[i * 3 + 1] <= 0.01) {
+        paintPool(dropPos[i * 3], dropPos[i * 3 + 2], dropR[i] * 2.2);
+        const l = dropN - 1; dropPos.copyWithin(i * 3, l * 3, l * 3 + 3); dropVel.copyWithin(i * 3, l * 3, l * 3 + 3); dropR[i] = dropR[l]; dropN--; i--;
+      }
+    }
+    for (let i = 0; i < DMAX; i++) {
+      if (i < dropN) { dm.position.set(dropPos[i * 3], dropPos[i * 3 + 1], dropPos[i * 3 + 2]); dm.scale.setScalar(dropR[i]); } else dm.scale.setScalar(0);
+      dm.updateMatrix(); dropMesh.setMatrixAt(i, dm.matrix);
+    }
+    dropMesh.instanceMatrix.needsUpdate = true;
+    if (poolDirty) { poolTex.needsUpdate = true; poolDirty = false; }
+  }
+  const glow = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, 'rgba(95,4,9,.95)'); r.addColorStop(0.6, 'rgba(140,10,16,.75)'); r.addColorStop(1, 'rgba(140,10,16,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+
+
+  // ================= wound visuals =================
+  // Each wound is built from layers lying on the skin: a soft stain that soaks outward, the injury itself (bullet hole /
+  // cut / ragged shrapnel tear, with bruising and torn edges) and rivulets of blood that run down under gravity.
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  function canvasTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4; return t; }
+  const blob = (g, x, y, r, a0, a1, col) => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(${col},${a0})`); gr.addColorStop(1, `rgba(${col},${a1})`); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill(); };
+  const jag = (g, cx, cy, r0, r1, n, sx = 1, sy = 1) => { g.beginPath(); for (let i = 0; i < n; i++) { const a = i / n * 6.283, r = (i % 2 ? r1 : r0) * rnd(0.75, 1.15); const x = cx + Math.cos(a) * r * sx, y = cy + Math.sin(a) * r * sy; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); };
+  const TEX = {
+    stain: [0, 1, 2].map(() => canvasTex(128, 128, (g) => {                       // soaked cloth / skin: dark core, irregular edge
+      for (let i = 0; i < 9; i++) blob(g, 64 + rnd(-22, 22), 64 + rnd(-22, 22), rnd(22, 40), 0.55, 0, i < 3 ? '90,4,8' : '120,8,14');
+      blob(g, 64, 64, 26, 0.85, 0, '70,2,6');
+    })),
+    bullet: canvasTex(128, 128, (g) => {
+      blob(g, 64, 64, 60, 0.5, 0, '110,40,70');                                        // bruising
+      blob(g, 64, 64, 40, 0.65, 0, '160,25,35');                                       // inflamed skin
+      jag(g, 64, 64, 17, 26, 18); g.fillStyle = 'rgba(120,12,18,.95)'; g.fill();      // torn edge
+      jag(g, 64, 64, 13, 17, 16); g.fillStyle = 'rgba(55,3,6,1)'; g.fill();
+      blob(g, 64, 64, 11, 1, 0.9, '12,0,2');                                           // the hole
+      g.strokeStyle = 'rgba(200,60,60,.35)'; g.lineWidth = 1.5; g.beginPath(); g.arc(61, 60, 8, 3.5, 5.2); g.stroke();   // wet highlight
+    }),
+    cut: canvasTex(128, 128, (g) => {
+      blob(g, 64, 64, 55, 0.35, 0, '140,40,50');
+      g.save(); g.translate(64, 64); g.rotate(rnd(-0.1, 0.1));
+      g.fillStyle = 'rgba(150,18,26,.95)'; g.beginPath(); g.ellipse(0, 0, 40, 9, 0, 0, 6.283); g.fill();                 // lips of the cut
+      g.fillStyle = 'rgba(60,2,6,1)'; g.beginPath(); g.moveTo(-38, 0); g.quadraticCurveTo(0, -9, 38, 0); g.quadraticCurveTo(0, 9, -38, 0); g.fill();
+      g.strokeStyle = 'rgba(210,70,70,.5)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-30, -3); g.quadraticCurveTo(0, -8, 30, -3); g.stroke();
+      g.restore();
+    }),
+    tear: canvasTex(128, 128, (g) => {
+      blob(g, 64, 64, 62, 0.55, 0, '110,35,60');
+      jag(g, 64, 64, 22, 38, 14, 1, 0.8); g.fillStyle = 'rgba(130,14,20,.95)'; g.fill();
+      jag(g, 62, 66, 14, 25, 12, 1, 0.8); g.fillStyle = 'rgba(58,3,7,1)'; g.fill();
+      for (let i = 0; i < 6; i++) blob(g, 64 + rnd(-34, 34), 64 + rnd(-30, 30), rnd(3, 7), 0.9, 0.7, '40,2,5');
+    }),
+    riv: canvasTex(64, 4, (g, w, h) => {                                             // across the width of a rivulet: dark body, wet bright rims, soft edge
+      const gr = g.createLinearGradient(0, 0, w, 0);
+      gr.addColorStop(0, 'rgba(150,12,20,0)'); gr.addColorStop(0.12, 'rgba(165,20,28,.85)'); gr.addColorStop(0.3, 'rgba(110,6,12,.97)'); gr.addColorStop(0.5, 'rgba(90,3,9,1)');
+      gr.addColorStop(0.7, 'rgba(112,6,12,.97)'); gr.addColorStop(0.88, 'rgba(165,20,28,.85)'); gr.addColorStop(1, 'rgba(150,12,20,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      g.fillStyle = 'rgba(235,110,110,.4)'; g.fillRect(w * 0.34, 0, w * 0.09, h);            // glint
+    }),
+  };
+  const decalMat = (map) => new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: false });
+  const planeGeo = new THREE.PlaneGeometry(1, 1);
+  const rivMat = new THREE.MeshBasicMaterial({ map: TEX.riv, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5, side: THREE.DoubleSide, fog: false });
+  const RN = 26;
+  const woundMeshes = [], Z = new V3(0, 0, 1), DOWN = new V3(0, -1, 0), qSpin = new THREE.Quaternion(), qN = new THREE.Quaternion();
+  // Real wounds: a 3D crater (raised torn flesh rim, deep dark centre, wet and glossy) set into the surface. On clothing there is
+  // also a frayed, blood-darkened tear around it. Slits for cuts, ragged lobes for shrapnel. Blood then runs from the wound itself.
+  const woundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.26, metalness: 0, side: THREE.DoubleSide });
+  const tearMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0, side: THREE.DoubleSide });
+  const Yax = new V3(0, 1, 0), qSpinY = new THREE.Quaternion();
+  function craterGeo(R, depth, jit, lobes) {
+    const prof = [[0, -1], [0.22, -0.95], [0.45, -0.62], [0.68, -0.12], [0.84, 0.5], [0.97, 0.78], [1.12, 0.5], [1.32, 0.16], [1.55, 0.02]].map(([r, h]) => new THREE.Vector2(r * R, h * depth));
+    const g = new THREE.LatheGeometry(prof, 30), p = g.attributes.position, col = [], ph = [rnd(0, 6.3), rnd(0, 6.3), rnd(0, 6.3)];
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), r = Math.hypot(x, z), t = r / R, ang = Math.atan2(z, x);
+      const ragged = 1 + jit * (Math.sin(ang * lobes + ph[0]) * 0.5 + Math.sin(ang * (lobes * 2 + 1) + ph[1]) * 0.3 + Math.sin(ang * 3 + ph[2]) * 0.25) * smoothstep(0.5, 1.4, t);
+      p.setXYZ(i, x * ragged, y + depth * 0.18 * (Math.sin(ang * 5 + ph[1]) * 0.5) * smoothstep(0.7, 1.1, t) * smoothstep(1.5, 1.1, t), z * ragged);
+      let c;                                                                  // colour by distance from the centre (linear space)
+      if (t < 0.35) c = [0.03, 0.003, 0.006]; else if (t < 0.75) { const k = (t - 0.35) / 0.4; c = [0.03 + 0.07 * k, 0.003 + 0.005 * k, 0.006 + 0.008 * k]; }
+      else if (t < 1.1) { const k = (t - 0.75) / 0.35; c = [0.1 + 0.12 * k, 0.008 + 0.012 * k, 0.014 + 0.016 * k]; } else { const k = Math.min(1, (t - 1.1) / 0.45); c = [0.22 - 0.1 * k, 0.04 + 0.02 * k, 0.05 + 0.02 * k]; }
+      col.push(c[0], c[1], c[2]);
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.computeVertexNormals(); return g;
+  }
+  function tearGeo(R) {                                                       // frayed, blood-soaked ring of torn cloth
+    const n = 26, pos = [], col = [], idx = [], ph = rnd(0, 6.3);
+    for (let i = 0; i <= n; i++) {
+      const a = i / n * Math.PI * 2, rr = R * (1.65 + 0.8 * hash2(i % n, (R * 1e5) | 0) + 0.25 * Math.sin(a * 3 + ph));
+      pos.push(Math.cos(a) * R * 1.4, 0.0015, Math.sin(a) * R * 1.4, Math.cos(a) * rr, 0.0008, Math.sin(a) * rr); col.push(0.1, 0.012, 0.016, 0.03, 0.03, 0.025);
+      if (i < n) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 2, k + 1, k + 3); }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
+  }
+  function buildWoundVisuals(w) {
+    const type = w.type;
+    w.spin = type === 'cut' ? rnd(-0.6, 0.6) : rnd(0, 6.283);
+    const R = type === 'bullet' ? 0.0105 : type === 'cut' ? 0.0085 : 0.019, depth = type === 'bullet' ? 0.0055 : type === 'cut' ? 0.005 : 0.0075;
+    w.group = new THREE.Group();
+    const crater = new THREE.Mesh(craterGeo(R, depth * (0.9 + 0.2 * Math.min(1.5, w.sev)), type === 'tear' ? 0.5 : type === 'cut' ? 0.1 : 0.22, type === 'tear' ? 5 : 7), woundMat); crater.castShadow = false; w.group.add(crater);
+    if (type === 'cut') crater.scale.set(2.6, 1, 0.5);
+    if (w.cloth) { const tear = new THREE.Mesh(tearGeo(R), tearMat); if (type === 'cut') tear.scale.set(2.2, 1, 0.55); w.group.add(tear); }
+    w.group.renderOrder = 3; scene.add(w.group);
+    w.trails = [];
+    const nR = w.rate0 < 1.2 ? 0 : w.rate0 < 2.4 ? 1 : 3;                         // minor wounds only drip; bigger ones run
+    for (let i = 0; i < nR; i++) {
+      const geo = new THREE.BufferGeometry(), uv = [], idx = [];
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(RN * 6), 3));
+      for (let k = 0; k < RN; k++) { uv.push(0, k / (RN - 1), 1, k / (RN - 1)); if (k < RN - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3); } }
+      geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2)); geo.setIndex(idx);
+      const m = new THREE.Mesh(geo, rivMat); m.frustumCulled = false; m.renderOrder = 2; m.visible = false;
+      m.userData = { u0: (i - 1) * 0.02 + rnd(-0.008, 0.008), A1: rnd(0.005, 0.013), f1: rnd(11, 24), p1: rnd(0, 6.3), A2: rnd(0.002, 0.006), f2: rnd(28, 52), p2: rnd(0, 6.3),
+        drift: rnd(-0.06, 0.06), speed: rnd(0.8, 1.25), delay: i * 0.35 + rnd(0, 0.3), head: 0, drip: 0, b1: rnd(0.22, 0.42), b2: rnd(0.55, 0.8), base: rnd(0.008, 0.0125) };
+      w.trails.push(m); scene.add(m);
+    }
+    woundMeshes.push(w);
+  }
+  function removeWoundVisuals(w) { if (w.knife) { scene.remove(w.knife); w.knife = null; } if (w.group) { scene.remove(w.group); w.group.children.forEach((c) => c.geometry.dispose()); w.group = null; } (w.trails || []).forEach((m) => { if (m) { scene.remove(m); m.geometry.dispose(); } }); const i = woundMeshes.indexOf(w); if (i >= 0) woundMeshes.splice(i, 1); }
+  const kMetal = new THREE.MeshStandardMaterial({ color: 0xcfd6dd, metalness: 0.8, roughness: 0.25 }), kGrip = new THREE.MeshStandardMaterial({ color: 0x2a1a12, roughness: 0.7 });
+  function makeKnife() {                                                      // origin is the tip, +z points the way the blade went in
+    const g = new THREE.Group(), add = (geo, mat, z) => { const m = new THREE.Mesh(geo, mat); m.position.z = z; m.castShadow = true; g.add(m); };
+    add(new THREE.BoxGeometry(0.006, 0.028, 0.13), kMetal, -0.065); add(new THREE.BoxGeometry(0.008, 0.05, 0.008), kGrip, -0.134); add(new THREE.BoxGeometry(0.02, 0.022, 0.1), kGrip, -0.185);
+    return g;
+  }
+  const wn = new V3(), wb = new V3(), rvA = new V3(), rvT = new V3(), rvL = new V3(), rvC = new V3(), rvD = new V3();
+  const rvP = Array.from({ length: RN }, () => new V3()), rvN = Array.from({ length: RN }, () => new V3()), rvW = new Float32Array(RN);
+  // keep a point on the skin: wrap it onto the limb / head it belongs to (the torso is flat enough to leave alone)
+  function conform(q, w, nOut) {
+    const k = w.kind;
+    if (k === 'arm' || k === 'leg' || k === 'foot') {
+      const A = pos[w.a], B = pos[w.b]; rvD.subVectors(B, A); const t = clamp(rvC.subVectors(q, A).dot(rvD) / Math.max(1e-6, rvD.lengthSq()), 0, 1);
+      rvC.copy(A).addScaledVector(rvD, t); nOut.subVectors(q, rvC); const l = nOut.length() || 1e-4; nOut.divideScalar(l);
+      q.copy(rvC).addScaledVector(nOut, (k === 'leg' ? 0.066 : k === 'arm' ? 0.05 : 0.046) + 0.005);
+    } else if (k === 'head') {
+      rvC.copy(pos[HED]); nOut.subVectors(q, rvC).normalize(); q.copy(rvC).addScaledVector(nOut, 0.122);
+    } else nOut.copy(wn);
+  }
+  function updateWoundVisuals(w, pos3, dt) {
+    wn.set(0, 0, 0).addScaledVector(frame.side, w.nx).addScaledVector(frame.up, w.ny).addScaledVector(frame.fwd, w.nz).normalize();
+    qN.setFromUnitVectors(Yax, wn); qSpinY.setFromAxisAngle(Yax, w.spin);
+    const lost = w.lost, grow = 1 - Math.exp(-lost / 6);
+    w.group.position.copy(pos3).addScaledVector(wn, 0.0022); w.group.quaternion.copy(qN).multiply(qSpinY); w.group.scale.setScalar(1 + 0.22 * grow);
+    // rivulets: they run down the skin under gravity, wander as they go, swell into beads and end in a drop
+    const dwn = wb.copy(DOWN).addScaledVector(wn, -DOWN.dot(wn)), flat = dwn.length() < 0.35;
+    if (!flat) dwn.normalize();
+    const curved = w.kind === 'arm' || w.kind === 'leg' || w.kind === 'foot' || w.kind === 'head', maxLen = curved ? 0.34 : 0.55;
+    const sideV = rvA.crossVectors(wn, dwn).normalize();
+    for (const m of w.trails) {
+      const u = m.userData;
+      if (w.rate > 0.03) { if (u.delay > 0) u.delay -= dt; else u.head += dt * (0.28 + 0.3 * Math.min(w.rate, 3.5)) * u.speed; }     // liquid: it runs quickly and runs faster the harder it bleeds
+      const len = Math.min(maxLen, u.head);
+      m.visible = !flat && len > 0.012;
+      if (!m.visible) continue;
+      const arr = m.geometry.attributes.position.array, thick = 1 + clamp(w.rate * 0.12, 0, 0.5);
+      for (let k = 0; k < RN; k++) {
+        const sN = k / (RN - 1), v = sN * len;
+        const uu = u.u0 + u.A1 * Math.sin(v * u.f1 + u.p1 - time * 2.4) * (0.35 + sN) + u.A2 * Math.sin(v * u.f2 + u.p2 - time * 3.6) + u.drift * v;
+        rvP[k].copy(pos3).addScaledVector(sideV, uu).addScaledVector(dwn, v).addScaledVector(wn, 0.006);
+        conform(rvP[k], w, rvN[k]);
+        let wd = u.base * thick * (1.15 - 0.3 * sN);
+        wd *= 1 + 0.9 * Math.exp(-Math.pow((sN - u.b1) / 0.07, 2)) + 0.7 * Math.exp(-Math.pow((sN - u.b2) / 0.06, 2)) + 0.9 * Math.exp(-Math.pow((sN - 0.96) / 0.05, 2));
+        if (sN > 0.9) wd *= Math.max(0.15, 1 - (sN - 0.9) / 0.1 * 0.85);
+        rvW[k] = wd;
+      }
+      for (let k = 0; k < RN; k++) {
+        const a = rvP[Math.max(0, k - 1)], b = rvP[Math.min(RN - 1, k + 1)];
+        rvT.subVectors(b, a); rvL.crossVectors(rvT, rvN[k]).normalize().multiplyScalar(rvW[k]);
+        arr[k * 6] = rvP[k].x - rvL.x; arr[k * 6 + 1] = rvP[k].y - rvL.y; arr[k * 6 + 2] = rvP[k].z - rvL.z;
+        arr[k * 6 + 3] = rvP[k].x + rvL.x; arr[k * 6 + 4] = rvP[k].y + rvL.y; arr[k * 6 + 5] = rvP[k].z + rvL.z;
+      }
+      m.geometry.attributes.position.needsUpdate = true;
+      if (len >= maxLen * 0.97 && w.rate > 0.03) {                                // once it has run its course it drips off the end and pools below
+        u.drip += w.rate * 2.4 * dt;
+        while (u.drip > 1) { u.drip -= 1; spawnDrop(rvP[RN - 1], rnd(-0.03, 0.03), -0.04, rnd(-0.03, 0.03), rnd(0.009, 0.016)); }
+      }
+    }
+  }
+
+  // ================= wounds & hits =================
+  const woundWorld = (w, out) => {
+    out.lerpVectors(pos[w.a], pos[w.b], w.t);
+    return out.addScaledVector(frame.side, w.ox).addScaledVector(frame.up, w.oy).addScaledVector(frame.fwd, w.oz);
+  };
+  const REGION = { head: 2.2, chest: 1.5, pelvis: 1.25, arm: 0.8, leg: 0.9, foot: 0.4 };
+  function addWound(a, b, kind, point, dir, sev, normal, type, mat) {
+    const f = fig, A = pos[a], B = pos[b], ab = tmp.subVectors(B, A), l2 = ab.lengthSq();
+    const t = l2 > 1e-6 ? clamp(tmp2.subVectors(point, A).dot(ab) / l2, 0, 1) : 0;
+    const on = new V3().lerpVectors(A, B, t), off = new V3().subVectors(point, on), mult = REGION[kind] || 1;
+    const w = { a, b, t, ox: off.dot(frame.side), oy: off.dot(frame.up), oz: off.dot(frame.fwd), sev: sev * mult, rate0: 2.1 * sev * mult, rate: 2.1 * sev * mult, tt: 0, lost: 0, dir: dir.clone(), kind, acc: 0, type: type || 'bullet', cloth: !!mat && mat !== skinMat && mat !== faceMat };
+    const nrm = (normal || dir.clone().negate()).clone().normalize(); w.nx = nrm.dot(frame.side); w.ny = nrm.dot(frame.up); w.nz = nrm.dot(frame.fwd);
+    f.wounds.push(w);
+    buildWoundVisuals(w);
+    if (kind === 'head') f.brain = Math.min(1.2, f.brain + 0.45 * sev * (sev > 0.9 ? 1.5 : 1));
+    f.stun = Math.min(1, f.stun + 0.45 * sev);
+    if (kind === 'leg' || kind === 'foot') { const li = Math.max(0, legSideOf[a]); f.buckle[li] = 0.45; }      // the hit leg gives way
+    if (f.wounds.length > 12) removeWoundVisuals(f.wounds.shift());
+    return w;
+  }
+  let hStep = 1 / 240, time = 0;
+  function kick(i, v, wgt) { prev[i].addScaledVector(v, -wgt * hStep); }        // add a velocity (m/s) to a particle
+  function hitImpulse(a, b, t, dir, speed) {
+    kick(a, tmp.copy(dir).multiplyScalar(speed), 1 - t); kick(b, tmp.copy(dir).multiplyScalar(speed), t);
+    // the whole body takes some of it, the upper body more than the feet, so he gets knocked off balance
+    for (let i = 0; i < N; i++) { const wgt = i <= HED ? 0.6 : armSideOf[i] >= 0 ? 0.4 : (i === HPL || i === HPR) ? 0.45 : 0.05; kick(i, tmp.copy(dir).multiplyScalar(speed), wgt); }
+  }
+
+  // ================= bones, vital zones, limping =================
+  const note = (msg) => { const f = fig; f.injuries.push(msg); if (f.injuries.length > 9) f.injuries.shift(); };
+  function breakBone(key, side) {
+    const f = fig; if (f.broken[key][side]) return;
+    f.broken[key][side] = true; const cb = CON_BONE[key][side]; cb.main.type = 'max'; cb.min.enabled = true; cb.min.len = cb.main.len * cb.min.frac;
+    f.stun = Math.min(1, f.stun + 0.5); sound('crack'); shake = Math.max(shake, 0.03); playPain(1);
+    if (key === 'thigh' || key === 'shin') { f.limp[side] = 1; f.buckle[side] = 1.5; }
+    note(SIDE_NAME[side] + ' ' + BONE_NAME[key] + ' broken: ' + (key.startsWith('arm') ? 'arm hangs limp' : 'leg gives way'));
+  }
+  function boneDamage(key, side, dmg) { const f = fig; if (!key || f.broken[key][side]) return; f.bones[key][side] -= dmg; if (f.bones[key][side] <= 0) breakBone(key, side); }
+  const BONE_OF = { [UAL]: ['armUp', 0], [UAR]: ['armUp', 1], [ELL]: ['armUp', 0], [ELR]: ['armUp', 1], [FAL]: ['armFore', 0], [FAR]: ['armFore', 1], [HAL]: ['armFore', 0], [HAR]: ['armFore', 1],
+    [THL]: ['thigh', 0], [THR]: ['thigh', 1], [KNL]: ['thigh', 0], [KNR]: ['thigh', 1], [SNL]: ['shin', 0], [SNR]: ['shin', 1], [ANL]: ['shin', 0], [ANR]: ['shin', 1], [TOL]: ['shin', 0], [TOR]: ['shin', 1] };
+  function impactDamage(i, v) { const b = BONE_OF[i]; if (b) boneDamage(b[0], b[1], (v - 6) * 9); }   // hard landings can snap a limb, but it takes a real fall
+  function zoneList() {
+    return [
+      { type: 'brain', c: pos[HED].clone().addScaledVector(frame.up, 0.015), r: 0.085 },
+      { type: 'heart', c: pos[SPN].clone().addScaledVector(frame.up, 0.06).addScaledVector(frame.side, 0.05), r: 0.065 },
+      { type: 'knee', side: 0, c: pos[KNL].clone(), r: 0.08 }, { type: 'knee', side: 1, c: pos[KNR].clone(), r: 0.08 },
+      { type: 'foot', side: 0, c: pos[ANL].clone().lerp(pos[TOL], 0.4), r: 0.095 }, { type: 'foot', side: 1, c: pos[ANR].clone().lerp(pos[TOR], 0.4), r: 0.095 },
+    ];
+  }
+  // does the projectile (entering at p, travelling along dir, able to reach `pen` metres in) pass through a vital zone?
+  function zoneHit(p, dir, pen) {
+    for (const z of zoneList()) { const v = z.c.clone().sub(p), along = v.dot(dir); if (along < -0.07 || along > pen) continue; if (v.addScaledVector(dir, -along).length() < z.r) return z; }
+    return null;
+  }
+  function applyZone(z, w) {
+    const f = fig;
+    if (z.type === 'brain') { f.brain = 1.6; f.stun = 1; w.rate0 *= 1.4; w.rate *= 1.4; note('Brain hit: unconscious instantly'); }
+    else if (z.type === 'heart') { w.heart = true; w.rate0 *= 4.5; w.rate = w.rate0; w.sev *= 2; f.heart = true; f.stun = 1; note('Heart hit: massive blood loss'); }
+    else if (z.type === 'knee') { f.limp[z.side] = 1; f.buckle[z.side] = 1.2; f.stun = Math.min(1, f.stun + 0.3); note(SIDE_NAME[z.side] + ' knee hit: leg gives out'); }
+    else if (z.type === 'foot') { f.limp[z.side] = Math.max(f.limp[z.side], 0.65); f.buckle[z.side] = 0.8; note(SIDE_NAME[z.side] + ' foot hit: limping'); }
+  }
+
+  // ================= controller =================
+  const sideYaw = new V3(), fwdYaw = new V3(), cp = new V3(), mid = new V3(), pelV = new V3(), want = [new V3(), new V3()];
+  function control(dt) {
+    const f = fig; f.t += dt; time += dt;
+    // --- blood ---
+    let bleed = 0, torsoW = 0, headW = 0; const legWound = [0, 0];
+    for (const w of f.wounds) {
+      w.tt += dt; w.rate = w.rate0 * (w.heart ? 0.8 + 0.2 * Math.exp(-w.tt / 30) : 0.4 + 0.6 * Math.exp(-w.tt / 50)); bleed += w.rate; w.lost += w.rate * dt;
+      if (w.kind === 'chest' || w.kind === 'pelvis') torsoW += w.sev; else if (w.kind === 'head') headW += w.sev;
+      if (w.kind === 'leg' || w.kind === 'foot') legWound[Math.max(0, legSideOf[w.a])] += w.sev;
+    }
+    f.blood = Math.max(0, f.blood - bleed * (f.dead ? 0.35 : 1) * dt);
+    f.stun = Math.max(0, f.stun - dt * 0.6);
+    f.c = clamp(Math.min(clamp((f.blood - 18) / 45, 0, 1), 1 - f.brain), 0, 1);
+    if (f.brain >= 1 && !f.dead) { f.brainT += dt; if (f.brainT > (f.brain > 1.3 ? 7 : 5)) f.dead = true; }
+    if (f.blood <= 0 && !f.dead) f.dead = true;
+    if (f.dead) f.deadT += dt;
+    // he groans every few seconds while hurt and still conscious; the moment he is out (or dead) the voice is cut off
+    if (!canVocalize()) { if (pain.active.size) stopPain(); }
+    else if (f.wounds.length || f.limp[0] > 0.5 || f.limp[1] > 0.5) {
+      f.moanT = (f.moanT === undefined ? 1.5 : f.moanT) - dt;
+      if (f.moanT <= 0) { f.moanT = (2.4 + Math.random() * 2.6) * (f.heart ? 0.6 : 1); playPain(0.45, f.c); }
+    }
+    f.armOK = [0, 1].map((i) => !f.broken.armUp[i] && !f.broken.armFore[i]);
+
+    // --- posture state ---
+    bodyFrame();
+    const low = frame.up.y < 0.5 || pos[PEL].y < 0.45;
+    f.downT = low ? f.downT + dt : 0;
+    if (!f.down && f.downT > 0.4) { f.down = true; f.upT = 0; }
+    if (f.down) { f.upT += dt; if (!f.dead && f.wounds.length === 0 && f.c > 0.8 && f.upT > 1.8 && f.stun < 0.1 && !grab) { f.down = false; f.recover = 0; } }
+    f.recover = Math.min(1, f.recover + dt / 1.6);
+    const lifting = grab && grab.mode === 'lift';
+    const s = f.dead ? 0 : f.c * (1 - 0.75 * f.stun) * f.recover * (lifting ? 0.2 : 1);
+    const bothLimp = Math.min(f.limp[0], f.limp[1]);
+    const sS = (f.down ? s * 0.03 : s) * (1 - 0.7 * bothLimp);
+    const hurtF = clamp((1 - f.c) + 0.25 * Math.min(3, f.wounds.length) + f.stun * 0.5, 0, 1.4);
+    f.s = sS;
+    f.buckle = f.buckle.map((b) => Math.max(0, b - dt));
+    f.legStr = [0, 1].map((i) => (legWound[i] > 0 ? 0.65 : 1) * (f.buckle[i] > 0 ? 0.12 : 1) * (1 - 0.9 * f.limp[i]));
+
+    // random knee buckles when hurt or bleeding
+    if (!f.down && sS > 0.2 && f.wounds.length) for (let i = 0; i < 2; i++) if (!f.buckle[i] && Math.random() < dt * (0.06 * hurtF + 0.35 * legWound[i] + 1.1 * f.limp[i])) f.buckle[i] = 0.25 + Math.random() * 0.25;
+
+    // --- yaw / heading ---
+    pelV.set((pos[PEL].x - prev[PEL].x) / hStep, 0, (pos[PEL].z - prev[PEL].z) / hStep);
+    const fh = Math.hypot(frame.fwd.x, frame.fwd.z);
+    let leadTo = null;
+    if (grab && grab.mode === 'lead' && sS > 0.2) {
+      leadTo = new V3(grab.target.x - grab.off.x, 0, grab.target.z - grab.off.z);
+      const dx = leadTo.x - pos[PEL].x, dz = leadTo.z - pos[PEL].z;
+      if (Math.hypot(dx, dz) > 0.3) G.yaw += wrapA(Math.atan2(dx, dz) - G.yaw) * Math.min(1, dt * 3.5);
+    } else if (walkDir && sS > 0.2 && !f.down && !grab) {                        // duel mode: WASD walks him
+      leadTo = new V3(pos[PEL].x + walkDir.x * 1.6, 0, pos[PEL].z + walkDir.z * 1.6);
+      G.yaw += wrapA(Math.atan2(walkDir.x, walkDir.z) - G.yaw) * Math.min(1, dt * 5);
+    } else if (fh > 0.3 && !f.down) G.yaw += wrapA(Math.atan2(frame.fwd.x, frame.fwd.z) - G.yaw) * Math.min(1, dt * 2);
+    sideYaw.set(Math.cos(G.yaw), 0, -Math.sin(G.yaw)); fwdYaw.set(Math.sin(G.yaw), 0, Math.cos(G.yaw));
+
+    // --- feet: planted in the world, stepping when balance demands it ---
+    const ankY = [pos[ANL].y, pos[ANR].y];
+    if (!f.free && (lifting || f.down || (ankY[0] > ANK_H + 0.22 && ankY[1] > ANK_H + 0.22) || sS < 0.12)) f.free = true;
+    if (f.free && !lifting && !f.down && sS >= 0.15 && Math.min(ankY[0], ankY[1]) < ANK_H + 0.08) {
+      f.free = false;
+      f.feet.forEach((ft, i) => { ft.p.set(pos[LEGS[i].ank].x, ANK_H, pos[LEGS[i].ank].z); ft.yaw = G.yaw; ft.swing = null; });
+    }
+    // wounded lurching: a slowly wandering offset that drags his balance around
+    f.lurchTimer -= dt;
+    if (f.lurchTimer <= 0) { f.lurchTimer = 0.5 + Math.random() * 0.9; const a = Math.random() * 6.283, m = (f.wounds.length ? 0.38 : 0) * clamp(hurtF, 0.3, 1.2); f.lurchT.set(Math.cos(a) * m, 0, Math.sin(a) * m); }
+    f.lurch.lerp(f.lurchT, 1 - Math.exp(-dt * 2.5));
+
+    mid.addVectors(f.feet[0].p, f.feet[1].p).multiplyScalar(0.5); mid.y = 0;
+    cp.set(pos[PEL].x + pelV.x * 0.3 + f.lurch.x, 0, pos[PEL].z + pelV.z * 0.3 + f.lurch.z);
+    if (leadTo) { tmp.subVectors(leadTo, mid); tmp.y = 0; const l = tmp.length(); if (l > 0.2) cp.addScaledVector(tmp, Math.min(0.3, l * 0.5) / l); }
+    const err = Math.hypot(cp.x - mid.x, cp.z - mid.z); f.err = err;
+    const swinging = f.feet.some((ft) => ft.swing);
+    if (!f.free && !swinging && sS > 0.15) {
+      // place the foot a little beyond the capture point so the step actually stops the fall (unless being led)
+      const settle = clamp(1 - pelV.length() / 0.4, 0, 1) * (leadTo ? 0 : 1);   // nearly still: square the feet up under where he stands
+      tmp.copy(cp).lerp(G.anchor, settle * 0.6); tmp.y = 0;
+      want[0].copy(tmp).addScaledVector(sideYaw, -0.1); want[1].copy(tmp).addScaledVector(sideYaw, 0.1);
+      const d0 = Math.hypot(want[0].x - f.feet[0].p.x, want[0].z - f.feet[0].p.z), d1 = Math.hypot(want[1].x - f.feet[1].p.x, want[1].z - f.feet[1].p.z);
+      const lat = tmp.subVectors(f.feet[1].p, f.feet[0].p).dot(sideYaw), split = Math.abs(tmp.dot(fwdYaw));
+      const still = pelV.length() < 0.25 && !leadTo;
+      const needs = err > (leadTo ? 0.06 : 0.1) || lat < 0.07 || lat > 0.5 || (still && split > 0.3 && Math.max(d0, d1) > 0.12);
+      if (needs) {
+        let i = d0 > d1 ? 0 : 1;
+        if (i === f.lastFoot && (i ? d0 : d1) > 0.45 * (i ? d1 : d0)) i = 1 - i;    // prefer alternating feet
+        if (f.limp[i] > 0.5 && f.limp[1 - i] < 0.5 && Math.random() < 0.55) i = 1 - i;    // a limp: lean on the good leg
+        const ft = f.feet[i], other = f.feet[1 - i], to = want[i].clone(); to.y = ANK_H;
+        const maxStep = (0.22 + 0.5 * clamp(sS, 0, 1)) * (1 - 0.5 * f.limp[i]);
+        tmp.subVectors(to, ft.p); tmp.y = 0; if (tmp.length() > maxStep) to.copy(ft.p).addScaledVector(tmp.normalize(), maxStep);
+        const sgn = i ? 1 : -1, l2 = tmp2.subVectors(to, other.p).dot(sideYaw) * sgn;
+        if (l2 < 0.09) to.addScaledVector(sideYaw, sgn * (0.09 - l2));                 // don't cross the legs
+        to.y = ANK_H;
+        const urgency = clamp(err / 0.5, 0, 1);
+        const dur = lerp(leadTo ? 0.3 : 0.34, 0.17, urgency) / (0.55 + 0.45 * clamp(sS, 0, 1)) * (1 + 0.4 * clamp(hurtF, 0, 1)) * (1 + 0.8 * f.limp[i]);
+        ft.swing = { from: ft.p.clone(), to, t: 0, dur, h: 0.06 + 0.07 * urgency, yaw0: ft.yaw };
+        f.lastFoot = i; f.steps++;
+      }
+    }
+    f.feet.forEach((ft) => {
+      if (!ft.swing) return;
+      const sw = ft.swing; sw.t += dt; const u = clamp(sw.t / sw.dur, 0, 1), e = u * u * (3 - 2 * u);
+      ft.p.lerpVectors(sw.from, sw.to, e); ft.p.y = ANK_H + Math.sin(Math.PI * u) * sw.h;
+      ft.yaw = sw.yaw0 + wrapA(G.yaw - sw.yaw0) * e;
+      if (u >= 1) { ft.p.y = ANK_H; ft.swing = null; }
+    });
+    f.walking = !!leadTo && (swinging || pelV.length() > 0.3);
+
+    // --- upper body anchor: where he is trying to stand. The pelvis is pulled toward it, the feet step to catch the body. ---
+    if (f.free) G.anchor.set(pos[PEL].x, 0, pos[PEL].z);
+    else {
+      if (leadTo) {                                                          // being led: walk the anchor toward the hand
+        tmp.subVectors(leadTo, G.anchor); tmp.y = 0; const l = tmp.length();
+        if (l > 0.05) G.anchor.addScaledVector(tmp, Math.min((walkDir ? walkSpeed : 1.5) * clamp(sS, 0.3, 1) * (1 - 0.4 * Math.max(f.limp[0], f.limp[1])), l * 2.2) * dt / l);
+      } else {                                                               // after a shove: give way and settle where he ends up
+        const give = Math.min(1, dt * (1.3 + 8 * pelV.length()));             // the faster he's moving, the more he lets the stumble carry him
+        G.anchor.x += (pos[PEL].x - G.anchor.x) * give + f.lurch.x * dt * 1.5;
+        G.anchor.z += (pos[PEL].z - G.anchor.z) * give + f.lurch.z * dt * 1.5;
+      }
+      tmp.set(G.anchor.x - pos[PEL].x, 0, G.anchor.z - pos[PEL].z); const l = tmp.length();
+      if (l > 0.35) { G.anchor.x = pos[PEL].x + tmp.x * 0.35 / l; G.anchor.z = pos[PEL].z + tmp.z * 0.35 / l; }
+    }
+
+    // --- the pose itself ---
+    const off = [0, 1].map((i) => tmp.subVectors(f.feet[i].p, pos[PEL]).dot(fwdYaw));
+    const flail = clamp((err - 0.18) / 0.4, 0, 1) * clamp(sS * 1.5, 0, 1) * (f.free ? 0 : 1);
+    const wob = Math.sin(f.t * 1.9 + 1.3) * 0.5 + Math.sin(f.t * 3.1) * 0.5;
+    const speed = pelV.length();
+    const crouchAmt = clamp(0.1 * hurtF + 0.25 * Math.max(f.limp[0], f.limp[1]) + clamp((legWound[0] + legWound[1]) * 0.2, 0, 0.4) + (1 - clamp(sS * 1.2, 0, 1)) * 0.5 + (f.buckle[0] || f.buckle[1] ? 0.3 : 0) + flail * 0.15, 0, 0.8);
+    // off the ground (lifted / thrown / falling) the pose hangs from the pelvis instead of from the floor, so nothing pulls him back down
+    G.anchor.y = f.free ? pos[PEL].y - (HIP_Y - 0.25 * crouchAmt) : 0;
+    poseRig(dt, {
+      speed, lean: leadTo ? clamp(speed * 0.05, 0, 0.18) : 0,
+      crouch: crouchAmt,
+      curl: clamp(torsoW * 0.22 + headW * 0.12 + (legWound[0] + legWound[1]) * 0.08, 0, 0.55) + wob * 0.06 * clamp(hurtF, 0, 1),
+      twist: clamp((off[0] - off[1]) * 0.35, -0.25, 0.25), sway: wob * 0.04 * clamp(hurtF, 0, 1) + (f.limp[0] - f.limp[1]) * 0.07,
+      headDrop: headW * 0.2 + (1 - f.c) * 0.3,
+      armSwing: [clamp(-off[1] * 1.5, -0.7, 0.7), clamp(-off[0] * 1.5, -0.7, 0.7)], flail,
+    });
+    rigRoot.updateMatrixWorld(true);
+    markers.forEach((m, i) => m.getWorldPosition(tgtSet[i]));
+
+    // legs: knee/ankle/toe from the foot planner (IK from the actual hip)
+    if (!f.free) {
+      let drop = 0;
+      for (let i = 0; i < 2; i++) {
+        const L = LEGS[i], ft = f.feet[i], hip = tgtSet[L.hip];
+        const dh = Math.hypot(ft.p.x - hip.x, ft.p.z - hip.z), reach = L_TH + L_SH - 0.02;
+        const maxHipY = ft.p.y + Math.sqrt(Math.max(0, reach * reach - dh * dh));
+        drop = Math.max(drop, hip.y - maxHipY);
+      }
+      if (drop > 0) for (let i = 0; i <= HPR; i++) tgtSet[i].y -= drop;       // lower the hips so a long stride can still reach the floor
+      for (let i = 0; i < 2; i++) {
+        const L = LEGS[i], ft = f.feet[i];
+        const fdir = new V3(Math.sin(ft.yaw), 0, Math.cos(ft.yaw)), pole = fdir.clone().addScaledVector(sideYaw, (i ? 1 : -1) * 0.15);
+        ik(tmp2.set(pos[L.hip].x, tgtSet[L.hip].y, pos[L.hip].z), ft.p, L_TH, L_SH, pole, tgtSet[L.knee], tmp3);          // from where the hip really is, so the legs don't pin the body in place
+        tgtSet[L.ank].copy(ft.p);
+        const lift = ft.swing ? Math.sin(Math.PI * clamp(ft.swing.t / ft.swing.dur, 0, 1)) * 0.03 : 0;
+        tgtSet[L.toe].copy(ft.p).addScaledVector(fdir, TOE_FWD); tgtSet[L.toe].y = ft.p.y + TOE_DY + lift;
+      }
+    }
+
+    // arms: the two worst wounds each get a hand pressed on them
+    const armC = clamp(f.c * 1.6, 0, 1) * (1 - 0.5 * f.stun) * (lifting ? 0.3 : 1), assigned = [null, null];
+    if (!f.dead) {
+      const ws = f.wounds.slice().sort((a, b) => b.rate - a.rate).slice(0, 2);
+      for (const w of ws) {
+        const p = woundWorld(w, new V3()), own = armSideOf[w.a];
+        const order = [0, 1].filter((i) => i !== own && !assigned[i] && f.armOK[i]).sort((a, b) => pos[a ? SHR : SHL].distanceTo(p) - pos[b ? SHR : SHL].distanceTo(p));
+        if (order.length) assigned[order[0]] = p;
+      }
+    }
+    for (let i = 0; i < 2; i++) {
+      if (!assigned[i]) continue;
+      const pole = new V3().addScaledVector(frame.side, i ? 1 : -1).addScaledVector(frame.up, -0.6).addScaledVector(frame.fwd, -0.4);
+      ik(pos[i ? SHR : SHL], tmp.copy(assigned[i]).addScaledVector(frame.fwd, 0.04), 0.3, 0.28, pole, tgtSet[i ? ELR : ELL], tgtSet[i ? HAR : HAL]);
+    }
+    for (const [m, a, b] of [[UAL, SHL, ELL], [UAR, SHR, ELR], [FAL, ELL, HAL], [FAR, ELR, HAR], [THL, HPL, KNL], [THR, HPR, KNR], [SNL, KNL, ANL], [SNR, KNR, ANR]]) tgtSet[m].addVectors(tgtSet[a], tgtSet[b]).multiplyScalar(0.5);
+    f.hands = assigned; f.armC = armC;
+  }
+
+  // ================= physics step =================
+  const limpMask = new Float32Array(N);
+  function physics(h) {
+    const f = fig, sS = f.s || 0;
+    const a = clamp(sS, 0, 1);
+    for (let i = 0; i < N; i++) f.impactCD[i] = Math.max(0, f.impactCD[i] - h);
+    limpMask.fill(0);                                                       // limbs distal to a broken bone hang loose (and swing)
+    for (let sd = 0; sd < 2; sd++) {
+      if (f.broken.armUp[sd]) [UAL, ELL, FAL, HAL].forEach((k, j) => (limpMask[k + sd] = 1));
+      if (f.broken.armFore[sd]) [FAL, HAL].forEach((k) => (limpMask[k + sd] = 1));
+      if (f.broken.thigh[sd]) [THL, KNL, SNL, ANL, TOL].forEach((k) => (limpMask[k + sd] = 1));
+      if (f.broken.shin[sd]) [SNL, ANL, TOL].forEach((k) => (limpMask[k + sd] = 1));
+    }
+    for (let i = 0; i < N; i++) {                                           // verlet integrate
+      // the trunk keeps its sideways momentum (so a shove carries him off balance); limbs are damped by their muscles
+      const trunk = i <= HED || i === HPL || i === HPR, free = limpMask[i] > 0.5, dh = trunk ? 0.9985 - 0.012 * a : free ? 0.9975 : 0.9985 - 0.09 * a, dv = free ? 0.9985 : 0.9985 - 0.09 * a;
+      tmp.subVectors(pos[i], prev[i]); tmp.x *= dh; tmp.z *= dh; tmp.y *= dv; prev[i].copy(pos[i]);
+      pos[i].add(tmp); pos[i].y -= 9.8 * h * h;
+    }
+    // pose following: each particle is pulled toward where the controller wants it
+    for (let i = 0; i < N; i++) {
+      let st = sS, ta = tau[i], hz = 1;
+      if (i <= HED || i === HPL || i === HPR) hz = 0.12;                                                // the trunk sways freely sideways; the feet catch it
+      const as = armSideOf[i], ls = legSideOf[i];
+      if (as >= 0) st = f.hands[as] ? f.armC * 1.1 : Math.max(f.armC * 0.55, sS * 0.9);
+      if (ls >= 0) {
+        st = sS * f.legStr[ls] * (f.free ? 0.3 : 1);
+        if ((i === ANL || i === ANR || i === TOL || i === TOR) && !f.free && !f.feet[ls].swing) ta *= 0.7;   // planted feet stay put
+      }
+      st *= 1 - limpMask[i];
+      if (f.dead) st = 0;
+      if (st <= 0.002) continue;
+      const k = 1 - Math.exp(-h / (ta / Math.pow(Math.min(st, 1.1), 1.5))), kh = k * hz;
+      const T = tgtSet[i];
+      pos[i].x += (T.x - pos[i].x) * kh; pos[i].y += (T.y - pos[i].y) * k; pos[i].z += (T.z - pos[i].z) * kh;
+    }
+    if (grab) {
+      const p = pos[grab.i];
+      if (grab.mode === 'lift') { tmp.copy(grab.target).sub(p); p.addScaledVector(tmp, 0.4); }
+      else if (sS < 0.2) { tmp.set(grab.target.x - p.x, 0, grab.target.z - p.z); p.addScaledVector(tmp, 0.2); }   // can't walk: drag him along the floor
+      else { p.x += (grab.target.x - p.x) * 0.012; p.z += (grab.target.z - p.z) * 0.012; }                   // a gentle tug on the hand you hold
+    }
+    for (let it = 0; it < 8; it++) {
+      for (const c of CONS) {
+        if (c.enabled === false) continue;
+        const A = pos[c.a], B = pos[c.b]; tmp.subVectors(B, A); const d = tmp.length() || 1e-6;
+        if (c.type === 'max' && d <= c.len) continue; if (c.type === 'min' && d >= c.len) continue;
+        const diff = (d - c.len) / d, wa = 1 / mass[c.a], wb = 1 / mass[c.b], ws = wa + wb;
+        A.addScaledVector(tmp, diff * wa / ws); B.addScaledVector(tmp, -diff * wb / ws);
+      }
+      bodyFrame();
+      for (const L of LEGS) {                                                 // knees bend forwards only
+        tmp.addVectors(pos[L.hip], pos[L.ank]).multiplyScalar(0.5); const dd = tmp2.subVectors(pos[L.knee], tmp).dot(frame.fwd);
+        if (dd < 0.015) pos[L.knee].addScaledVector(frame.fwd, (0.015 - dd) * 0.6);
+      }
+      for (let i = 0; i < N; i++) {                                         // floor with friction
+        const r = radius[i];
+        if (pos[i].y < r) {
+          const impact = (prev[i].y - pos[i].y) / h;                         // downward speed at the moment of contact
+          if (impact > 6.5 && f.impactCD[i] <= 0) { f.impactCD[i] = 0.5; impactDamage(i, impact); }
+          pos[i].y = r; const fr = (i === ANL || i === ANR || i === TOL || i === TOR) ? 0.8 : 0.35;
+          prev[i].x += (pos[i].x - prev[i].x) * fr; prev[i].z += (pos[i].z - prev[i].z) * fr;
+        }
+      }
+    }
+  }
+
+  // ================= tools =================
+  const cv = renderer.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  const camS = { yaw: 0.55, pitch: 0.3, dist: 5.2, look: new V3(0, 1, 0) };
+  let orbiting = false, lx = 0, ly = 0, shiftDown = false;
+  const setNdc = (e) => { ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera); };
+  document.querySelectorAll('#tools button[data-t]').forEach((b) => (b.onclick = () => setTool(b.dataset.t)));
+  function setTool(t) { tool = t; document.querySelectorAll('#tools button[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); cv.classList.toggle('grab', t === 'grab'); }
+  setTool('grab');
+  $('reset').onclick = reset; $('thermBtn').onclick = () => setThermal(!thermal);
+  function setGrabMode(lift) {
+    if (!grab) return;
+    grab.mode = lift ? 'lift' : 'lead';
+    if (lift) { grab.depth = camera.position.distanceTo(pos[grab.i]); grab.target.copy(pos[grab.i]); }
+    else { grab.planeY = pos[grab.i].y; }
+  }
+  addEventListener('keydown', (e) => {
+    const m = { Digit1: 'pistol', Digit2: 'knife', Digit3: 'shove', Digit4: 'blast', Digit5: 'grab', Digit6: 'throw' };
+    if (duel) { const dm = { Digit1: 'shoot', Digit2: 'throw', Digit3: 'shove', Digit4: 'grenade' }; if (dm[e.code]) npcDo(dm[e.code]); } else if (m[e.code]) setTool(m[e.code]);
+    if (e.code === 'KeyR') reset();
+    if (e.code === 'KeyT') setThermal(!thermal);
+    if (e.code === 'Space') { slow = !slow; e.preventDefault(); }
+    if (e.key === 'Shift' && !shiftDown) { shiftDown = true; setGrabMode(true); }
+  });
+  addEventListener('keyup', (e) => { if (e.key === 'Shift') { shiftDown = false; setGrabMode(false); } });
+  let ac;
+  function sound(kind) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const a = ac, len = kind === 'shot' ? 0.35 : kind === 'crack' ? 0.09 : 0.14, buf = a.createBuffer(1, a.sampleRate * len, a.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, kind === 'shot' ? 4 : 2);
+      const s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain();
+      fl.type = 'lowpass'; fl.frequency.value = kind === 'shot' ? 4000 : kind === 'crack' ? 2600 : kind === 'blast' ? 500 : 900; g.gain.value = kind === 'blast' ? 1 : kind === 'crack' ? 0.9 : 0.6;
+      s.buffer = buf; s.connect(fl); fl.connect(g); g.connect(a.destination); s.start();
+    } catch (e) {}
+  }
+  // ---- his voice: the pain sound plays while he is still conscious and alive, and stops for good once he is not ----
+  const pain = { base: new Audio('sounds/pain.mp3'), active: new Set(), count: 0 };
+  pain.base.preload = 'auto';
+  const canVocalize = () => { const f = fig; return !f.dead && f.brain < 1 && f.c > 0.02; };
+  function playPain(strength = 1, weak = 1) {
+    if (!canVocalize()) return;
+    try {
+      const a = pain.base.cloneNode(); a.volume = clamp((0.5 + 0.45 * strength) * (0.35 + 0.65 * weak), 0, 1);
+      a.preservesPitch = false; a.playbackRate = clamp((0.9 + Math.random() * 0.25) * (0.8 + 0.2 * weak) * (slow ? 0.45 : 1), 0.3, 2);
+      a.addEventListener('ended', () => pain.active.delete(a)); pain.active.add(a); pain.count++;
+      const pr = a.play(); if (pr && pr.catch) pr.catch(() => pain.active.delete(a));
+    } catch (e) {}
+  }
+  function stopPain() { pain.active.forEach((a) => { try { a.pause(); } catch (e) {} }); pain.active.clear(); }
+  let shake = 0;
+  function flash(a) { const f = $('flash'); f.style.transition = 'none'; f.style.opacity = a; requestAnimationFrame(() => { f.style.transition = 'opacity .25s'; f.style.opacity = 0; }); }
+  const tracers = [];
+  function tracer(from, to, col) {
+    const g = new THREE.BufferGeometry().setFromPoints([from, to]), l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: col, transparent: true })); l.userData.t = 0.12; scene.add(l); tracers.push(l);
+  }
+  function pickBody(e) { setNdc(e); const hits = ray.intersectObjects(bodyMeshes, false); return hits.length ? hits[0] : null; }
+  function grabTarget(e) {
+    setNdc(e);
+    if (grab.mode === 'lift') grab.target.copy(ray.ray.origin).addScaledVector(ray.ray.direction, grab.depth);
+    else { const pl = new THREE.Plane(new V3(0, 1, 0), -grab.planeY), q = new V3(); if (ray.ray.intersectPlane(pl, q)) grab.target.copy(q); }
+  }
+
+  cv.addEventListener('pointerdown', (e) => {
+    cv.setPointerCapture(e.pointerId); lx = e.clientX; ly = e.clientY;
+    const hit = pickBody(e);
+    if (duel || e.button === 2 || (!hit && tool !== 'blast')) { orbiting = true; return; }
+    if (tool === 'blast') {
+      let p;
+      if (hit) p = hit.point.clone(); else { const pl = new THREE.Plane(new V3(0, 1, 0), 0), q = new V3(); if (ray.ray.intersectPlane(pl, q)) p = q.add(new V3(0, 0.15, 0)); else return; }
+      blast(p); return;
+    }
+    const { a, b, kind } = hit.object.userData, p = hit.point.clone();
+    const A = pos[a], B = pos[b], ab = new V3().subVectors(B, A), l2 = ab.lengthSq(), t = l2 > 1e-6 ? clamp(new V3().subVectors(p, A).dot(ab) / l2, 0, 1) : 0;
+    const dir = ray.ray.direction.clone().normalize();
+    if (tool === 'grab') {
+      const i = t > 0.5 ? b : a;
+      grab = { i, mode: 'lead', depth: 0, planeY: pos[i].y, target: pos[i].clone(), off: new V3(pos[i].x - pos[PEL].x, 0, pos[i].z - pos[PEL].z) };
+      setGrabMode(e.shiftKey || shiftDown); cv.classList.add('grabbing'); return;
+    }
+    if (tool === 'shove') {
+      const d = new V3(dir.x, 0, dir.z).normalize(); hitImpulse(a, b, t, d, 5.5);
+      fig.stun = Math.min(1, fig.stun + 0.4); sound('thud'); shake = 0.04; return;
+    }
+    const pistol = tool === 'pistol', thrown = tool === 'throw';
+    const sn = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize(); if (sn.dot(dir) > 0) sn.negate();
+    const w = addWound(a, b, kind, p, dir, pistol ? 1 : thrown ? 0.75 : 0.65, sn, pistol ? 'bullet' : 'cut', hit.object.userData.mat0 || hit.object.material);
+    hitImpulse(a, b, t, new V3(dir.x, dir.y * 0.3, dir.z).normalize(), pistol ? 2.4 : thrown ? 1.1 : 0.7);
+    const z = zoneHit(p, dir, pistol ? 0.7 : 0.06); if (z) applyZone(z, w);                    // bullets pass right through; blades only reach just under the skin
+    const ud = hit.object.userData;                                                            // bones are tough: it takes a few hits (or a lucky direct one)
+    if (ud.bone) boneDamage(ud.bone, ud.side, pistol ? (Math.random() < 0.08 ? 100 : rnd(20, 36)) : thrown ? (Math.random() < 0.03 ? 100 : rnd(6, 14)) : rnd(2, 6));
+    playPain(pistol ? 1 : 0.7);                                                                // (silent if that hit knocked him out)
+    if (thrown) { w.knife = makeKnife(); w.kdx = dir.dot(frame.side); w.kdy = dir.dot(frame.up); w.kdz = dir.dot(frame.fwd); scene.add(w.knife); sound('thud'); }
+    if (pistol) {
+      sound('shot'); flash(0.25); shake = 0.05;
+      tracer(ray.ray.origin.clone().add(new V3(0.15, -0.2, 0)).addScaledVector(dir, 0.6), p.clone().addScaledVector(dir, 1.5), 0xffe6a0);
+      for (let i = 0; i < 10; i++) spawnDrop(p, dir.x * (0.8 + Math.random() * 2) + (Math.random() - 0.5), dir.y * 1.5 + Math.random() * 1.2, dir.z * (0.8 + Math.random() * 2) + (Math.random() - 0.5), 0.008 + Math.random() * 0.01);
+    } else tracer(p.clone().addScaledVector(dir, thrown ? -0.9 : -0.25), p, 0xdde6ee);
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (grab) grabTarget(e);
+    else if (orbiting) { camS.yaw -= (e.clientX - lx) * 0.006; camS.pitch = clamp(camS.pitch + (e.clientY - ly) * 0.005, 0.02, 1.45); lx = e.clientX; ly = e.clientY; }
+  });
+  const release = () => {
+    if (grab && grab.mode === 'lift' && fig) {                              // thrown: he's disoriented when he lands, so he stumbles or goes down
+      const v = Math.hypot(pos[PEL].x - prev[PEL].x, pos[PEL].y - prev[PEL].y, pos[PEL].z - prev[PEL].z) / hStep;
+      fig.stun = Math.min(1, fig.stun + 0.35 + v * 0.12);
+    }
+    grab = null; orbiting = false; cv.classList.remove('grabbing');
+  };
+  cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
+  cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  cv.addEventListener('wheel', (e) => { camS.dist = clamp(camS.dist * (1 + e.deltaY * 0.001), 1.8, 18); e.preventDefault(); }, { passive: false });
+
+  function blast(p) {
+    sound('blast'); flash(0.7); shake = 0.2;
+    for (let i = 0; i < N; i++) {
+      const d = tmp.subVectors(pos[i], p), dist = d.length() || 0.01;
+      if (dist < 3) { const k = 1 - dist / 3; d.normalize(); d.y += 0.45; kick(i, d.multiplyScalar(11 * k), 1); }
+    }
+    for (const m of bodyMeshes) {
+      const c = m.getWorldPosition(new V3()); if (c.distanceTo(p) > 1.3 || Math.random() < 0.35) continue;
+      const { a, b, kind } = m.userData, dir = new V3().subVectors(c, p).normalize();
+      addWound(a, b, kind, c.clone(), dir, 0.35 + Math.random() * 0.3, dir, 'tear', m.userData.mat0 || m.material);
+    }
+    playPain(1);
+    for (const i in BONE_OF) { const d = pos[i].distanceTo(p); if (d < 1.6 && Math.random() < 0.55) boneDamage(BONE_OF[i][0], BONE_OF[i][1], rnd(25, 60) * (1 - d / 1.6)); }
+    fig.stun = 1;
+    const ring = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0.8 })); ring.position.copy(p); ring.userData.blast = 0; scene.add(ring); tracers.push(ring);
+  }
+
+
+  // ================= duel mode =================
+  // You walk (WASD, Shift to sprint). An attacker stands off and does what you tell him, when you tell him: shoot, throw a knife,
+  // shove, lob a grenade, aimed at a body region you choose. Every hit goes through the same wound / stumble / limp / collapse system.
+  let duel = false, walkDir = null, walkSpeed = 1.5, duelAuto = false, autoT = 2, aimRegion = 'random';
+  const dkeys = {};
+  addEventListener('keydown', (e) => { dkeys[e.code] = true; }); addEventListener('keyup', (e) => { dkeys[e.code] = false; }); addEventListener('blur', () => { for (const k in dkeys) dkeys[k] = false; });
+  function updateWalkInput() {
+    if (!duel || fig.dead) { walkDir = null; return; }
+    const f = (dkeys.KeyW || dkeys.ArrowUp ? 1 : 0) - (dkeys.KeyS || dkeys.ArrowDown ? 1 : 0), r = (dkeys.KeyD || dkeys.ArrowRight ? 1 : 0) - (dkeys.KeyA || dkeys.ArrowLeft ? 1 : 0);
+    if (!f && !r) { walkDir = null; return; }
+    const sn = Math.sin(camS.yaw), cs = Math.cos(camS.yaw);                   // forward = away from the camera
+    walkDir = new V3(-sn * f + cs * r, 0, -cs * f - sn * r).normalize(); walkSpeed = dkeys.ShiftLeft || dkeys.ShiftRight ? 2.7 : 1.5;
+  }
+
+  // ---- the attacker: another body built from the same meshes, posed from its own rig ----
+  const npcJacket = jacketMat.clone(); npcJacket.color = lin(0xe6b9a6); const npcPants = pantsMat.clone(); npcPants.color = lin(0x8d8d92);
+  function cloneTree(o) {
+    let c; if (o.isMesh) c = new THREE.Mesh(o.geometry, o.material === jacketMat ? npcJacket : o.material === pantsMat ? npcPants : o.material); else c = new THREE.Group();
+    c.position.copy(o.position); c.quaternion.copy(o.quaternion); c.scale.copy(o.scale); c.visible = o.visible; c.castShadow = true; c.receiveShadow = true;
+    o.children.forEach((k) => c.add(cloneTree(k))); return c;
+  }
+  eyes.forEach((e) => { e.lidU.rotation.x = -0.52; e.lidL.rotation.x = Math.PI - 0.12; }); mouth.visible = false;
+  const NV = {
+    limbs: limbs.map((m) => ({ m: cloneTree(m), a: m.userData.a, b: m.userData.b })), balls: balls.map((m) => ({ m: cloneTree(m), i: m.userData.a })),
+    torso: cloneTree(bodyParts.torso), shoulders: cloneTree(bodyParts.shoulders), hips: cloneTree(bodyParts.hips), feet: bodyParts.feet.map(cloneTree),
+    torsoGear: cloneTree(torsoGear), hipGear: cloneTree(hipGear), kneePads: kneePads.map(cloneTree), hands: hands.map(cloneTree), head: cloneTree(head),
+  };
+  const npcRoot = new THREE.Group(); scene.add(npcRoot);
+  [...NV.limbs.map((o) => o.m), ...NV.balls.map((o) => o.m), NV.torso, NV.shoulders, NV.hips, ...NV.feet, NV.torsoGear, NV.hipGear, ...NV.kneePads, ...NV.hands, NV.head].forEach((o) => npcRoot.add(o));
+  npcRoot.visible = false;
+  function makeNpcRig() {
+    const root = new THREE.Object3D(); scene.add(root);
+    const hp = O(root, 0, HIP_Y, 0), tr = O(hp, 0, 0.1, 0), nk = O(tr, 0, 0.6, 0), hr = O(nk, 0, 0.1, 0);
+    const arms = [-1, 1].map((sg) => { const sh = O(tr, sg * 0.255, 0.5, 0), upper = O(sh), fore = O(upper, 0, -0.3, 0), hand = O(fore, 0, -0.28, 0); return { sh, upper, fore, hand }; });
+    const legs = [-1, 1].map((sg) => { const th = O(hp, sg * 0.095, -0.02, 0), shin = O(th, 0, -0.45, 0), foot = O(shin, 0, -0.45, 0), toe = O(foot, 0, -0.05, 0.2); return { th, shin, foot, toe }; });
+    const mids = [O(arms[0].upper, 0, -0.15, 0), O(arms[1].upper, 0, -0.15, 0), O(arms[0].fore, 0, -0.14, 0), O(arms[1].fore, 0, -0.14, 0), O(legs[0].th, 0, -0.225, 0), O(legs[1].th, 0, -0.225, 0), O(legs[0].shin, 0, -0.225, 0), O(legs[1].shin, 0, -0.225, 0)];
+    const mk = [hp, O(tr, 0, 0.3, 0), nk, O(hr, 0, 0.12, 0), arms[0].sh, arms[1].sh, arms[0].fore, arms[1].fore, arms[0].hand, arms[1].hand, legs[0].th, legs[1].th, legs[0].shin, legs[1].shin, legs[0].foot, legs[1].foot, legs[0].toe, legs[1].toe, ...mids];
+    return { root, hips: hp, torso: tr, arms, legs, markers: mk };
+  }
+  const NR = makeNpcRig(), NP = markers.map(() => new V3()), nf = { side: new V3(1, 0, 0), up: new V3(0, 1, 0), fwd: new V3(0, 0, 1) };
+  const npc = { pos: new V3(0, 0, 7), yaw: Math.PI, phase: 0, walk: 0, act: null, last: '' };
+  const gun = new THREE.Group(); { const m1 = new THREE.MeshStandardMaterial({ color: lin(0x2b2d31), metalness: 0.7, roughness: 0.35 }); const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.045, 0.2), m1); b.position.z = 0.09; const gr = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.08, 0.04), m1); gr.position.set(0, -0.055, 0.0); gun.add(b, gr); gun.traverse((o) => (o.castShadow = true)); }
+  gun.visible = false; scene.add(gun);
+  const heldKnife = makeKnife(); heldKnife.visible = false; scene.add(heldKnife);
+  const nade = new THREE.Mesh(new THREE.SphereGeometry(0.045, 14, 10), new THREE.MeshStandardMaterial({ color: lin(0x3f4a36), roughness: 0.6 })); nade.visible = false; nade.castShadow = true; scene.add(nade);
+  const projectiles = [];                                                          // thrown knives and grenades in flight
+
+  function duelReset() {
+    npc.pos.set(0, 0, 7); npc.yaw = Math.PI; npc.act = null; npc.walk = 0; gun.visible = heldKnife.visible = nade.visible = false;
+    projectiles.splice(0).forEach((p) => scene.remove(p.mesh)); autoT = 2;
+  }
+  function setDuel(on) {
+    duel = on; npcRoot.visible = on; $('duelPanel').style.display = on ? 'block' : 'none'; $('modeBtn').classList.toggle('on', on);
+    document.querySelectorAll('#tools button[data-t]').forEach((b) => (b.style.display = on ? 'none' : ''));
+    $('help').innerHTML = on ? 'WASD walk &middot; Shift sprint &middot; drag: orbit camera &middot; wheel: zoom<br>Attacker: 1 shoot &middot; 2 throw knife &middot; 3 shove &middot; 4 grenade<br>R restart &middot; Space slow-motion &middot; T thermal vision' : 'Click the dummy with the selected tool<br>Drag empty space: orbit &middot; wheel: zoom<br>R reset &middot; Space slow-motion &middot; 1-6 tools &middot; T thermal vision';
+    reset();
+    if (on) { camS.yaw = Math.PI; camS.dist = 4.3; camS.pitch = 0.3; camS.h = 1.2; camS.snap = false; } else { camS.h = null; camS.yaw = 0.55; camS.dist = 5.2; camS.pitch = 0.3; }
+  }
+  $('modeBtn').onclick = () => setDuel(!duel);
+  document.querySelectorAll('#duelPanel button[data-a]').forEach((b) => (b.onclick = () => npcDo(b.dataset.a)));
+  document.querySelectorAll('#regions button').forEach((b) => (b.onclick = () => { aimRegion = b.dataset.r; document.querySelectorAll('#regions button').forEach((x) => x.classList.toggle('on', x === b)); }));
+  $('autoAtk').onchange = (e) => (duelAuto = e.target.checked);
+
+  const REGIONS = ['head', 'chest', 'heart', 'gut', 'arm', 'leg', 'knee', 'foot'];
+  function regionPoint(r, sd) {
+    switch (r) {
+      case 'head': return pos[HED].clone(); case 'chest': return pos[SPN].clone(); case 'heart': return zoneList()[1].c;
+      case 'gut': return pos[PEL].clone().lerp(pos[SPN], 0.45); case 'arm': return pos[sd ? UAR : UAL].clone(); case 'leg': return pos[sd ? THR : THL].clone();
+      case 'knee': return pos[sd ? KNR : KNL].clone(); case 'foot': return pos[sd ? ANR : ANL].clone().lerp(pos[sd ? TOR : TOL], 0.3);
+    } return pos[SPN].clone();
+  }
+  function npcDo(kind) {
+    if (!duel || npc.act || fig.dead || fig.c <= 0.02) return;
+    const r = aimRegion === 'random' ? REGIONS[(Math.random() * REGIONS.length) | 0] : aimRegion;
+    npc.act = { kind, t: 0, fired: false, phase: kind === 'shove' ? 'approach' : 'go', region: r, side: Math.random() < 0.5 ? 0 : 1 };
+  }
+
+  // a bullet / knife hit on the player, through the same wound, bone, vital-zone and stumble code the sandbox uses
+  function applyHit(kind, hit, dir) {
+    const ud = hit.object.userData, a = ud.a, b = ud.b, p = hit.point.clone(), A = pos[a], B = pos[b], ab = new V3().subVectors(B, A), l2 = ab.lengthSq();
+    const t = l2 > 1e-6 ? clamp(new V3().subVectors(p, A).dot(ab) / l2, 0, 1) : 0, pistol = kind === 'pistol', thrown = kind === 'throw';
+    const sn = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize(); if (sn.dot(dir) > 0) sn.negate();
+    const w = addWound(a, b, ud.kind, p, dir, pistol ? 1 : 0.75, sn, pistol ? 'bullet' : 'cut', ud.mat0 || hit.object.material);
+    hitImpulse(a, b, t, new V3(dir.x, dir.y * 0.3, dir.z).normalize(), pistol ? 2.4 : 1.1);
+    const z = zoneHit(p, dir, pistol ? 0.7 : 0.06); if (z) applyZone(z, w);
+    if (ud.bone) boneDamage(ud.bone, ud.side, pistol ? (Math.random() < 0.08 ? 100 : rnd(20, 36)) : (Math.random() < 0.03 ? 100 : rnd(6, 14)));
+    playPain(pistol ? 1 : 0.7);
+    if (thrown) { w.knife = makeKnife(); w.kdx = dir.dot(frame.side); w.kdy = dir.dot(frame.up); w.kdz = dir.dot(frame.fwd); scene.add(w.knife); sound('thud'); }
+    if (pistol) for (let i = 0; i < 10; i++) spawnDrop(p, dir.x * (0.8 + Math.random() * 2) + (Math.random() - 0.5), dir.y * 1.5 + Math.random() * 1.2, dir.z * (0.8 + Math.random() * 2) + (Math.random() - 0.5), 0.008 + Math.random() * 0.01);
+    shake = Math.max(shake, 0.05);
+  }
+  const rc = new THREE.Raycaster();
+  function hitscan(kind, origin, dir, far) {
+    rc.set(origin, dir); rc.far = far; const hits = rc.intersectObjects(bodyMeshes, false);
+    if (hits.length) { applyHit(kind, hits[0], dir); return hits[0].point; } return null;
+  }
+
+  // ---- attacker behaviour & posing ----
+  const ez = (k) => k * k * (3 - 2 * k), pole = new V3();
+  function reach(side, target) {                                                   // arm IK onto a world point
+    const S = NP[side ? SHR : SHL]; pole.set(0, 0, 0).addScaledVector(nf.side, side ? 0.8 : -0.8).addScaledVector(nf.up, -0.5).addScaledVector(nf.fwd, -0.3);
+    ik(S, target, 0.3, 0.28, pole, NP[side ? ELR : ELL], NP[side ? HAR : HAL]);
+  }
+  function npcFrame() { nf.side.subVectors(NP[SHR], NP[SHL]).normalize(); nf.up.subVectors(NP[NCK], NP[PEL]).normalize(); nf.fwd.crossVectors(nf.side, nf.up).normalize(); nf.side.crossVectors(nf.up, nf.fwd).normalize(); }
+  const vA = new V3(), vB = new V3(), vC = new V3(), aimDir = new V3();
+  function updateNpc(dt) {
+    if (!duel) return;
+    const dx = pos[PEL].x - npc.pos.x, dz = pos[PEL].z - npc.pos.z, dist = Math.hypot(dx, dz), out = fig.dead || fig.c <= 0.02;
+    npc.yaw += wrapA(Math.atan2(dx, dz) - npc.yaw) * Math.min(1, dt * 6);
+    let a = npc.act, mv = 0;
+    if (out && a) { npc.act = a = null; gun.visible = heldKnife.visible = nade.visible = false; }
+    if (duelAuto && !a && !out) { autoT -= dt; if (autoT <= 0) { autoT = 1.8 + Math.random() * 2; const r = Math.random(); npcDo(r < 0.4 ? 'shoot' : r < 0.65 ? 'throw' : r < 0.8 ? 'shove' : 'grenade'); a = npc.act; } }
+    if (!a) { if (dist > 8.5) mv = 2.3; else if (dist < 3.6 && !out) mv = -1.8; }
+    else if (a.kind === 'shove') {
+      if (a.phase === 'approach') { mv = 3.4; if (dist < 1.15) { a.phase = 'hit'; a.t = 0; } }
+      else if (a.phase === 'hit') a.t += dt; else { mv = -2.2; a.t += dt; if (a.t > 1.1) npc.act = a = null; }
+    } else a.t += dt;
+    npc.pos.x += Math.sin(npc.yaw) * mv * dt; npc.pos.z += Math.cos(npc.yaw) * mv * dt;
+    npc.walk += (Math.min(1, Math.abs(mv) / 1.1) - npc.walk) * (1 - Math.exp(-dt * 10)); npc.phase += (mv / 1.45) * Math.PI * 2 * dt;
+
+    // locomotion on the rig
+    const R = NR, w = npc.walk, ph = npc.phase, sL = Math.sin(ph), sR = Math.sin(ph + Math.PI), cL = Math.cos(ph), cR = Math.cos(ph + Math.PI), A = 0.5, K = 0.8, br = Math.sin(performance.now() * 0.0018);
+    R.root.position.set(npc.pos.x, 0, npc.pos.z); R.root.rotation.y = npc.yaw;
+    R.hips.position.y = HIP_Y - 0.02 * w + 0.03 * Math.abs(cL) * w; R.hips.rotation.y = sL * 0.14 * w; R.torso.rotation.set(0.01 * br * (1 - w), -sL * 0.2 * w, 0);
+    [[sL, cL], [sR, cR]].forEach(([sn, cs], i) => {
+      const L = R.legs[i]; L.th.rotation.x = -sn * A * w; L.shin.rotation.x = Math.max(0, cs) * K * w + 0.06 * w; L.foot.rotation.x = -(L.th.rotation.x + L.shin.rotation.x) * 0.7;
+      R.arms[i].upper.rotation.x = sn * A * 0.85 * w; R.arms[i].upper.rotation.z = (i ? -1 : 1) * (0.07 + 0.02 * w); R.arms[i].fore.rotation.x = -0.12 - 0.25 * w;
+    });
+    R.root.updateMatrixWorld(true); R.markers.forEach((m, i) => m.getWorldPosition(NP[i]));
+    npcFrame(); gun.visible = heldKnife.visible = nade.visible = false;
+    if (a) poseAction(a, dt);
+    for (const [m, p, q] of [[UAL, SHL, ELL], [UAR, SHR, ELR], [FAL, ELL, HAL], [FAR, ELR, HAR]]) NP[m].addVectors(NP[p], NP[q]).multiplyScalar(0.5);
+    updateProjectiles(dt);
+  }
+  function poseAction(a, dt) {
+    const player = fig, handR = NP[HAR].clone(), restL = NP[HAL].clone(), shR = NP[SHR];
+    if (a.kind === 'shoot') {
+      const q = regionPoint(a.region, a.side); aimDir.subVectors(q, shR).normalize();
+      const e = ez(clamp(a.t / 0.45, 0, 1)) * (1 - ez(clamp((a.t - 1.0) / 0.3, 0, 1))), recoil = a.fired ? Math.exp(-(a.t - 0.5) * 14) : 0;
+      vA.copy(shR).addScaledVector(aimDir, 0.55).addScaledVector(nf.up, -0.02); vA.lerpVectors(handR, vA, e).addScaledVector(aimDir, -0.05 * recoil).addScaledVector(nf.up, 0.03 * recoil); reach(1, vA);
+      vB.copy(vA).addScaledVector(nf.side, -0.05).addScaledVector(aimDir, 0.02); vB.lerpVectors(restL, vB, e); reach(0, vB);
+      gun.visible = a.t < 1.25; gun.position.copy(NP[HAR]); gun.lookAt(vC.copy(NP[HAR]).add(aimDir));
+      if (!a.fired && a.t >= 0.5) {
+        a.fired = true; vC.copy(gun.position).addScaledVector(aimDir, 0.2); const tgt = q.clone().add(new V3(rnd(-0.03, 0.03), rnd(-0.03, 0.03), rnd(-0.03, 0.03))); const d = tgt.sub(vC).normalize();
+        const hp = hitscan('pistol', vC.clone(), d, 60); tracer(vC.clone(), hp || vC.clone().addScaledVector(d, 30), 0xffe6a0); sound('shot'); flash(0.15);
+      }
+      if (a.t > 1.3) npc.act = null;
+    } else if (a.kind === 'throw' || a.kind === 'grenade') {
+      const q = regionPoint(a.kind === 'grenade' ? 'chest' : a.region, a.side), gren = a.kind === 'grenade', wind = gren ? 0.55 : 0.42;
+      vA.copy(shR).addScaledVector(nf.fwd, -0.22).addScaledVector(nf.up, 0.34).addScaledVector(nf.side, 0.06);          // wind-up: hand back and high
+      vB.copy(shR).addScaledVector(nf.fwd, 0.5).addScaledVector(nf.up, -0.08);                                          // follow-through
+      const phase = a.t < wind ? 0 : 1, e = phase === 0 ? ez(clamp(a.t / wind, 0, 1)) : ez(clamp((a.t - wind) / 0.22, 0, 1));
+      vC.copy(phase === 0 ? vC.lerpVectors(handR, vA, e) : vC.lerpVectors(vA, vB, e)); reach(1, vC);
+      if (a.t < wind + 0.02) { if (gren) { nade.visible = true; nade.position.copy(NP[HAR]); } else { heldKnife.visible = true; heldKnife.position.copy(NP[HAR]); heldKnife.quaternion.setFromUnitVectors(Z, aimDir.set(0, 0.2, 1).applyAxisAngle(Yax, npc.yaw).normalize()); } }
+      if (!a.fired && a.t >= wind) {
+        a.fired = true; const from = NP[HAR].clone();
+        if (gren) {
+          const T = clamp(from.distanceTo(pos[PEL]) / 9, 0.75, 1.35), tgt = pos[PEL].clone(); tgt.x += (pos[PEL].x - prev[PEL].x) / hStep * T * 0.6; tgt.z += (pos[PEL].z - prev[PEL].z) / hStep * T * 0.6; tgt.y = 0.12;
+          const v = new V3((tgt.x - from.x) / T, (tgt.y - from.y + 0.5 * 9.8 * T * T) / T, (tgt.z - from.z) / T);
+          const m = nade.clone(); m.visible = true; scene.add(m); projectiles.push({ kind: 'nade', mesh: m, p: from, v, t: 0, T });
+        } else {
+          const T = from.distanceTo(q) / 20, tgt = q.clone(); tgt.x += (pos[PEL].x - prev[PEL].x) / hStep * T; tgt.z += (pos[PEL].z - prev[PEL].z) / hStep * T;
+          const d = tgt.sub(from).normalize(), m = makeKnife(); scene.add(m); projectiles.push({ kind: 'knife', mesh: m, p: from, v: d.clone().multiplyScalar(20), t: 0 });
+        }
+        sound('thud');
+      }
+      if (a.t > wind + 0.4) npc.act = null;
+    } else if (a.kind === 'shove' && a.phase === 'hit') {
+      const chest = pos[SPN]; vA.copy(chest).addScaledVector(nf.up, 0.05).addScaledVector(nf.side, -0.1); vB.copy(chest).addScaledVector(nf.up, 0.05).addScaledVector(nf.side, 0.1);
+      const e = ez(clamp(a.t / 0.2, 0, 1)); reach(0, vC.lerpVectors(restL, vA, e)); reach(1, vC.lerpVectors(handR, vB, e));
+      if (!a.fired && a.t >= 0.14) {
+        a.fired = true; const d = new V3(pos[PEL].x - npc.pos.x, 0, pos[PEL].z - npc.pos.z).normalize(); hitImpulse(SPN, NCK, 0.5, d, 6.5);
+        player.stun = Math.min(1, player.stun + 0.5); sound('thud'); shake = Math.max(shake, 0.05); playPain(0.6);
+      }
+      if (a.t > 0.5) { a.phase = 'retreat'; a.t = 0; }
+    }
+  }
+  function updateProjectiles(dt) {
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const pr = projectiles[i]; pr.t += dt; let done = false;
+      if (pr.kind === 'knife') {
+        const step = pr.v.clone().multiplyScalar(dt), len = step.length(), dir = step.clone().normalize();
+        const hp = hitscan('throw', pr.p.clone(), dir, len + 0.03);
+        if (hp) done = true; else { pr.p.add(step); pr.mesh.position.copy(pr.p); pr.mesh.quaternion.setFromUnitVectors(Z, dir); if (pr.p.y < 0.03 || pr.t > 2.5) done = true; }
+      } else {
+        pr.v.y -= 9.8 * dt; pr.p.addScaledVector(pr.v, dt); pr.mesh.position.copy(pr.p); pr.mesh.rotation.x += dt * 9;
+        if (pr.p.y <= 0.1 || pr.t > pr.T + 0.6) { done = true; blast(new V3(pr.p.x, 0.18, pr.p.z)); }
+      }
+      if (done) { scene.remove(pr.mesh); projectiles.splice(i, 1); }
+    }
+  }
+  function syncNpc() {
+    if (!duel) return;
+    const P = NP; npcFrame(); const { side, up, fwd } = nf;
+    for (const L of NV.limbs) placeLimb(L.m, P[L.a], P[L.b]); for (const B of NV.balls) B.m.position.copy(P[B.i]);
+    const T = NV.torso, tl = Math.max(0.2, P[PEL].distanceTo(P[NCK]) - 0.14);
+    T.position.copy(P[PEL]).addScaledVector(up, 0.1); basisQuat(side, up, fwd, T.quaternion); T.scale.set(1, tl, 1);
+    NV.shoulders.position.copy(P[NCK]).addScaledVector(up, -0.03); NV.shoulders.quaternion.copy(T.quaternion);
+    NV.hips.position.copy(P[PEL]).addScaledVector(up, -0.01); NV.hips.quaternion.copy(T.quaternion);
+    NV.torsoGear.position.copy(T.position); NV.torsoGear.quaternion.copy(T.quaternion); NV.torsoGear.scale.set(1, tl / 0.56, 1);
+    NV.hipGear.position.copy(P[PEL]); NV.hipGear.quaternion.copy(T.quaternion);
+    [0, 1].forEach((i) => {
+      const k = P[LEGS[i].knee], d = tmp2.subVectors(P[LEGS[i].hip], P[LEGS[i].ank]).normalize();
+      by.copy(d); bz.copy(fwd).addScaledVector(d, -fwd.dot(d)).normalize(); bx.crossVectors(by, bz).normalize();
+      NV.kneePads[i].position.copy(k).addScaledVector(bz, 0.066); basisQuat(bx, by, bz, NV.kneePads[i].quaternion);
+      const w = P[ARMP[i][4]], fa = P[ARMP[i][3]]; by.subVectors(w, fa).normalize(); bz.copy(fwd).addScaledVector(by, -fwd.dot(by)).normalize(); bx.crossVectors(by, bz).normalize();
+      NV.hands[i].position.copy(w).addScaledVector(by, 0.005); basisQuat(bx, by, bz, NV.hands[i].quaternion);
+      const a = P[LEGS[i].ank], t = P[LEGS[i].toe], F = NV.feet[i];
+      tmp2.subVectors(t, a).normalize(); tmp3.crossVectors(tmp2, side).normalize(); const sd = new V3().crossVectors(tmp3, tmp2).normalize();
+      basisQuat(sd, tmp3, tmp2, F.quaternion); F.position.lerpVectors(a, t, 0.35).addScaledVector(tmp3, -0.03);
+    });
+    tmp.subVectors(P[HED], P[NCK]).normalize(); tmp2.crossVectors(side, tmp).normalize(); const sd2 = new V3().crossVectors(tmp, tmp2).normalize();
+    NV.head.position.copy(P[HED]).addScaledVector(tmp, -0.042); basisQuat(sd2, tmp, tmp2, NV.head.quaternion); NV.head.scale.setScalar(1.1);
+  }
+
+  // ================= lifecycle =================
+  function reset() { duelReset(); stopPain(); release(); dropN = 0; poolCtx.clearRect(0, 0, 1024, 1024); poolTex.needsUpdate = true; poolCells.clear(); fig = newFig(); }
+  reset();
+  function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+  addEventListener('resize', resize); resize();
+
+  // ================= HUD =================
+  function updateHud() {
+    const f = fig;
+    $('blood').style.width = f.blood + '%'; $('bloodTxt').textContent = Math.round(f.blood) + '%';
+    $('cons').style.width = Math.round(f.c * 100) + '%'; $('consWrap').style.display = (f.c <= 0.02 || f.dead) ? 'none' : 'block'; $('wcount').textContent = f.wounds.length;
+    $('deadMsg').style.display = duel && (f.dead || f.c <= 0.02) ? 'flex' : 'none'; $('deadTitle').textContent = f.dead ? 'YOU DIED' : 'KNOCKED OUT';
+    let s = 'Standing';
+    if (f.dead) s = 'DEAD';
+    else if (f.c <= 0.05) s = f.down ? 'Unconscious, bleeding out' : 'Losing consciousness';
+    else if (grab && grab.mode === 'lift') s = 'Being carried';
+    else if (f.down) s = f.wounds.length ? 'Collapsed, clutching wounds' : 'Knocked down';
+    else if (f.walking) s = f.wounds.length ? 'Limping along' : 'Walking';
+    else if (f.err > 0.22 || f.buckle[0] || f.buckle[1]) s = f.wounds.length ? 'Stumbling, clutching wounds' : 'Stumbling';
+    else if (f.wounds.length) s = f.c < 0.5 ? 'Swaying, fading' : 'Clutching wounds';
+    if (!f.dead && f.c > 0.05 && !f.down && (f.limp[0] > 0.5 || f.limp[1] > 0.5) && s === 'Standing') s = 'Limping';
+    $('status').textContent = s; $('status').style.color = f.dead ? '#e05555' : '#e8e8ee';
+    const inj = f.injuries.join('\n'); if ($('injuries').dataset.v !== inj) { $('injuries').dataset.v = inj; $('injuries').textContent = inj ? 'Injuries:\n' + inj : ''; }
+  }
+
+  // ================= main loop =================
+  let last = performance.now();
+  const wp = new V3();
+  function loop(now) {
+    const real = clamp((now - last) / 1000, 0.001, 0.033); last = now;   // (the first rAF timestamp can predate `last` after a long load)
+    const dt = real * (slow ? 0.2 : 1);
+    updateWalkInput(); updateNpc(dt); control(dt);
+    hStep = dt / SUB;
+    for (let i = 0; i < SUB; i++) physics(hStep);
+    syncBody(fig); syncNpc();
+    const f = fig, pressure = clamp(f.blood / 100, 0.1, 1);
+    for (const w of f.wounds) {
+      woundWorld(w, wp); updateWoundVisuals(w, wp, dt);
+      if (w.knife) { tmp.set(0, 0, 0).addScaledVector(frame.side, w.kdx).addScaledVector(frame.up, w.kdy).addScaledVector(frame.fwd, w.kdz).normalize(); w.knife.position.copy(wp).addScaledVector(tmp, 0.02); w.knife.quaternion.setFromUnitVectors(Z, tmp); }
+      if (w.rate < 0.03) continue;
+      const minor = w.rate0 < 1.2 && !w.heart;
+      w.acc += w.rate * (minor ? 3 : 14) * dt;
+      const pulse = 0.35 + 0.65 * Math.max(0, Math.sin(f.t * 2 * Math.PI * (1.1 + 0.6 * (1 - pressure)))), spurt = w.sev > 0.9 ? (w.heart ? 2.6 : 1.6) * pulse * pressure : 0;
+      while (minor && w.acc > 1) { w.acc -= 1; spawnDrop(wp, rnd(-0.03, 0.03), -0.05, rnd(-0.03, 0.03), rnd(0.011, 0.018)); }      // single heavy drops
+      while (!minor && w.acc > 1) {
+        w.acc -= 1; const sp = spurt * (0.4 + Math.random() * 0.6) + 0.15 * Math.random();
+        spawnDrop(wp, w.dir.x * sp + (Math.random() - 0.5) * 0.4, w.dir.y * sp * 0.5 + spurt * 0.6 * Math.random() + (Math.random() - 0.3) * 0.3, w.dir.z * sp + (Math.random() - 0.5) * 0.4, 0.007 + Math.random() * 0.01);
+      }
+    }
+    stepDrops(dt);
+    if (thermal) updateThermal(f, now);
+    for (let i = tracers.length - 1; i >= 0; i--) {
+      const t = tracers[i];
+      if (t.userData.blast !== undefined) { t.userData.blast += real; const k = t.userData.blast / 0.35; t.scale.setScalar(1 + k * 14); t.material.opacity = Math.max(0, 0.8 - k); if (k >= 1) { scene.remove(t); tracers.splice(i, 1); } }
+      else { t.userData.t -= real; if (t.userData.t <= 0) { scene.remove(t); tracers.splice(i, 1); } }
+    }
+    camS.look.lerp(tmp.set(pos[PEL].x, camS.h || 1.0, pos[PEL].z), camS.snap ? 1 : 1 - Math.exp(-real * 3));
+    shake *= 0.85;
+    camera.position.set(camS.look.x + Math.sin(camS.yaw) * Math.cos(camS.pitch) * camS.dist + (Math.random() - 0.5) * shake, camS.look.y + Math.sin(camS.pitch) * camS.dist + (Math.random() - 0.5) * shake, camS.look.z + Math.cos(camS.yaw) * Math.cos(camS.pitch) * camS.dist);
+    camera.lookAt(camS.look);
+    sun.position.set(camS.look.x + 5, 11, camS.look.z + 4); sun.target.position.copy(camS.look);
+    updateHud();
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  window.__rd = { vestMat, scene, renderer, pain, G, zoneList, setThermal, boneDamage, breakBone, zoneHit, applyZone, get fig() { return fig; }, pos, camera, camS, addWound, hitImpulse, setTool, reset, blast, bodyMeshes, get grab() { return grab; } };
+})();
+</script>
+</body>
+</html>

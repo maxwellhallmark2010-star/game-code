@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ragdoll Lab</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #15171c; font-family: system-ui, sans-serif; color: #e8e8ee; user-select: none; touch-action: none; }
+  canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 230px; font-size: 13px; line-height: 1.5; background: rgba(10,10,14,.65); padding: 10px 12px; border-radius: 8px; pointer-events: none; }
+  .bar { height: 8px; background: #2a2c33; border-radius: 4px; overflow: hidden; margin: 2px 0 8px; }
+  .bar i { display: block; height: 100%; width: 100%; background: #c0272d; transition: width .15s; }
+  .bar.c i { background: #7aa7d9; }
+  #status { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+  #tools { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; width: 96vw; }
+  #tools button { font: inherit; font-size: 14px; padding: 9px 13px; border-radius: 8px; border: 2px solid #3a3d47; background: rgba(20,22,28,.85); color: #e8e8ee; cursor: pointer; }
+  #tools button.on { border-color: #e8e8ee; background: #353944; }
+  #tools button:hover { background: #2c2f38; }
+  #help { position: fixed; top: 12px; right: 12px; font-size: 12px; opacity: .6; text-align: right; line-height: 1.6; pointer-events: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel">
+  <div id="status">Standing</div>
+  Blood <span id="bloodTxt"></span><div class="bar"><i id="blood"></i></div>
+  Consciousness<div class="bar c"><i id="cons"></i></div>
+  Wounds: <span id="wcount">0</span>
+</div>
+<div id="help">Click the dummy to use the selected tool<br>R reset &nbsp;&middot;&nbsp; Space slow-motion &nbsp;&middot;&nbsp; 1-5 tools</div>
+<div id="tools">
+  <button data-t="pistol" class="on">1 Pistol</button>
+  <button data-t="knife">2 Knife</button>
+  <button data-t="shove">3 Shove</button>
+  <button data-t="blast">4 Blast</button>
+  <button data-t="drag">5 Grab &amp; throw</button>
+  <button id="reset">Reset (R)</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<script>
+(() => {
+  const { Engine, Bodies, Body, Composite, Constraint, Query, Vertices } = Matter;
+  const $ = (id) => document.getElementById(id);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const wrap = (a) => { a = (a + Math.PI) % (2 * Math.PI); if (a < 0) a += 2 * Math.PI; return a - Math.PI; };
+  const G = 520;                    // ground line (world y)
+  const SUB = 3, SUBMS = 1000 / 180;
+  let DT = SUBMS;                   // effective ms per physics substep (includes slow-motion)
+
+  // ================= physics world =================
+  const engine = Engine.create({ positionIterations: 8, velocityIterations: 6, constraintIterations: 6 });
+  engine.gravity.y = 1;
+  const ground = Bodies.rectangle(0, G + 60, 60000, 120, { isStatic: true, friction: 1, frictionStatic: 2 });
+  Composite.add(engine.world, ground);
+
+  // ================= figure =================
+  const ARM = [14, 13], LEG = [20, 19];           // half-lengths of the two segments (upper arm 28 + forearm 26, thigh 40 + shin 38)
+  const L_UP = 28, L_FORE = 26, L_THIGH = 40, L_SHIN = 38;
+  let fig = null;
+
+  function makeFigure(X) {
+    const grp = Body.nextGroup(true);
+    const mk = (x, y, w, h, o = {}) => Bodies.rectangle(x, y, w, h, Object.assign({
+      collisionFilter: { group: grp }, friction: 0.7, frictionStatic: 0.9, restitution: 0, frictionAir: 0.015, density: 0.001,
+      chamfer: { radius: Math.min(w, h) * 0.4 },
+    }, o));
+    const all = [], joints = [];
+    const add = (b) => { all.push(b); return b; };
+    const joint = (a, b, pa, pb) => { const c = Constraint.create({ bodyA: a, bodyB: b, pointA: pa, pointB: pb, stiffness: 1, length: 0, damping: 0.05 }); joints.push(c); return c; };
+    const pelvis = add(mk(X, G - 90, 30, 18));
+    const chest = add(mk(X, G - 123, 32, 48));
+    const head = add(Bodies.circle(X, G - 161, 13, { collisionFilter: { group: grp }, friction: 0.6, restitution: 0, frictionAir: 0.015, density: 0.0012 }));
+    joint(pelvis, chest, { x: 0, y: -9 }, { x: 0, y: 24 });
+    joint(chest, head, { x: 0, y: -24 }, { x: 0, y: 14 });
+    const limits = [
+      [pelvis, chest, -0.45, 0.9], [chest, head, -0.7, 0.7],
+    ];
+    const limbs = [];
+    for (const far of [true, false]) {
+      const sh = add(mk(X, G - 140 + 14, 10, 28)), fo = add(mk(X, G - 99, 9, 26));
+      joint(chest, sh, { x: 0, y: -17 }, { x: 0, y: -14 });
+      joint(sh, fo, { x: 0, y: 14 }, { x: 0, y: -13 });
+      limits.push([chest, sh, -3.0, 2.3], [sh, fo, -2.6, 0]);
+      const th = add(mk(X, G - 66, 14, 40)), sn = add(mk(X, G - 27, 11, 38));
+      const ft = add(mk(X + 6, G - 4, 24, 8, { friction: 1.4, frictionStatic: 2.5, chamfer: { radius: 3 } }));
+      joint(pelvis, th, { x: 0, y: 4 }, { x: 0, y: -20 });
+      joint(th, sn, { x: 0, y: 20 }, { x: 0, y: -19 });
+      joint(sn, ft, { x: 0, y: 19 }, { x: -6, y: -4 });
+      limits.push([pelvis, th, -1.9, 0.9], [th, sn, 0, 2.5], [sn, ft, -0.6, 0.6]);
+      limbs.push({ far, upper: sh, fore: fo, thigh: th, shin: sn, foot: ft, plant: X, swing: null });
+    }
+    Composite.add(engine.world, all.concat(joints));
+    const mass = all.reduce((a, b) => a + b.mass, 0);
+    const parts = new Map();   // body -> drawing info
+    const P = (b, w, h, r, col, kind) => parts.set(b, { w, h, r, col, kind });
+    const skin = '#d9ad86', shirt = '#3f6fb0', pants = '#3a3e4a', shoe = '#1d1d22';
+    P(pelvis, 30, 18, 6, pants, 'pelvis'); P(chest, 32, 48, 10, shirt, 'chest'); P(head, 26, 26, 13, skin, 'head');
+    limbs.forEach((l) => { P(l.upper, 10, 28, 5, shirt, 'arm'); P(l.fore, 9, 26, 4.5, skin, 'arm'); P(l.thigh, 14, 40, 6, pants, 'leg'); P(l.shin, 11, 38, 5, pants, 'leg'); P(l.foot, 24, 8, 3, shoe, 'foot'); });
+    return { all, joints, limits, limbs, pelvis, chest, head, mass, parts, wounds: [], blood: 100, c: 1, stun: 0, brain: 0, brainT: 0, dead: false, down: false, downT: 0, upT: 0, recover: 1, t: 0, flinch: 1, hands: [null, null], deadT: 0 };
+  }
+
+  // ================= helpers =================
+  const rot = (b, lx, ly) => { const c = Math.cos(b.angle), s = Math.sin(b.angle); return { x: b.position.x + lx * c - ly * s, y: b.position.y + lx * s + ly * c }; };
+  const toLocal = (b, p) => { const c = Math.cos(-b.angle), s = Math.sin(-b.angle), dx = p.x - b.position.x, dy = p.y - b.position.y; return { x: dx * c - dy * s, y: dx * s + dy * c }; };
+  const ang = (dx, dy) => Math.atan2(-dx, dy);                 // angle of a body whose long axis points along (dx,dy), 0 = hanging straight down
+  // PD controller on a body's absolute angle. f = natural frequency (Hz), k = strength 0..1
+  function pd(b, target, f, z, k, ref) {
+    if (k <= 0.001) return 0;
+    const w = 2 * Math.PI * f / 1000, err = wrap(target - b.angle), om = (b.angle - b.anglePrev) / DT;
+    const t = b.inertia * (w * w * err - 2 * z * w * om) * k;
+    b.torque += t;
+    if (ref) { const r = Array.isArray(ref) ? ref : [ref]; r.forEach((o) => (o.torque -= t / r.length)); }   // muscles are internal: equal and opposite
+    return t;
+  }
+  function limit(a, b, lo, hi) {                               // soft joint limits
+    const rel = wrap(b.angle - a.angle), w = 2 * Math.PI * 14 / 1000, om = ((b.angle - b.anglePrev) - (a.angle - a.anglePrev)) / DT;
+    let err = 0; if (rel < lo) err = lo - rel; else if (rel > hi) err = hi - rel; else return;
+    const red = a.inertia * b.inertia / (a.inertia + b.inertia);       // reduced inertia keeps both bodies' accelerations bounded
+    const al = (w * w * err - 2 * 0.8 * w * om) * red;
+    b.torque += al; a.torque -= al;
+  }
+  function ik(H, T, L1, L2, bend) {
+    const dx = T.x - H.x, dy = T.y - H.y, d = Math.hypot(dx, dy), dc = clamp(d, Math.abs(L1 - L2) + 1, L1 + L2 - 0.5);
+    const base = ang(dx, dy), A = Math.acos(clamp((L1 * L1 + dc * dc - L2 * L2) / (2 * L1 * dc), -1, 1));
+    const t1 = base + bend * A, kx = H.x - L1 * Math.sin(t1), ky = H.y + L1 * Math.cos(t1);
+    return [t1, ang(T.x - kx, T.y - ky)];
+  }
+  const woundPos = (w) => rot(w.body, w.lx, w.ly);
+  const ownerLimb = (f, body) => f.limbs.findIndex((l) => l.upper === body || l.fore === body);
+  const legOwner = (f, body) => f.limbs.findIndex((l) => l.thigh === body || l.shin === body || l.foot === body);
+
+  // ================= controller =================
+  function control(f) {
+    f.t += DT / 1000;
+    // --- bleeding ---
+    let bleed = 0, legWound = [0, 0], torso = 0, headW = 0;
+    for (const w of f.wounds) {
+      w.t += DT / 1000; w.rate = w.rate0 * (0.4 + 0.6 * Math.exp(-w.t / 50)); bleed += w.rate; w.lost += w.rate * DT / 1000;
+      const k = f.parts.get(w.body).kind;
+      if (k === 'chest' || k === 'pelvis') torso += w.sev; else if (k === 'head') headW += w.sev;
+      const li = legOwner(f, w.body); if (li >= 0) legWound[li] += w.sev;
+    }
+    f.blood = Math.max(0, f.blood - bleed * (f.dead ? 0.35 : 1) * DT / 1000);
+    f.stun = Math.max(0, f.stun - DT / 1000 * 0.75);
+    const cBlood = clamp((f.blood - 18) / 45, 0, 1); f.c = Math.min(cBlood, 1 - f.brain);
+    if (f.brain >= 1 && !f.dead) { f.brainT += DT / 1000; if (f.brainT > 5) f.dead = true; }
+    if (f.blood <= 0 && !f.dead) f.dead = true;
+    if (f.dead) f.deadT += DT / 1000;
+
+    const { chest, pelvis, head } = f;
+    // --- are we down? ---
+    const tilt = Math.abs(wrap(chest.angle)) > 1.1 || pelvis.position.y > G - 52;
+    f.downT = tilt ? f.downT + DT / 1000 : 0;
+    if (!f.down && f.downT > 0.45) { f.down = true; f.upT = 0; }
+    if (f.down) {
+      f.upT += DT / 1000;
+      if (!f.dead && f.wounds.length === 0 && f.c > 0.8 && f.upT > 1.6 && pelvis.position.y > G - 60) { f.down = false; f.recover = 0; }
+    }
+    f.recover = Math.min(1, f.recover + DT / 1000 / 1.3);
+
+    // joint limits always apply (even when dead)
+    for (const [a, b, lo, hi] of f.limits) limit(a, b, lo, hi);
+    if (f.dead) {                                              // limp: only a little joint friction so it doesn't jitter
+      for (const b of f.all) b.frictionAir = 0.03;
+      return;
+    }
+
+    const s = f.c * (1 - 0.8 * f.stun) * f.recover;           // overall stability
+    const sS = f.down ? s * 0.08 : s;                          // standing strength
+    const woundN = f.wounds.length, hurtF = clamp((1 - f.c) + 0.25 * Math.min(3, woundN) + f.stun * 0.5, 0, 1.4);
+
+    // --- centre of mass / capture point ---
+    let cx = 0, vx = 0;
+    for (const b of f.all) { cx += b.mass * b.position.x; vx += b.mass * (b.position.x - b.positionPrev.x) / DT; }
+    cx /= f.mass; vx /= f.mass;
+    const px = pelvis.position.x, pvx = (pelvis.position.x - pelvis.positionPrev.x) / DT;
+    const cp = px + 0.4 * (cx - px) + pvx * 170;
+
+    // --- vertical support (virtual leg strength) ---
+    const feet = f.limbs.map((l) => l.foot), grounded = feet.some((ft) => ft.position.y > G - 12);
+    const legWeak = clamp((legWound[0] + legWound[1]) * 0.3, 0, 0.6);
+    const crouch = clamp(0.12 * hurtF + legWeak * 0.8 + (1 - sS) * 0.5, 0, 0.65);
+    if (grounded && sS > 0.02) {
+      const targetY = G - 91 * (1 - crouch * 0.45) , err = pelvis.position.y - targetY, vy = (pelvis.position.y - pelvis.positionPrev.y) / DT;
+      const wn = 2 * Math.PI * 3 / 1000, g = 0.001;
+      const a = clamp(g * 0.92 * clamp(sS * 1.15, 0, 1) + wn * wn * err * sS - 2 * 0.9 * wn * vy * sS, 0, 2.2 * g);
+      pelvis.force.y -= f.mass * a;
+    }
+
+    if (grounded) pelvis.force.x -= f.mass * pvx * (0.0009 + 0.0009 * clamp(1 - hurtF * 1.2, 0, 1)) * sS;   // calm stance: bleed off drift
+    // --- upright / lean (stumbling comes from this noisy lean target) ---
+    const wob = Math.sin(f.t * 1.9 + 1.3) * 0.5 + Math.sin(f.t * 3.1) * 0.5;
+    const curl = clamp(torso * 0.2 + legWeak * 0.4 + headW * 0.12, 0, 0.45);
+    const lean = 0.0 + curl + wob * 0.16 * clamp(hurtF, 0, 1) + f.flinch * f.stun * 0.35;
+    // chest/pelvis uprightness is a 'sky-hook' balance aid. A torque from nowhere would be balanced by the ground
+    // shoving the feet sideways (the dummy would creep), so cancel it with an equal and opposite horizontal force at the hip.
+    const Tsky = pd(chest, lean, 2.6, 0.9, sS) + pd(pelvis, -0.04 * wob * hurtF, 3.4, 0.9, sS);
+    if (grounded) pelvis.force.x -= clamp(Tsky / Math.max(40, G - pelvis.position.y), -f.mass * 0.004, f.mass * 0.004);
+    pd(head, chest.angle * 0.7 + headW * 0.2 - 0.05, 5, 0.8, 0.25 + 0.75 * sS, chest);
+
+    // --- legs: capture-point stepping + two-link IK ---
+    const hip = rot(pelvis, 0, 4);
+    const swinging = f.limbs.some((l) => l.swing);
+    f.dbg = { cp, px, cx, pvx, plant0: f.limbs[0].plant, plant1: f.limbs[1].plant, n: (f.dbg ? f.dbg.n : 0) + (swinging && !(f.dbg && f.dbg.sw) ? 1 : 0), sw: swinging };
+    const planted = f.limbs.map((l) => l.plant), xs = (planted[0] + planted[1]) / 2;
+    if (!swinging && !f.down && sS > 0.25) {
+      const dev = cp - xs, thr = 20 + (1 - sS) * 14;
+      let step = null;
+      if (Math.abs(dev) > thr) {
+        const i = Math.abs(planted[0] - cp) > Math.abs(planted[1] - cp) ? 0 : 1;
+        step = { i, to: clamp(cp, planted[i] - 80, planted[i] + 80) };
+      } else if (Math.abs(vx) < 0.02 && Math.abs(planted[0] - planted[1]) > 30) {
+        const i = Math.abs(planted[0] - cx) > Math.abs(planted[1] - cx) ? 0 : 1;
+        step = { i, to: cx + (i ? 9 : -9) };
+      }
+      if (step && !(step.i === 0 && legWound[0] > 0.8 && Math.random() < 0.5)) {
+        const l = f.limbs[step.i]; l.swing = { t: 0, dur: 190 + hurtF * 120, from: l.plant, to: step.to };
+      }
+    }
+    f.limbs.forEach((l, i) => {
+      if (!l.swing) l.plant = rot(l.foot, -6, -4).x;            // planted foot: hold wherever it actually is (no tug of war with the ground)
+      let tx = l.plant, ty = G - 8;
+      if (l.swing) {
+        l.swing.t += DT; const u = clamp(l.swing.t / l.swing.dur, 0, 1), e = u * u * (3 - 2 * u);
+        tx = l.swing.from + (l.swing.to - l.swing.from) * e; ty = G - 8 - Math.sin(Math.PI * u) * (16 + hurtF * 8);
+        if (u >= 1) { l.plant = l.swing.to; l.swing = null; }
+      }
+      const str = sS * (legWound[i] > 0 ? 0.5 : 1) * (f.down ? 1 : 1);
+      const [t1, t2] = ik(hip, { x: tx, y: ty }, L_THIGH, L_SHIN, -1);
+      pd(l.thigh, t1, 7, 0.9, str, pelvis); pd(l.shin, t2, 7, 0.9, str, l.thigh); pd(l.foot, 0, 8, 0.9, str * 0.8, l.shin);
+      if (f.down) { pd(l.thigh, 0.2 * (i ? 1 : -1), 1.5, 0.9, 0.3 * f.c, pelvis); }
+    });
+
+    // --- arms: grab the worst wounds, otherwise swing for balance ---
+    const ws = f.wounds.slice().sort((a, b) => b.rate - a.rate).slice(0, 2);
+    const assigned = [null, null];
+    for (const w of ws) {
+      const p = woundPos(w), own = ownerLimb(f, w.body);
+      const order = f.limbs.map((l, i) => i).filter((i) => i !== own && !assigned[i])
+        .sort((a, b) => Math.hypot(rot(chest, 0, -17).x - p.x, rot(chest, 0, -17).y - p.y) - 0);
+      const pick = order.sort((a, b) => Math.abs(f.limbs[a].fore.position.x - p.x) - Math.abs(f.limbs[b].fore.position.x - p.x))[0];
+      if (pick !== undefined) assigned[pick] = p;
+    }
+    const armC = clamp(f.c * 1.6, 0, 1) * (1 - 0.5 * f.stun);       // arms stay alive a little longer than the legs
+    const shoulder = rot(chest, 0, -17), alarm = clamp((Math.abs(cp - xs) - 18) / 60, 0, 1);
+    f.limbs.forEach((l, i) => {
+      let T, str = armC;
+      if (assigned[i]) { T = assigned[i]; str = armC * 1.1; }
+      else {
+        const sway = Math.sin(f.t * 1.4 + i * 2) * 4;
+        T = { x: shoulder.x + 8 + sway + alarm * Math.sign(cp - xs || 1) * 34, y: shoulder.y + 48 - alarm * 38 };
+        str = armC * (f.down ? 0.25 : 0.55 + alarm * 0.4);
+      }
+      const [t1, t2] = ik(shoulder, T, L_UP, L_FORE, 1);
+      pd(l.upper, t1, 6.5, 0.9, str, chest); pd(l.fore, t2, 8, 0.9, str, l.upper);
+    });
+    f.hands = assigned;
+  }
+
+  // ================= hits & wounds =================
+  const TOOLS = {
+    pistol: { sev: 1.0, dv: 0.3, spray: 1 },
+    knife: { sev: 0.65, dv: 0.12, spray: 0.7 },
+  };
+  function impulse(b, p, dvx, dvy) {                                          // dv: desired velocity change of the body (px/ms)
+    const stepMs = DT, m = b.mass, jx = dvx * m, jy = dvy * m, rx = p.x - b.position.x, ry = p.y - b.position.y;
+    b.positionPrev.x -= (jx / m) * stepMs; b.positionPrev.y -= (jy / m) * stepMs;
+    b.anglePrev -= ((rx * jy - ry * jx) / b.inertia) * stepMs;
+  }
+  const REGION = { head: 2.2, chest: 1.5, pelvis: 1.25, arm: 0.8, leg: 0.9, foot: 0.4 };
+  function addWound(f, body, p, dir, sev) {
+    const kind = f.parts.get(body).kind, mult = REGION[kind] || 1, l = toLocal(body, p);
+    f.wounds.push({ body, lx: l.x, ly: l.y, sev: sev * mult, rate0: 2.1 * sev * mult, rate: 2.1 * sev * mult, t: 0, lost: 0, dx: dir.x, dy: dir.y, kind });
+    if (kind === 'head') f.brain = Math.min(1.2, f.brain + 0.45 * sev * (sev > 0.9 ? 1.5 : 1));
+    f.stun = Math.min(1, f.stun + 0.55 * sev); f.flinch = -Math.sign(dir.x) || 1;
+    if (f.wounds.length > 14) f.wounds.shift();
+  }
+  function pick(p) {                                                           // body under a point (with a little tolerance)
+    if (!fig) return null;
+    const offs = [[0, 0], [5, 0], [-5, 0], [0, 5], [0, -5], [9, 0], [-9, 0], [0, 9], [0, -9]];
+    for (const [ox, oy] of offs) {
+      const hit = Query.point(fig.all, { x: p.x + ox, y: p.y + oy });
+      if (hit.length) return hit[0];
+    }
+    return null;
+  }
+
+  // ================= blood =================
+  const drops = [], pools = new Map(), tracers = [];
+  function spawnDrop(x, y, vx, vy, r) {
+    if (drops.length > 1800) drops.shift();
+    drops.push({ x, y, vx, vy, r });
+  }
+  function bleedVisuals(f, dtMs) {
+    const pressure = clamp(f.blood / 100, 0.1, 1);
+    for (const w of f.wounds) {
+      if (w.rate < 0.03) continue;
+      const p = woundPos(w), pulse = 0.35 + 0.65 * Math.max(0, Math.sin(f.t * 2 * Math.PI * (1.1 + 0.6 * (1 - pressure)))), n = w.rate * 9 * dtMs / 1000;
+      w.acc = (w.acc || 0) + n;
+      while (w.acc > 1) {
+        w.acc -= 1;
+        const spurt = w.sev > 0.9 ? 0.07 * pulse * pressure : 0, a = Math.random() * 6.283, c = Math.cos(f.wAngle || 0);
+        const sp = spurt * (0.4 + Math.random() * 0.6) + 0.01 * Math.random();
+        spawnDrop(p.x, p.y, w.dx * sp + Math.cos(a) * 0.012 + (w.body.position.x - w.body.positionPrev.x) / DT, w.dy * sp * 0.6 - spurt * 0.25 * Math.random() + Math.sin(a) * 0.01, 1 + Math.random() * 1.6);
+      }
+    }
+  }
+  function stepDrops(dtMs) {
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i]; d.vy += 0.001 * dtMs; d.x += d.vx * dtMs; d.y += d.vy * dtMs;
+      if (d.y >= G + 4 + (Math.abs(d.x * 7) % 20)) {
+        const cell = Math.round(d.x / 7), q = pools.get(cell) || { x: cell * 7, y: G + 6 + ((cell * 37) & 15), r: 0 };
+        q.r = Math.min(30, q.r + d.r * 0.22); pools.set(cell, q);
+        [cell - 1, cell + 1].forEach((n) => { const o = pools.get(n); if (o && o.r < q.r * 0.6) o.r += 0.05; });
+        drops.splice(i, 1);
+      } else if (d.y > G + 140) drops.splice(i, 1);
+    }
+  }
+
+  // ================= audio =================
+  let ac;
+  function sound(kind) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const a = ac, len = kind === 'shot' ? 0.35 : 0.12, buf = a.createBuffer(1, a.sampleRate * len, a.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, kind === 'shot' ? 4 : 2);
+      const s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain();
+      fl.type = 'lowpass'; fl.frequency.value = kind === 'shot' ? 4000 : kind === 'blast' ? 500 : 900; g.gain.value = kind === 'blast' ? 1 : 0.6;
+      s.buffer = buf; s.connect(fl); fl.connect(g); g.connect(a.destination); s.start();
+    } catch (e) {}
+  }
+
+  // ================= tools / input =================
+  let tool = 'pistol', dragC = null, slow = false, shake = 0;
+  document.querySelectorAll('#tools button[data-t]').forEach((b) => (b.onclick = () => setTool(b.dataset.t)));
+  function setTool(t) { tool = t; document.querySelectorAll('#tools button[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); }
+  $('reset').onclick = () => reset();
+  addEventListener('keydown', (e) => {
+    const m = { Digit1: 'pistol', Digit2: 'knife', Digit3: 'shove', Digit4: 'blast', Digit5: 'drag' };
+    if (m[e.code]) setTool(m[e.code]);
+    if (e.code === 'KeyR') reset();
+    if (e.code === 'Space') { slow = !slow; engine.timing.timeScale = slow ? 0.2 : 1; e.preventDefault(); }
+  });
+  const cv = $('c'), ctx = cv.getContext('2d');
+  let W = 0, Hh = 0, scale = 1, camX = 0;
+  function resize() { const r = devicePixelRatio || 1; cv.width = innerWidth * r; cv.height = innerHeight * r; W = cv.width; Hh = cv.height; scale = Hh / 540; }
+  addEventListener('resize', resize); resize();
+  const toWorld = (e) => ({ x: (e.clientX * (devicePixelRatio || 1) - W / 2) / scale + camX, y: (e.clientY * (devicePixelRatio || 1) - Hh * 0.82) / scale + G });
+
+  cv.addEventListener('pointerdown', (e) => {
+    const p = toWorld(e); cv.setPointerCapture(e.pointerId);
+    if (!fig) return;
+    const body = pick(p), center = fig.chest.position, side = p.x < center.x ? 1 : -1;      // side: direction the hit travels
+    if (tool === 'blast') { blast(p); return; }
+    if (tool === 'drag') {
+      if (body) { const l = toLocal(body, p); dragC = Constraint.create({ pointA: p, bodyB: body, pointB: l, stiffness: 0.35, damping: 0.15, length: 0 }); Composite.add(engine.world, dragC); }
+      return;
+    }
+    if (tool === 'shove') {
+      if (body) { const dir = side; impulse(body, p, dir * 0.55, -0.12); fig.stun = Math.min(1, fig.stun + 0.5); fig.flinch = -dir; sound('thud'); shake = 4; }
+      return;
+    }
+    const T = TOOLS[tool], dir = { x: side, y: (Math.random() - 0.5) * 0.25 };
+    if (tool === 'pistol') { tracers.push({ x0: p.x - side * 900, y0: p.y, x1: p.x + side * 60, y1: p.y, t: 90 }); sound('shot'); shake = 5; }
+    else tracers.push({ x0: p.x - side * 26, y0: p.y - 10, x1: p.x, y1: p.y, t: 120, knife: true });
+    if (body) {
+      impulse(body, p, dir.x * T.dv, dir.y * T.dv);
+      addWound(fig, body, p, dir, T.sev);
+      if (tool === 'pistol') for (let i = 0; i < 8; i++) spawnDrop(p.x, p.y, dir.x * (0.05 + Math.random() * 0.12), (Math.random() - 0.6) * 0.12, 1 + Math.random() * 1.5);
+    }
+  });
+  cv.addEventListener('pointermove', (e) => { if (dragC) dragC.pointA = toWorld(e); });
+  const endDrag = () => { if (dragC) { Composite.remove(engine.world, dragC); dragC = null; } };
+  cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+
+  function blast(p) {
+    sound('blast'); shake = 14;
+    for (let i = 0; i < 40; i++) { const a = Math.random() * 6.283, v = 0.1 + Math.random() * 0.4; blasts.push({ x: p.x, y: p.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0 }); }
+    blasts.push({ ring: true, x: p.x, y: p.y, t: 0 });
+    for (const b of fig.all) {
+      const dx = b.position.x - p.x, dy = b.position.y - p.y, d = Math.hypot(dx, dy) || 1;
+      if (d < 230) {
+        const k = (1 - d / 230);
+        impulse(b, b.position, (dx / d) * 0.9 * k, (dy / d) * 0.9 * k - 0.25 * k);
+        if (d < 120 && Math.random() < 0.85) addWound(fig, b, { x: b.position.x + dx / d * 6, y: b.position.y + dy / d * 6 }, { x: dx / d, y: dy / d }, 0.55 * k + 0.25);
+      }
+    }
+    fig.stun = 1;
+  }
+  const blasts = [];
+
+  // ================= lifecycle =================
+  function reset(X = 0) {
+    endDrag();
+    if (fig) { Composite.remove(engine.world, fig.all); Composite.remove(engine.world, fig.joints); }
+    drops.length = 0; pools.clear(); blasts.length = 0;
+    fig = makeFigure(X); camX = X;
+  }
+  reset();
+
+  // ================= rendering =================
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function drawPart(b, info, far) {
+    ctx.save(); ctx.translate(b.position.x, b.position.y); ctx.rotate(b.angle);
+    if (info.kind === 'head') { ctx.beginPath(); ctx.arc(0, 0, 13, 0, 6.283); }
+    else roundRect(-info.w / 2, -info.h / 2, info.w, info.h, info.r);
+    ctx.fillStyle = info.col; ctx.fill();
+    if (far) { ctx.fillStyle = 'rgba(0,0,0,.28)'; ctx.fill(); }
+    ctx.save(); ctx.clip();
+    for (const w of fig.wounds) if (w.body === b) {              // blood soaking into the clothes / skin
+      const r = 3 + 15 * (1 - Math.exp(-w.lost / 5)), g = ctx.createRadialGradient(w.lx, w.ly, 0, w.lx, w.ly, r);
+      g.addColorStop(0, 'rgba(110,5,10,.95)'); g.addColorStop(0.7, 'rgba(150,12,18,.75)'); g.addColorStop(1, 'rgba(150,12,18,0)');
+      ctx.fillStyle = g; ctx.fillRect(w.lx - r, w.ly - r, r * 2, r * 2);
+      if (w.lost > 1) { ctx.fillStyle = 'rgba(120,8,14,.55)'; ctx.fillRect(w.lx - 1.5, w.ly, 3, Math.min(30, w.lost * 4)); }   // run-off
+    }
+    ctx.restore();
+    if (far) { /* outline only */ }
+    ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.restore();
+  }
+  function drawFace(f) {
+    const h = f.head; ctx.save(); ctx.translate(h.position.x, h.position.y); ctx.rotate(h.angle);
+    ctx.strokeStyle = '#222'; ctx.fillStyle = '#222'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    if (f.dead) { for (const dy of [-1]) { ctx.beginPath(); ctx.moveTo(2, -5); ctx.lineTo(8, 1); ctx.moveTo(8, -5); ctx.lineTo(2, 1); ctx.stroke(); } }
+    else if (f.c < 0.15) { ctx.beginPath(); ctx.moveTo(2, -2); ctx.lineTo(8, -2); ctx.stroke(); }
+    else {
+      const pain = f.stun > 0.25 || f.wounds.length > 0;
+      ctx.beginPath(); ctx.arc(5.5, -2, pain ? 1.2 : 2, 0, 6.283); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(2, pain ? -6 : -7); ctx.lineTo(9, pain ? -4 : -7); ctx.stroke();                      // brow
+      ctx.beginPath(); if (pain) ctx.ellipse(6, 6, 2.5, 3.2, 0, 0, 6.283); else { ctx.moveTo(3, 6); ctx.lineTo(8, 6); } ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function render(now) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const bg = ctx.createLinearGradient(0, 0, 0, Hh); bg.addColorStop(0, '#242833'); bg.addColorStop(1, '#171a20');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, Hh);
+    const target = fig.pelvis.position.x; camX += (target - camX) * 0.06;
+    const sx = shake * (Math.random() - 0.5) * 1.5, sy = shake * (Math.random() - 0.5) * 1.5; shake *= 0.85;
+    ctx.setTransform(scale, 0, 0, scale, W / 2 - camX * scale + sx, Hh * 0.82 - G * scale + sy);
+    const x0 = camX - W / 2 / scale - 50, x1 = camX + W / 2 / scale + 50;
+    // back wall tiles
+    ctx.strokeStyle = 'rgba(255,255,255,.04)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = Math.floor(x0 / 80) * 80; x < x1; x += 80) { ctx.moveTo(x, G - 700); ctx.lineTo(x, G); }
+    for (let y = G - 640; y < G; y += 80) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
+    ctx.stroke();
+    // floor
+    const fl = ctx.createLinearGradient(0, G, 0, G + 160); fl.addColorStop(0, '#3a3d46'); fl.addColorStop(1, '#22242a');
+    ctx.fillStyle = fl; ctx.fillRect(x0, G, x1 - x0, 400);
+    ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(x0, G, x1 - x0, 1.5);
+    ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.beginPath();
+    for (let x = Math.floor(x0 / 60) * 60; x < x1; x += 60) { ctx.moveTo(x, G); ctx.lineTo(x + (x - camX) * 0.35, G + 160); }
+    ctx.stroke();
+    // blood pools
+    pools.forEach((q) => {
+      if (q.x < x0 - 40 || q.x > x1 + 40) return;
+      ctx.fillStyle = 'rgba(120,8,14,.75)'; ctx.beginPath(); ctx.ellipse(q.x, q.y, q.r * 1.5, q.r * 0.38, 0, 0, 6.283); ctx.fill();
+      ctx.fillStyle = 'rgba(190,20,28,.25)'; ctx.beginPath(); ctx.ellipse(q.x - q.r * 0.2, q.y - q.r * 0.06, q.r * 0.9, q.r * 0.16, 0, 0, 6.283); ctx.fill();
+    });
+    // figure (far limbs first)
+    const f = fig;
+    for (const l of f.limbs) if (l.far) { for (const b of [l.upper, l.fore, l.thigh, l.shin, l.foot]) drawPart(b, f.parts.get(b), true); }
+    drawPart(f.pelvis, f.parts.get(f.pelvis)); drawPart(f.chest, f.parts.get(f.chest));
+    ctx.fillStyle = '#d9ad86'; { const n = rot(f.chest, 0, -24), hd = rot(f.head, 0, 12); ctx.beginPath(); ctx.moveTo(n.x - 4, n.y); ctx.lineTo(n.x + 4, n.y); ctx.lineTo(hd.x + 3, hd.y); ctx.lineTo(hd.x - 3, hd.y); ctx.fill(); }
+    drawPart(f.head, f.parts.get(f.head)); drawFace(f);
+    for (const l of f.limbs) if (!l.far) { for (const b of [l.thigh, l.shin, l.foot, l.upper, l.fore]) drawPart(b, f.parts.get(b)); }
+    // hands pressed on wounds
+    ctx.fillStyle = '#c9966f';
+    for (const l of f.limbs) { const h = rot(l.fore, 0, 13); ctx.beginPath(); ctx.arc(h.x, h.y, 4.6, 0, 6.283); ctx.fill(); }
+    // blood in the air
+    ctx.fillStyle = '#a3121a';
+    for (const d of drops) { ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 6.283); ctx.fill(); }
+    // tracers & explosions
+    for (let i = tracers.length - 1; i >= 0; i--) {
+      const t = tracers[i]; t.t -= 16;
+      ctx.strokeStyle = t.knife ? 'rgba(220,230,240,.9)' : 'rgba(255,230,160,' + clamp(t.t / 90, 0, 1) + ')'; ctx.lineWidth = t.knife ? 2.5 : 1.8;
+      ctx.beginPath(); ctx.moveTo(t.x0, t.y0); ctx.lineTo(t.x1, t.y1); ctx.stroke();
+      if (t.t <= 0) tracers.splice(i, 1);
+    }
+    for (let i = blasts.length - 1; i >= 0; i--) {
+      const b = blasts[i]; b.t += 16;
+      if (b.ring) { const r = b.t * 0.5; ctx.strokeStyle = `rgba(255,190,100,${clamp(1 - b.t / 320, 0, 1)})`; ctx.lineWidth = 8 * (1 - b.t / 320); ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 6.283); ctx.stroke(); if (b.t > 320) blasts.splice(i, 1); }
+      else { b.x += b.vx * 16; b.y += b.vy * 16; b.vy += 0.0012 * 16; ctx.fillStyle = `rgba(255,${150 + (b.t % 90)},60,${clamp(1 - b.t / 600, 0, 1)})`; ctx.fillRect(b.x, b.y, 3, 3); if (b.t > 600) blasts.splice(i, 1); }
+    }
+    if (dragC) { ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.setLineDash([4, 4]); const q = rot(dragC.bodyB, dragC.pointB.x, dragC.pointB.y); ctx.beginPath(); ctx.moveTo(dragC.pointA.x, dragC.pointA.y); ctx.lineTo(q.x, q.y); ctx.stroke(); ctx.setLineDash([]); }
+    updateHud();
+  }
+
+  function updateHud() {
+    const f = fig;
+    $('blood').style.width = f.blood + '%'; $('bloodTxt').textContent = Math.round(f.blood) + '%';
+    $('cons').style.width = Math.round(f.c * 100) + '%'; $('wcount').textContent = f.wounds.length;
+    let s = 'Standing';
+    if (f.dead) s = 'DEAD';
+    else if (f.c <= 0.05) s = f.down ? 'Unconscious, bleeding out' : 'Losing consciousness';
+    else if (f.down) s = f.wounds.length ? 'Collapsed, clutching wounds' : 'Knocked down';
+    else if (f.wounds.length) s = f.c < 0.5 ? 'Stumbling, fading' : 'Clutching wounds, staggering';
+    else if (f.stun > 0.25 || f.limbs.some((l) => l.swing)) s = 'Staggering';
+    $('status').textContent = s; $('status').style.color = f.dead ? '#e05555' : '#e8e8ee';
+  }
+
+  // ================= main loop =================
+  let last = performance.now();
+  function frame(now) {
+    const real = Math.min(50, now - last); last = now;
+    for (let i = 0; i < SUB; i++) {
+      DT = SUBMS * engine.timing.timeScale;
+      control(fig);
+      Engine.update(engine, SUBMS);
+    }
+    const dtMs = SUB * SUBMS * engine.timing.timeScale;
+    bleedVisuals(fig, dtMs); stepDrops(dtMs);
+    render(now);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.__rd = { reset, get cam() { return camX; }, get fig() { return fig; }, addWound, impulse, setTool };
+})();
+</script>
+</body>
+</html>
