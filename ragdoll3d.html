@@ -292,15 +292,18 @@
       jag(g, 62, 66, 14, 25, 12, 1, 0.8); g.fillStyle = 'rgba(58,3,7,1)'; g.fill();
       for (let i = 0; i < 6; i++) blob(g, 64 + rnd(-34, 34), 64 + rnd(-30, 30), rnd(3, 7), 0.9, 0.7, '40,2,5');
     }),
-    trail: canvasTex(32, 128, (g, w, h) => {
-      const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(110,6,12,.95)'); gr.addColorStop(0.85, 'rgba(135,10,16,.9)'); gr.addColorStop(1, 'rgba(135,10,16,0)');
-      g.fillStyle = gr; g.beginPath(); g.moveTo(w * 0.32, 0); g.lineTo(w * 0.68, 0); g.lineTo(w * 0.6, h * 0.86); g.lineTo(w * 0.4, h * 0.86); g.closePath(); g.fill();
-      blob(g, w / 2, h * 0.9, w * 0.3, 0.95, 0.5, '140,10,16');                       // bead of blood at the tip
-      g.fillStyle = 'rgba(210,70,70,.35)'; g.fillRect(w * 0.42, 6, 2, h * 0.7);
+    riv: canvasTex(64, 4, (g, w, h) => {                                             // across the width of a rivulet: dark body, wet bright rims, soft edge
+      const gr = g.createLinearGradient(0, 0, w, 0);
+      gr.addColorStop(0, 'rgba(150,12,20,0)'); gr.addColorStop(0.12, 'rgba(165,20,28,.85)'); gr.addColorStop(0.3, 'rgba(110,6,12,.97)'); gr.addColorStop(0.5, 'rgba(90,3,9,1)');
+      gr.addColorStop(0.7, 'rgba(112,6,12,.97)'); gr.addColorStop(0.88, 'rgba(165,20,28,.85)'); gr.addColorStop(1, 'rgba(150,12,20,0)');
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      g.fillStyle = 'rgba(235,110,110,.4)'; g.fillRect(w * 0.34, 0, w * 0.09, h);            // glint
     }),
   };
   const decalMat = (map) => new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: false });
-  const planeGeo = new THREE.PlaneGeometry(1, 1), trailGeo = new THREE.PlaneGeometry(1, 1); trailGeo.translate(0, -0.5, 0);
+  const planeGeo = new THREE.PlaneGeometry(1, 1);
+  const rivMat = new THREE.MeshBasicMaterial({ map: TEX.riv, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5, side: THREE.DoubleSide, fog: false });
+  const RN = 26;
   const woundMeshes = [], Z = new V3(0, 0, 1), DOWN = new V3(0, -1, 0), qSpin = new THREE.Quaternion(), qN = new THREE.Quaternion();
   function buildWoundVisuals(w) {
     const type = w.type, coreTex = type === 'bullet' ? TEX.bullet : type === 'cut' ? TEX.cut : TEX.tear;
@@ -310,11 +313,32 @@
     const size = type === 'bullet' ? 0.11 : type === 'cut' ? 0.16 : 0.17;
     w.core.userData.size = size * (0.9 + 0.2 * Math.min(1.5, w.sev));
     w.trails = [];
-    for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(trailGeo, decalMat(TEX.trail)); m.renderOrder = 2; m.visible = false; m.userData = { off: (i - 1) * 0.022 + rnd(-0.006, 0.006), speed: rnd(0.6, 1.1), delay: i * 1.8 + rnd(0, 1.2), wob: rnd(0, 6) }; w.trails.push(m); scene.add(m); }
+    for (let i = 0; i < 3; i++) {
+      const geo = new THREE.BufferGeometry(), uv = [], idx = [];
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(RN * 6), 3));
+      for (let k = 0; k < RN; k++) { uv.push(0, k / (RN - 1), 1, k / (RN - 1)); if (k < RN - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3); } }
+      geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2)); geo.setIndex(idx);
+      const m = new THREE.Mesh(geo, rivMat); m.frustumCulled = false; m.renderOrder = 2; m.visible = false;
+      m.userData = { u0: (i - 1) * 0.02 + rnd(-0.008, 0.008), A1: rnd(0.005, 0.013), f1: rnd(11, 24), p1: rnd(0, 6.3), A2: rnd(0.002, 0.006), f2: rnd(28, 52), p2: rnd(0, 6.3),
+        drift: rnd(-0.06, 0.06), speed: rnd(0.6, 1.1), delay: i * 1.8 + rnd(0, 1.2), b1: rnd(0.22, 0.42), b2: rnd(0.55, 0.8), base: rnd(0.0065, 0.0105) };
+      w.trails.push(m); scene.add(m);
+    }
     scene.add(w.stain, w.core); woundMeshes.push(w);
   }
-  function removeWoundVisuals(w) { [w.stain, w.core, ...(w.trails || [])].forEach((m) => m && scene.remove(m)); const i = woundMeshes.indexOf(w); if (i >= 0) woundMeshes.splice(i, 1); }
-  const wn = new V3(), wb = new V3();
+  function removeWoundVisuals(w) { [w.stain, w.core, ...(w.trails || [])].forEach((m) => { if (m) { scene.remove(m); if (m.geometry !== planeGeo) m.geometry.dispose(); } }); const i = woundMeshes.indexOf(w); if (i >= 0) woundMeshes.splice(i, 1); }
+  const wn = new V3(), wb = new V3(), rvA = new V3(), rvT = new V3(), rvL = new V3(), rvC = new V3(), rvD = new V3();
+  const rvP = Array.from({ length: RN }, () => new V3()), rvN = Array.from({ length: RN }, () => new V3()), rvW = new Float32Array(RN);
+  // keep a point on the skin: wrap it onto the limb / head it belongs to (the torso is flat enough to leave alone)
+  function conform(q, w, nOut) {
+    const k = w.kind;
+    if (k === 'arm' || k === 'leg' || k === 'foot') {
+      const A = pos[w.a], B = pos[w.b]; rvD.subVectors(B, A); const t = clamp(rvC.subVectors(q, A).dot(rvD) / Math.max(1e-6, rvD.lengthSq()), 0, 1);
+      rvC.copy(A).addScaledVector(rvD, t); nOut.subVectors(q, rvC); const l = nOut.length() || 1e-4; nOut.divideScalar(l);
+      q.copy(rvC).addScaledVector(nOut, (k === 'leg' ? 0.066 : k === 'arm' ? 0.05 : 0.046) + 0.005);
+    } else if (k === 'head') {
+      rvC.copy(pos[HED]); nOut.subVectors(q, rvC).normalize(); q.copy(rvC).addScaledVector(nOut, 0.122);
+    } else nOut.copy(wn);
+  }
   function updateWoundVisuals(w, pos3) {
     wn.set(0, 0, 0).addScaledVector(frame.side, w.nx).addScaledVector(frame.up, w.ny).addScaledVector(frame.fwd, w.nz).normalize();
     qN.setFromUnitVectors(Z, wn); qSpin.setFromAxisAngle(Z, w.spin);
@@ -323,18 +347,33 @@
     const sz = (0.06 + 0.2 * grow) * (0.8 + 0.3 * Math.min(1.5, w.sev)); w.stain.scale.set(sz, sz, 1);
     w.core.position.copy(pos3).addScaledVector(wn, 0.009); w.core.quaternion.copy(qN).multiply(qSpin);
     const cs = w.core.userData.size * (1 + 0.15 * grow); w.core.scale.set(cs, cs, 1);
-    // rivulets: they run down the skin (surface-projected "down") while the wound is bleeding, and dry up when it stops
+    // rivulets: they run down the skin under gravity, wander as they go, swell into beads and end in a drop
     const dwn = wb.copy(DOWN).addScaledVector(wn, -DOWN.dot(wn)), flat = dwn.length() < 0.35;
     if (!flat) dwn.normalize();
+    const curved = w.kind === 'arm' || w.kind === 'leg' || w.kind === 'foot' || w.kind === 'head', maxLen = curved ? 0.34 : 0.55;
+    const sideV = rvA.crossVectors(wn, dwn).normalize();
     for (const m of w.trails) {
-      const u = m.userData, run = clamp((lost - 0.25 - u.delay * 0.4) * u.speed * 0.12, 0, 0.5) * (w.rate > 0.03 ? 1 : 1);
-      m.visible = !flat && run > 0.01;
+      const u = m.userData, len = clamp((lost - 0.25 - u.delay * 0.4) * u.speed * 0.12, 0, maxLen);
+      m.visible = !flat && len > 0.012;
       if (!m.visible) continue;
-      const side = new V3().crossVectors(wn, dwn).normalize();
-      mat4.makeBasis(side, dwn.clone().negate(), wn);                              // plane y axis points "up the trail"; geometry hangs toward -y, i.e. down
-      m.quaternion.setFromRotationMatrix(mat4);
-      m.position.copy(pos3).addScaledVector(side, u.off + Math.sin(lost * 0.3 + u.wob) * 0.004).addScaledVector(dwn, 0.014).addScaledVector(wn, 0.008);
-      m.scale.set(0.017, run, 1);
+      const arr = m.geometry.attributes.position.array, thick = 1 + clamp(w.rate * 0.12, 0, 0.5);
+      for (let k = 0; k < RN; k++) {
+        const sN = k / (RN - 1), v = sN * len;
+        const uu = u.u0 + u.A1 * Math.sin(v * u.f1 + u.p1) * (0.35 + sN) + u.A2 * Math.sin(v * u.f2 + u.p2) + u.drift * v;
+        rvP[k].copy(pos3).addScaledVector(sideV, uu).addScaledVector(dwn, v).addScaledVector(wn, 0.006);
+        conform(rvP[k], w, rvN[k]);
+        let wd = u.base * thick * (1.15 - 0.3 * sN);
+        wd *= 1 + 0.9 * Math.exp(-Math.pow((sN - u.b1) / 0.07, 2)) + 0.7 * Math.exp(-Math.pow((sN - u.b2) / 0.06, 2)) + 0.9 * Math.exp(-Math.pow((sN - 0.96) / 0.05, 2));
+        if (sN > 0.9) wd *= Math.max(0.15, 1 - (sN - 0.9) / 0.1 * 0.85);
+        rvW[k] = wd;
+      }
+      for (let k = 0; k < RN; k++) {
+        const a = rvP[Math.max(0, k - 1)], b = rvP[Math.min(RN - 1, k + 1)];
+        rvT.subVectors(b, a); rvL.crossVectors(rvT, rvN[k]).normalize().multiplyScalar(rvW[k]);
+        arr[k * 6] = rvP[k].x - rvL.x; arr[k * 6 + 1] = rvP[k].y - rvL.y; arr[k * 6 + 2] = rvP[k].z - rvL.z;
+        arr[k * 6 + 3] = rvP[k].x + rvL.x; arr[k * 6 + 4] = rvP[k].y + rvL.y; arr[k * 6 + 5] = rvP[k].z + rvL.z;
+      }
+      m.geometry.attributes.position.needsUpdate = true;
     }
   }
 
