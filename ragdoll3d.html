@@ -238,8 +238,11 @@
         const border = (gs((y + 0.43) / 0.006, 1) + gs((y + 0.598) / 0.006, 1)) * sst(0.3, 0.14, ax) * fr; h += 0.15 * border;   // vermilion border
         h += 0.12 * gs((y + 0.38) / 0.04, 1) * gs(ax / 0.04, 1) * fr; ao -= 0.05 * gs((y + 0.34) / 0.03, 1) * gs(ax / 0.09, 1) * fr;   // philtrum
         const nos = gs(Math.hypot(ax - 0.075, y + 0.34) / 0.02, 1) * fr; r = r * (1 - nos * 0.6) + 60 * nos * 0.6; g = g * (1 - nos * 0.6) + 26 * nos * 0.6; b = b * (1 - nos * 0.6) + 22 * nos * 0.6; h -= 0.3 * nos;   // nostrils
-        const side = gs((ax - 0.115) / 0.05, 1) * gs((y + 0.08) / 0.2, 1) * fr; ao -= 0.13 * side; r -= 6 * side;               // shadow beside the nose bridge
-        const bridge = gs(ax / 0.045, 1) * gs((y + 0.05) / 0.22, 1) * fr; ao += 0.05 * bridge;
+        const side = gs((ax - 0.105) / 0.032, 1) * gs((y + 0.05) / 0.22, 1) * fr; ao -= 0.2 * side; r -= 8 * side;                 // shadowed nasal side-walls
+        const bridge = gs(ax / 0.038, 1) * gs((y + 0.0) / 0.24, 1) * fr; ao += 0.07 * bridge; r += 6 * bridge; g += 4 * bridge;       // lit bridge
+        const alarCrease = gs(segD(ax, y, 0.19, -0.26, 0.12, -0.36) / 0.014, 1) * fr; ao -= 0.28 * alarCrease; h -= 0.3 * alarCrease;    // crease where the nostril wing meets the cheek
+        const under = gs((y + 0.372) / 0.026, 1) * gs(ax / 0.13, 1) * fr; ao -= 0.3 * under;                                          // shadow under the nose
+        const hi = gs(ax / 0.04, 1) * gs((y + 0.285) / 0.04, 1) * fr; r += 10 * hi; g += 8 * hi; b += 8 * hi;                         // highlight on the tip
         const tip = gs(ax / 0.1, 1) * gs((y + 0.28) / 0.07, 1) * fr; r += 16 * tip; g -= 14 * tip; b -= 9 * tip;                  // warm nose tip
         const alar = gs((ax - 0.15) / 0.05, 1) * gs((y + 0.31) / 0.04, 1) * fr; r += 10 * alar; g -= 10 * alar; b -= 6 * alar;
         const cheek = gs((ax - 0.5) / 0.2, 1) * gs((y + 0.22) / 0.2, 1) * fr; r += 9 * cheek; g -= 15 * cheek; b -= 9 * cheek;   // flushed cheeks
@@ -385,7 +388,10 @@
 
   // ---- gear: plate carrier with pouches, belt, knee pads ----
   const torsoGear = new THREE.Group(); scene.add(torsoGear); decor.push(torsoGear);
-  const gear = (geo, mat, x, y, z, parent) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; (parent || torsoGear).add(m); return m; };
+  const gear = (geo, mat, x, y, z, parent, ud) => {
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; (parent || torsoGear).add(m);
+    m.userData = Object.assign({ kind: 'chest', a: PEL, b: NCK }, ud); bodyMeshes.push(m); return m;                  // shootable like the body underneath
+  };
   gear(superGeo(0.3, 0.34, 0.04, 4, 6), vestMat, 0, 0.33, 0.138);                          // front plate
   gear(superGeo(0.3, 0.34, 0.04, 4, 6), vestMat, 0, 0.33, -0.134);                         // back plate
   [-0.1, 0, 0.1].forEach((x) => { gear(superGeo(0.075, 0.1, 0.05, 4, 6), vestMat, x, 0.12, 0.17); gear(superGeo(0.07, 0.012, 0.05, 3, 4), padMat, x, 0.175, 0.172); });   // mag pouches
@@ -396,9 +402,9 @@
   const hipGear = new THREE.Group(); scene.add(hipGear); decor.push(hipGear);
   const belt = new THREE.Mesh(new THREE.TorusGeometry(0.172, 0.017, 8, 40), leatherMat); belt.rotation.x = Math.PI / 2; belt.scale.set(1, 0.7, 1); belt.position.y = 0.06; belt.castShadow = true; hipGear.add(belt);
   gear(superGeo(0.04, 0.032, 0.012, 3, 4), metalMat, 0, 0.06, 0.122, hipGear);                          // buckle
-  gear(superGeo(0.05, 0.14, 0.07, 4, 6), padMat, 0.17, -0.03, 0.02, hipGear);                            // holster
-  gear(superGeo(0.07, 0.07, 0.06, 4, 6), vestMat, -0.17, 0.0, 0.03, hipGear);
-  const kneePads = [0, 1].map(() => { const g = new THREE.Group(); scene.add(g); decor.push(g); gear(superGeo(0.115, 0.15, 0.045, 4, 8), padMat, 0, 0, 0, g); gear(superGeo(0.09, 0.02, 0.05, 3, 4), jacketMat, 0, 0.05, 0.0, g); return g; });
+  gear(superGeo(0.05, 0.14, 0.07, 4, 6), padMat, 0.17, -0.03, 0.02, hipGear, { kind: 'pelvis', a: PEL, b: PEL });                            // holster
+  gear(superGeo(0.07, 0.07, 0.06, 4, 6), vestMat, -0.17, 0.0, 0.03, hipGear, { kind: 'pelvis', a: PEL, b: PEL });
+  const kneePads = [0, 1].map((i) => { const g = new THREE.Group(), ud = { kind: 'leg', a: LEGP[i][0], b: LEGP[i][2], bone: 'thigh', side: i }; scene.add(g); decor.push(g); gear(superGeo(0.115, 0.15, 0.045, 4, 8), padMat, 0, 0, 0, g, ud); gear(superGeo(0.09, 0.02, 0.05, 3, 4), jacketMat, 0, 0.05, 0.0, g, ud); return g; });
 
   // ---- head ----
   const head = new THREE.Group(); scene.add(head);
@@ -417,10 +423,12 @@
       Z += 0.005 * gauss((y - 0.55) / 0.3, 1) * front * gauss(x / 0.7, 1);                                                           // forehead
       Z += 0.0075 * gauss((y - (0.27 + 0.03 * (1 - Math.min(1, ax / 0.7)))) / 0.085, 1) * face * smoothstep(0.82, 0.18, ax) * 1.1;   // brow ridge
       Z -= 0.0048 * gauss(Math.hypot(ax - 0.4, y - 0.1) / 0.17, 1) * face;                                                           // eye sockets
-      const nh = 0.0055 + 0.0145 * smoothstep(0.1, -0.3, y), nw = 0.052 + 0.055 * smoothstep(-0.1, -0.33, y);                         // nose: bridge widening to the base
+      const nh = 0.0062 + 0.0148 * smoothstep(0.12, -0.3, y), nw = 0.05 + 0.062 * smoothstep(-0.05, -0.32, y);                         // nose: bridge widening to the base
       Z += nh * gauss(x / nw, 1) * smoothstep(0.2, 0.1, y) * smoothstep(-0.36, -0.28, y) * face;
-      Z += 0.0075 * gauss((ax - 0.16) / 0.055, 1) * gauss((y + 0.31) / 0.045, 1) * face;                                             // nostril wings
-      Z -= 0.0042 * gauss((ax - 0.08) / 0.035, 1) * gauss((y + 0.345) / 0.03, 1) * face;                                             // nostrils
+      Z += 0.0095 * gauss((ax - 0.17) / 0.055, 1) * gauss((y + 0.305) / 0.05, 1) * face;                                              // nostril wings (alae)
+      Z += 0.006 * gauss(x / 0.075, 1) * gauss((y + 0.275) / 0.05, 1) * face;                                                          // rounded tip
+      X += Math.sign(x) * 0.0035 * gauss((ax - 0.16) / 0.07, 1) * gauss((y + 0.31) / 0.05, 1) * face;                                 // flared base
+      Z -= 0.0058 * gauss((ax - 0.085) / 0.03, 1) * gauss((y + 0.352) / 0.028, 1) * face;                                             // nostrils
       Z += 0.0045 * gauss(x / 0.22, 1) * gauss((y + 0.385) / 0.06, 1) * face;                                                        // upper lip pad
       Z += 0.0075 * gauss(x / 0.27, 1) * gauss((y + 0.47) / 0.04, 1) * face;                                                         // upper lip
       Z += 0.0085 * gauss(x / 0.29, 1) * gauss((y + 0.575) / 0.05, 1) * face;                                                        // lower lip
@@ -695,13 +703,43 @@
   const rivMat = new THREE.MeshBasicMaterial({ map: TEX.riv, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -5, polygonOffsetUnits: -5, side: THREE.DoubleSide, fog: false });
   const RN = 26;
   const woundMeshes = [], Z = new V3(0, 0, 1), DOWN = new V3(0, -1, 0), qSpin = new THREE.Quaternion(), qN = new THREE.Quaternion();
+  // Real wounds: a 3D crater (raised torn flesh rim, deep dark centre, wet and glossy) set into the surface. On clothing there is
+  // also a frayed, blood-darkened tear around it. Slits for cuts, ragged lobes for shrapnel. Blood then runs from the wound itself.
+  const woundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.26, metalness: 0, side: THREE.DoubleSide });
+  const tearMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.93, metalness: 0, side: THREE.DoubleSide });
+  const Yax = new V3(0, 1, 0), qSpinY = new THREE.Quaternion();
+  function craterGeo(R, depth, jit, lobes) {
+    const prof = [[0, -1], [0.22, -0.95], [0.45, -0.62], [0.68, -0.12], [0.84, 0.5], [0.97, 0.78], [1.12, 0.5], [1.32, 0.16], [1.55, 0.02]].map(([r, h]) => new THREE.Vector2(r * R, h * depth));
+    const g = new THREE.LatheGeometry(prof, 30), p = g.attributes.position, col = [], ph = [rnd(0, 6.3), rnd(0, 6.3), rnd(0, 6.3)];
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), r = Math.hypot(x, z), t = r / R, ang = Math.atan2(z, x);
+      const ragged = 1 + jit * (Math.sin(ang * lobes + ph[0]) * 0.5 + Math.sin(ang * (lobes * 2 + 1) + ph[1]) * 0.3 + Math.sin(ang * 3 + ph[2]) * 0.25) * smoothstep(0.5, 1.4, t);
+      p.setXYZ(i, x * ragged, y + depth * 0.18 * (Math.sin(ang * 5 + ph[1]) * 0.5) * smoothstep(0.7, 1.1, t) * smoothstep(1.5, 1.1, t), z * ragged);
+      let c;                                                                  // colour by distance from the centre (linear space)
+      if (t < 0.35) c = [0.03, 0.003, 0.006]; else if (t < 0.75) { const k = (t - 0.35) / 0.4; c = [0.03 + 0.07 * k, 0.003 + 0.005 * k, 0.006 + 0.008 * k]; }
+      else if (t < 1.1) { const k = (t - 0.75) / 0.35; c = [0.1 + 0.12 * k, 0.008 + 0.012 * k, 0.014 + 0.016 * k]; } else { const k = Math.min(1, (t - 1.1) / 0.45); c = [0.22 - 0.1 * k, 0.04 + 0.02 * k, 0.05 + 0.02 * k]; }
+      col.push(c[0], c[1], c[2]);
+    }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.computeVertexNormals(); return g;
+  }
+  function tearGeo(R) {                                                       // frayed, blood-soaked ring of torn cloth
+    const n = 26, pos = [], col = [], idx = [], ph = rnd(0, 6.3);
+    for (let i = 0; i <= n; i++) {
+      const a = i / n * Math.PI * 2, rr = R * (1.65 + 0.8 * hash2(i % n, (R * 1e5) | 0) + 0.25 * Math.sin(a * 3 + ph));
+      pos.push(Math.cos(a) * R * 1.4, 0.0015, Math.sin(a) * R * 1.4, Math.cos(a) * rr, 0.0008, Math.sin(a) * rr); col.push(0.1, 0.012, 0.016, 0.03, 0.03, 0.025);
+      if (i < n) { const k = i * 2; idx.push(k, k + 1, k + 2, k + 2, k + 1, k + 3); }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals(); return g;
+  }
   function buildWoundVisuals(w) {
-    const type = w.type, coreTex = type === 'bullet' ? TEX.bullet : type === 'cut' ? TEX.cut : TEX.tear;
+    const type = w.type;
     w.spin = type === 'cut' ? rnd(-0.6, 0.6) : rnd(0, 6.283);
-    w.stain = new THREE.Mesh(planeGeo, decalMat(TEX.stain[(Math.random() * 3) | 0])); w.stain.renderOrder = 1;
-    w.core = new THREE.Mesh(planeGeo, decalMat(coreTex)); w.core.renderOrder = 3;
-    const size = type === 'bullet' ? 0.11 : type === 'cut' ? 0.16 : 0.17;
-    w.core.userData.size = size * (0.9 + 0.2 * Math.min(1.5, w.sev));
+    const R = type === 'bullet' ? 0.0105 : type === 'cut' ? 0.0085 : 0.019, depth = type === 'bullet' ? 0.0055 : type === 'cut' ? 0.005 : 0.0075;
+    w.group = new THREE.Group();
+    const crater = new THREE.Mesh(craterGeo(R, depth * (0.9 + 0.2 * Math.min(1.5, w.sev)), type === 'tear' ? 0.5 : type === 'cut' ? 0.1 : 0.22, type === 'tear' ? 5 : 7), woundMat); crater.castShadow = false; w.group.add(crater);
+    if (type === 'cut') crater.scale.set(2.6, 1, 0.5);
+    if (w.cloth) { const tear = new THREE.Mesh(tearGeo(R), tearMat); if (type === 'cut') tear.scale.set(2.2, 1, 0.55); w.group.add(tear); }
+    w.group.renderOrder = 3; scene.add(w.group);
     w.trails = [];
     const nR = w.rate0 < 1.2 ? 0 : w.rate0 < 2.4 ? 1 : 3;                         // minor wounds only drip; bigger ones run
     for (let i = 0; i < nR; i++) {
@@ -714,9 +752,9 @@
         drift: rnd(-0.06, 0.06), speed: rnd(0.8, 1.25), delay: i * 0.35 + rnd(0, 0.3), head: 0, drip: 0, b1: rnd(0.22, 0.42), b2: rnd(0.55, 0.8), base: rnd(0.008, 0.0125) };
       w.trails.push(m); scene.add(m);
     }
-    scene.add(w.stain, w.core); woundMeshes.push(w);
+    woundMeshes.push(w);
   }
-  function removeWoundVisuals(w) { if (w.knife) { scene.remove(w.knife); w.knife = null; } [w.stain, w.core, ...(w.trails || [])].forEach((m) => { if (m) { scene.remove(m); if (m.geometry !== planeGeo) m.geometry.dispose(); } }); const i = woundMeshes.indexOf(w); if (i >= 0) woundMeshes.splice(i, 1); }
+  function removeWoundVisuals(w) { if (w.knife) { scene.remove(w.knife); w.knife = null; } if (w.group) { scene.remove(w.group); w.group.children.forEach((c) => c.geometry.dispose()); w.group = null; } (w.trails || []).forEach((m) => { if (m) { scene.remove(m); m.geometry.dispose(); } }); const i = woundMeshes.indexOf(w); if (i >= 0) woundMeshes.splice(i, 1); }
   const kMetal = new THREE.MeshStandardMaterial({ color: 0xcfd6dd, metalness: 0.8, roughness: 0.25 }), kGrip = new THREE.MeshStandardMaterial({ color: 0x2a1a12, roughness: 0.7 });
   function makeKnife() {                                                      // origin is the tip, +z points the way the blade went in
     const g = new THREE.Group(), add = (geo, mat, z) => { const m = new THREE.Mesh(geo, mat); m.position.z = z; m.castShadow = true; g.add(m); };
@@ -738,12 +776,9 @@
   }
   function updateWoundVisuals(w, pos3, dt) {
     wn.set(0, 0, 0).addScaledVector(frame.side, w.nx).addScaledVector(frame.up, w.ny).addScaledVector(frame.fwd, w.nz).normalize();
-    qN.setFromUnitVectors(Z, wn); qSpin.setFromAxisAngle(Z, w.spin);
+    qN.setFromUnitVectors(Yax, wn); qSpinY.setFromAxisAngle(Yax, w.spin);
     const lost = w.lost, grow = 1 - Math.exp(-lost / 6);
-    w.stain.position.copy(pos3).addScaledVector(wn, 0.006); w.stain.quaternion.copy(qN).multiply(qSpin);
-    const sz = (0.06 + 0.2 * grow) * (0.8 + 0.3 * Math.min(1.5, w.sev)); w.stain.scale.set(sz, sz, 1);
-    w.core.position.copy(pos3).addScaledVector(wn, 0.009); w.core.quaternion.copy(qN).multiply(qSpin);
-    const cs = w.core.userData.size * (1 + 0.15 * grow); w.core.scale.set(cs, cs, 1);
+    w.group.position.copy(pos3).addScaledVector(wn, 0.0022); w.group.quaternion.copy(qN).multiply(qSpinY); w.group.scale.setScalar(1 + 0.22 * grow);
     // rivulets: they run down the skin under gravity, wander as they go, swell into beads and end in a drop
     const dwn = wb.copy(DOWN).addScaledVector(wn, -DOWN.dot(wn)), flat = dwn.length() < 0.35;
     if (!flat) dwn.normalize();
@@ -786,11 +821,11 @@
     return out.addScaledVector(frame.side, w.ox).addScaledVector(frame.up, w.oy).addScaledVector(frame.fwd, w.oz);
   };
   const REGION = { head: 2.2, chest: 1.5, pelvis: 1.25, arm: 0.8, leg: 0.9, foot: 0.4 };
-  function addWound(a, b, kind, point, dir, sev, normal, type) {
+  function addWound(a, b, kind, point, dir, sev, normal, type, mat) {
     const f = fig, A = pos[a], B = pos[b], ab = tmp.subVectors(B, A), l2 = ab.lengthSq();
     const t = l2 > 1e-6 ? clamp(tmp2.subVectors(point, A).dot(ab) / l2, 0, 1) : 0;
     const on = new V3().lerpVectors(A, B, t), off = new V3().subVectors(point, on), mult = REGION[kind] || 1;
-    const w = { a, b, t, ox: off.dot(frame.side), oy: off.dot(frame.up), oz: off.dot(frame.fwd), sev: sev * mult, rate0: 2.1 * sev * mult, rate: 2.1 * sev * mult, tt: 0, lost: 0, dir: dir.clone(), kind, acc: 0, type: type || 'bullet' };
+    const w = { a, b, t, ox: off.dot(frame.side), oy: off.dot(frame.up), oz: off.dot(frame.fwd), sev: sev * mult, rate0: 2.1 * sev * mult, rate: 2.1 * sev * mult, tt: 0, lost: 0, dir: dir.clone(), kind, acc: 0, type: type || 'bullet', cloth: !!mat && mat !== skinMat && mat !== faceMat };
     const nrm = (normal || dir.clone().negate()).clone().normalize(); w.nx = nrm.dot(frame.side); w.ny = nrm.dot(frame.up); w.nz = nrm.dot(frame.fwd);
     f.wounds.push(w);
     buildWoundVisuals(w);
@@ -1173,7 +1208,7 @@
     }
     const pistol = tool === 'pistol', thrown = tool === 'throw';
     const sn = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize(); if (sn.dot(dir) > 0) sn.negate();
-    const w = addWound(a, b, kind, p, dir, pistol ? 1 : thrown ? 0.75 : 0.65, sn, pistol ? 'bullet' : 'cut');
+    const w = addWound(a, b, kind, p, dir, pistol ? 1 : thrown ? 0.75 : 0.65, sn, pistol ? 'bullet' : 'cut', hit.object.userData.mat0 || hit.object.material);
     hitImpulse(a, b, t, new V3(dir.x, dir.y * 0.3, dir.z).normalize(), pistol ? 2.4 : thrown ? 1.1 : 0.7);
     const z = zoneHit(p, dir, pistol ? 0.7 : 0.06); if (z) applyZone(z, w);                    // bullets pass right through; blades only reach just under the skin
     const ud = hit.object.userData;                                                            // bones are tough: it takes a few hits (or a lucky direct one)
@@ -1210,7 +1245,7 @@
     for (const m of bodyMeshes) {
       const c = m.getWorldPosition(new V3()); if (c.distanceTo(p) > 1.3 || Math.random() < 0.35) continue;
       const { a, b, kind } = m.userData, dir = new V3().subVectors(c, p).normalize();
-      addWound(a, b, kind, c.clone(), dir, 0.35 + Math.random() * 0.3, dir, 'tear');
+      addWound(a, b, kind, c.clone(), dir, 0.35 + Math.random() * 0.3, dir, 'tear', m.userData.mat0 || m.material);
     }
     playPain(1);
     for (const i in BONE_OF) { const d = pos[i].distanceTo(p); if (d < 1.6 && Math.random() < 0.55) boneDamage(BONE_OF[i][0], BONE_OF[i][1], rnd(25, 60) * (1 - d / 1.6)); }
