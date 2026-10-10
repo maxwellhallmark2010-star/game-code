@@ -511,7 +511,7 @@
   function breakBone(key, side) {
     const f = fig; if (f.broken[key][side]) return;
     f.broken[key][side] = true; const cb = CON_BONE[key][side]; cb.main.type = 'max'; cb.min.enabled = true; cb.min.len = cb.main.len * cb.min.frac;
-    f.stun = Math.min(1, f.stun + 0.5); sound('crack'); shake = Math.max(shake, 0.03);
+    f.stun = Math.min(1, f.stun + 0.5); sound('crack'); shake = Math.max(shake, 0.03); playPain(1);
     if (key === 'thigh' || key === 'shin') { f.limp[side] = 1; f.buckle[side] = 1.5; }
     note(SIDE_NAME[side] + ' ' + BONE_NAME[key] + ' broken: ' + (key.startsWith('arm') ? 'arm hangs limp' : 'leg gives way'));
   }
@@ -557,6 +557,12 @@
     if (f.brain >= 1 && !f.dead) { f.brainT += dt; if (f.brainT > (f.brain > 1.3 ? 7 : 5)) f.dead = true; }
     if (f.blood <= 0 && !f.dead) f.dead = true;
     if (f.dead) f.deadT += dt;
+    // he groans every few seconds while hurt and still conscious; the moment he is out (or dead) the voice is cut off
+    if (!canVocalize()) { if (pain.active.size) stopPain(); }
+    else if (f.wounds.length || f.limp[0] > 0.5 || f.limp[1] > 0.5) {
+      f.moanT = (f.moanT === undefined ? 1.5 : f.moanT) - dt;
+      if (f.moanT <= 0) { f.moanT = (2.4 + Math.random() * 2.6) * (f.heart ? 0.6 : 1); playPain(0.45, f.c); }
+    }
     f.armOK = [0, 1].map((i) => !f.broken.armUp[i] && !f.broken.armFore[i]);
 
     // --- posture state ---
@@ -815,6 +821,20 @@
       s.buffer = buf; s.connect(fl); fl.connect(g); g.connect(a.destination); s.start();
     } catch (e) {}
   }
+  // ---- his voice: the pain sound plays while he is still conscious and alive, and stops for good once he is not ----
+  const pain = { base: new Audio('sounds/pain.mp3'), active: new Set(), count: 0 };
+  pain.base.preload = 'auto';
+  const canVocalize = () => { const f = fig; return !f.dead && f.brain < 1 && f.c > 0.02; };
+  function playPain(strength = 1, weak = 1) {
+    if (!canVocalize()) return;
+    try {
+      const a = pain.base.cloneNode(); a.volume = clamp((0.5 + 0.45 * strength) * (0.35 + 0.65 * weak), 0, 1);
+      a.preservesPitch = false; a.playbackRate = clamp((0.9 + Math.random() * 0.25) * (0.8 + 0.2 * weak) * (slow ? 0.45 : 1), 0.3, 2);
+      a.addEventListener('ended', () => pain.active.delete(a)); pain.active.add(a); pain.count++;
+      const pr = a.play(); if (pr && pr.catch) pr.catch(() => pain.active.delete(a));
+    } catch (e) {}
+  }
+  function stopPain() { pain.active.forEach((a) => { try { a.pause(); } catch (e) {} }); pain.active.clear(); }
   let shake = 0;
   function flash(a) { const f = $('flash'); f.style.transition = 'none'; f.style.opacity = a; requestAnimationFrame(() => { f.style.transition = 'opacity .25s'; f.style.opacity = 0; }); }
   const tracers = [];
@@ -856,6 +876,7 @@
     const z = zoneHit(p, dir, pistol ? 0.7 : 0.06); if (z) applyZone(z, w);                    // bullets pass right through; blades only reach just under the skin
     const ud = hit.object.userData;                                                            // bones are tough: it takes a few hits (or a lucky direct one)
     if (ud.bone) boneDamage(ud.bone, ud.side, pistol ? (Math.random() < 0.08 ? 100 : rnd(20, 36)) : thrown ? (Math.random() < 0.03 ? 100 : rnd(6, 14)) : rnd(2, 6));
+    playPain(pistol ? 1 : 0.7);                                                                // (silent if that hit knocked him out)
     if (thrown) { w.knife = makeKnife(); w.kdx = dir.dot(frame.side); w.kdy = dir.dot(frame.up); w.kdz = dir.dot(frame.fwd); scene.add(w.knife); sound('thud'); }
     if (pistol) {
       sound('shot'); flash(0.25); shake = 0.05;
@@ -889,13 +910,14 @@
       const { a, b, kind } = m.userData, dir = new V3().subVectors(c, p).normalize();
       addWound(a, b, kind, c.clone(), dir, 0.35 + Math.random() * 0.3, dir, 'tear');
     }
+    playPain(1);
     for (const i in BONE_OF) { const d = pos[i].distanceTo(p); if (d < 1.6 && Math.random() < 0.55) boneDamage(BONE_OF[i][0], BONE_OF[i][1], rnd(25, 60) * (1 - d / 1.6)); }
     fig.stun = 1;
     const ring = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0.8 })); ring.position.copy(p); ring.userData.blast = 0; scene.add(ring); tracers.push(ring);
   }
 
   // ================= lifecycle =================
-  function reset() { release(); dropN = 0; poolCtx.clearRect(0, 0, 1024, 1024); poolTex.needsUpdate = true; poolCells.clear(); fig = newFig(); }
+  function reset() { stopPain(); release(); dropN = 0; poolCtx.clearRect(0, 0, 1024, 1024); poolTex.needsUpdate = true; poolCells.clear(); fig = newFig(); }
   reset();
   function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
   addEventListener('resize', resize); resize();
@@ -959,7 +981,7 @@
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  window.__rd = { G, zoneList, setThermal, boneDamage, breakBone, zoneHit, applyZone, get fig() { return fig; }, pos, camera, camS, addWound, hitImpulse, setTool, reset, blast, bodyMeshes, get grab() { return grab; } };
+  window.__rd = { pain, G, zoneList, setThermal, boneDamage, breakBone, zoneHit, applyZone, get fig() { return fig; }, pos, camera, camS, addWound, hitImpulse, setTool, reset, blast, bodyMeshes, get grab() { return grab; } };
 })();
 </script>
 </body>
