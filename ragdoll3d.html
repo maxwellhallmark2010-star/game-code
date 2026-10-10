@@ -23,6 +23,14 @@
   #legend { position: fixed; right: 12px; top: 112px; font-size: 12px; line-height: 1.7; background: rgba(0,0,10,.7); padding: 8px 12px; border-radius: 8px; display: none; pointer-events: none; }
   #legend i { display: inline-block; width: 11px; height: 11px; margin-right: 7px; border-radius: 2px; vertical-align: -1px; }
   #thermTag { position: fixed; right: 14px; bottom: 16px; font-size: 13px; letter-spacing: .15em; color: #ffd070; display: none; pointer-events: none; }
+  #duelPanel { position: fixed; right: 12px; bottom: 14px; width: 232px; background: rgba(10,10,14,.78); padding: 10px 12px; border-radius: 8px; font-size: 13px; display: none; }
+  #duelPanel h4 { margin: 0 0 6px; font-size: 13px; letter-spacing: .08em; opacity: .85; }
+  #duelPanel .row { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  #duelPanel button { font: inherit; font-size: 13px; padding: 7px 10px; border-radius: 7px; border: 2px solid #3a3d47; background: rgba(28,30,38,.95); color: #e8e8ee; cursor: pointer; }
+  #duelPanel button:hover { background: #2f333e; } #duelPanel button.on { border-color: #fff; background: #3a3f4c; } #duelPanel button.act { flex: 1 1 45%; }
+  #duelPanel label { display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: .85; }
+  #deadMsg { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; text-shadow: 0 3px 12px #000; }
+  #deadMsg h1 { font-size: 54px; margin: 0; letter-spacing: .12em; color: #d94a4a; } #deadMsg p { margin: 6px 0 0; font-size: 16px; }
   #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
 </style>
 </head>
@@ -45,9 +53,18 @@
   <button data-t="blast">4 Blast</button>
   <button data-t="grab" class="on">5 Grab / lead</button>
   <button data-t="throw">6 Throw knife</button>
+  <button id="modeBtn">Duel mode (walk)</button>
   <button id="thermBtn">Thermal (T)</button>
   <button id="reset">Reset (R)</button>
 </div>
+<div id="duelPanel">
+  <h4>ATTACKER (you choose)</h4>
+  <div class="row"><button class="act" data-a="shoot">1 Shoot</button><button class="act" data-a="throw">2 Throw knife</button><button class="act" data-a="shove">3 Shove</button><button class="act" data-a="grenade">4 Grenade</button></div>
+  <h4>AIM AT</h4>
+  <div class="row" id="regions"><button data-r="random" class="on">Random</button><button data-r="head">Head</button><button data-r="chest">Chest</button><button data-r="heart">Heart</button><button data-r="gut">Gut</button><button data-r="arm">Arm</button><button data-r="leg">Leg</button><button data-r="knee">Knee</button><button data-r="foot">Foot</button></div>
+  <label><input type="checkbox" id="autoAtk"> auto attacks</label>
+</div>
+<div id="deadMsg"><h1 id="deadTitle">YOU DIED</h1><p>press R to try again</p></div>
 <div id="flash"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -929,6 +946,9 @@
       leadTo = new V3(grab.target.x - grab.off.x, 0, grab.target.z - grab.off.z);
       const dx = leadTo.x - pos[PEL].x, dz = leadTo.z - pos[PEL].z;
       if (Math.hypot(dx, dz) > 0.3) G.yaw += wrapA(Math.atan2(dx, dz) - G.yaw) * Math.min(1, dt * 3.5);
+    } else if (walkDir && sS > 0.2 && !f.down && !grab) {                        // duel mode: WASD walks him
+      leadTo = new V3(pos[PEL].x + walkDir.x * 1.6, 0, pos[PEL].z + walkDir.z * 1.6);
+      G.yaw += wrapA(Math.atan2(walkDir.x, walkDir.z) - G.yaw) * Math.min(1, dt * 5);
     } else if (fh > 0.3 && !f.down) G.yaw += wrapA(Math.atan2(frame.fwd.x, frame.fwd.z) - G.yaw) * Math.min(1, dt * 2);
     sideYaw.set(Math.cos(G.yaw), 0, -Math.sin(G.yaw)); fwdYaw.set(Math.sin(G.yaw), 0, Math.cos(G.yaw));
 
@@ -988,7 +1008,7 @@
     else {
       if (leadTo) {                                                          // being led: walk the anchor toward the hand
         tmp.subVectors(leadTo, G.anchor); tmp.y = 0; const l = tmp.length();
-        if (l > 0.05) G.anchor.addScaledVector(tmp, Math.min(1.5 * clamp(sS, 0.3, 1), l * 2.2) * dt / l);
+        if (l > 0.05) G.anchor.addScaledVector(tmp, Math.min((walkDir ? walkSpeed : 1.5) * clamp(sS, 0.3, 1) * (1 - 0.4 * Math.max(f.limp[0], f.limp[1])), l * 2.2) * dt / l);
       } else {                                                               // after a shove: give way and settle where he ends up
         const give = Math.min(1, dt * (1.3 + 8 * pelV.length()));             // the faster he's moving, the more he lets the stumble carry him
         G.anchor.x += (pos[PEL].x - G.anchor.x) * give + f.lurch.x * dt * 1.5;
@@ -1140,7 +1160,7 @@
   }
   addEventListener('keydown', (e) => {
     const m = { Digit1: 'pistol', Digit2: 'knife', Digit3: 'shove', Digit4: 'blast', Digit5: 'grab', Digit6: 'throw' };
-    if (m[e.code]) setTool(m[e.code]);
+    if (duel) { const dm = { Digit1: 'shoot', Digit2: 'throw', Digit3: 'shove', Digit4: 'grenade' }; if (dm[e.code]) npcDo(dm[e.code]); } else if (m[e.code]) setTool(m[e.code]);
     if (e.code === 'KeyR') reset();
     if (e.code === 'KeyT') setThermal(!thermal);
     if (e.code === 'Space') { slow = !slow; e.preventDefault(); }
@@ -1188,7 +1208,7 @@
   cv.addEventListener('pointerdown', (e) => {
     cv.setPointerCapture(e.pointerId); lx = e.clientX; ly = e.clientY;
     const hit = pickBody(e);
-    if (e.button === 2 || (!hit && tool !== 'blast')) { orbiting = true; return; }
+    if (duel || e.button === 2 || (!hit && tool !== 'blast')) { orbiting = true; return; }
     if (tool === 'blast') {
       let p;
       if (hit) p = hit.point.clone(); else { const pl = new THREE.Plane(new V3(0, 1, 0), 0), q = new V3(); if (ray.ray.intersectPlane(pl, q)) p = q.add(new V3(0, 0.15, 0)); else return; }
@@ -1253,8 +1273,224 @@
     const ring = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0.8 })); ring.position.copy(p); ring.userData.blast = 0; scene.add(ring); tracers.push(ring);
   }
 
+
+  // ================= duel mode =================
+  // You walk (WASD, Shift to sprint). An attacker stands off and does what you tell him, when you tell him: shoot, throw a knife,
+  // shove, lob a grenade, aimed at a body region you choose. Every hit goes through the same wound / stumble / limp / collapse system.
+  let duel = false, walkDir = null, walkSpeed = 1.5, duelAuto = false, autoT = 2, aimRegion = 'random';
+  const dkeys = {};
+  addEventListener('keydown', (e) => { dkeys[e.code] = true; }); addEventListener('keyup', (e) => { dkeys[e.code] = false; }); addEventListener('blur', () => { for (const k in dkeys) dkeys[k] = false; });
+  function updateWalkInput() {
+    if (!duel || fig.dead) { walkDir = null; return; }
+    const f = (dkeys.KeyW || dkeys.ArrowUp ? 1 : 0) - (dkeys.KeyS || dkeys.ArrowDown ? 1 : 0), r = (dkeys.KeyD || dkeys.ArrowRight ? 1 : 0) - (dkeys.KeyA || dkeys.ArrowLeft ? 1 : 0);
+    if (!f && !r) { walkDir = null; return; }
+    const sn = Math.sin(camS.yaw), cs = Math.cos(camS.yaw);                   // forward = away from the camera
+    walkDir = new V3(-sn * f + cs * r, 0, -cs * f - sn * r).normalize(); walkSpeed = dkeys.ShiftLeft || dkeys.ShiftRight ? 2.7 : 1.5;
+  }
+
+  // ---- the attacker: another body built from the same meshes, posed from its own rig ----
+  const npcJacket = jacketMat.clone(); npcJacket.color = lin(0xe6b9a6); const npcPants = pantsMat.clone(); npcPants.color = lin(0x8d8d92);
+  function cloneTree(o) {
+    let c; if (o.isMesh) c = new THREE.Mesh(o.geometry, o.material === jacketMat ? npcJacket : o.material === pantsMat ? npcPants : o.material); else c = new THREE.Group();
+    c.position.copy(o.position); c.quaternion.copy(o.quaternion); c.scale.copy(o.scale); c.visible = o.visible; c.castShadow = true; c.receiveShadow = true;
+    o.children.forEach((k) => c.add(cloneTree(k))); return c;
+  }
+  eyes.forEach((e) => { e.lidU.rotation.x = -0.52; e.lidL.rotation.x = Math.PI - 0.12; }); mouth.visible = false;
+  const NV = {
+    limbs: limbs.map((m) => ({ m: cloneTree(m), a: m.userData.a, b: m.userData.b })), balls: balls.map((m) => ({ m: cloneTree(m), i: m.userData.a })),
+    torso: cloneTree(bodyParts.torso), shoulders: cloneTree(bodyParts.shoulders), hips: cloneTree(bodyParts.hips), feet: bodyParts.feet.map(cloneTree),
+    torsoGear: cloneTree(torsoGear), hipGear: cloneTree(hipGear), kneePads: kneePads.map(cloneTree), hands: hands.map(cloneTree), head: cloneTree(head),
+  };
+  const npcRoot = new THREE.Group(); scene.add(npcRoot);
+  [...NV.limbs.map((o) => o.m), ...NV.balls.map((o) => o.m), NV.torso, NV.shoulders, NV.hips, ...NV.feet, NV.torsoGear, NV.hipGear, ...NV.kneePads, ...NV.hands, NV.head].forEach((o) => npcRoot.add(o));
+  npcRoot.visible = false;
+  function makeNpcRig() {
+    const root = new THREE.Object3D(); scene.add(root);
+    const hp = O(root, 0, HIP_Y, 0), tr = O(hp, 0, 0.1, 0), nk = O(tr, 0, 0.6, 0), hr = O(nk, 0, 0.1, 0);
+    const arms = [-1, 1].map((sg) => { const sh = O(tr, sg * 0.255, 0.5, 0), upper = O(sh), fore = O(upper, 0, -0.3, 0), hand = O(fore, 0, -0.28, 0); return { sh, upper, fore, hand }; });
+    const legs = [-1, 1].map((sg) => { const th = O(hp, sg * 0.095, -0.02, 0), shin = O(th, 0, -0.45, 0), foot = O(shin, 0, -0.45, 0), toe = O(foot, 0, -0.05, 0.2); return { th, shin, foot, toe }; });
+    const mids = [O(arms[0].upper, 0, -0.15, 0), O(arms[1].upper, 0, -0.15, 0), O(arms[0].fore, 0, -0.14, 0), O(arms[1].fore, 0, -0.14, 0), O(legs[0].th, 0, -0.225, 0), O(legs[1].th, 0, -0.225, 0), O(legs[0].shin, 0, -0.225, 0), O(legs[1].shin, 0, -0.225, 0)];
+    const mk = [hp, O(tr, 0, 0.3, 0), nk, O(hr, 0, 0.12, 0), arms[0].sh, arms[1].sh, arms[0].fore, arms[1].fore, arms[0].hand, arms[1].hand, legs[0].th, legs[1].th, legs[0].shin, legs[1].shin, legs[0].foot, legs[1].foot, legs[0].toe, legs[1].toe, ...mids];
+    return { root, hips: hp, torso: tr, arms, legs, markers: mk };
+  }
+  const NR = makeNpcRig(), NP = markers.map(() => new V3()), nf = { side: new V3(1, 0, 0), up: new V3(0, 1, 0), fwd: new V3(0, 0, 1) };
+  const npc = { pos: new V3(0, 0, 7), yaw: Math.PI, phase: 0, walk: 0, act: null, last: '' };
+  const gun = new THREE.Group(); { const m1 = new THREE.MeshStandardMaterial({ color: lin(0x2b2d31), metalness: 0.7, roughness: 0.35 }); const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.045, 0.2), m1); b.position.z = 0.09; const gr = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.08, 0.04), m1); gr.position.set(0, -0.055, 0.0); gun.add(b, gr); gun.traverse((o) => (o.castShadow = true)); }
+  gun.visible = false; scene.add(gun);
+  const heldKnife = makeKnife(); heldKnife.visible = false; scene.add(heldKnife);
+  const nade = new THREE.Mesh(new THREE.SphereGeometry(0.045, 14, 10), new THREE.MeshStandardMaterial({ color: lin(0x3f4a36), roughness: 0.6 })); nade.visible = false; nade.castShadow = true; scene.add(nade);
+  const projectiles = [];                                                          // thrown knives and grenades in flight
+
+  function duelReset() {
+    npc.pos.set(0, 0, 7); npc.yaw = Math.PI; npc.act = null; npc.walk = 0; gun.visible = heldKnife.visible = nade.visible = false;
+    projectiles.splice(0).forEach((p) => scene.remove(p.mesh)); autoT = 2;
+  }
+  function setDuel(on) {
+    duel = on; npcRoot.visible = on; $('duelPanel').style.display = on ? 'block' : 'none'; $('modeBtn').classList.toggle('on', on);
+    document.querySelectorAll('#tools button[data-t]').forEach((b) => (b.style.display = on ? 'none' : ''));
+    $('help').innerHTML = on ? 'WASD walk &middot; Shift sprint &middot; drag: orbit camera &middot; wheel: zoom<br>Attacker: 1 shoot &middot; 2 throw knife &middot; 3 shove &middot; 4 grenade<br>R restart &middot; Space slow-motion &middot; T thermal vision' : 'Click the dummy with the selected tool<br>Drag empty space: orbit &middot; wheel: zoom<br>R reset &middot; Space slow-motion &middot; 1-6 tools &middot; T thermal vision';
+    reset();
+    if (on) { camS.yaw = Math.PI; camS.dist = 4.3; camS.pitch = 0.3; camS.h = 1.2; camS.snap = false; } else { camS.h = null; camS.yaw = 0.55; camS.dist = 5.2; camS.pitch = 0.3; }
+  }
+  $('modeBtn').onclick = () => setDuel(!duel);
+  document.querySelectorAll('#duelPanel button[data-a]').forEach((b) => (b.onclick = () => npcDo(b.dataset.a)));
+  document.querySelectorAll('#regions button').forEach((b) => (b.onclick = () => { aimRegion = b.dataset.r; document.querySelectorAll('#regions button').forEach((x) => x.classList.toggle('on', x === b)); }));
+  $('autoAtk').onchange = (e) => (duelAuto = e.target.checked);
+
+  const REGIONS = ['head', 'chest', 'heart', 'gut', 'arm', 'leg', 'knee', 'foot'];
+  function regionPoint(r, sd) {
+    switch (r) {
+      case 'head': return pos[HED].clone(); case 'chest': return pos[SPN].clone(); case 'heart': return zoneList()[1].c;
+      case 'gut': return pos[PEL].clone().lerp(pos[SPN], 0.45); case 'arm': return pos[sd ? UAR : UAL].clone(); case 'leg': return pos[sd ? THR : THL].clone();
+      case 'knee': return pos[sd ? KNR : KNL].clone(); case 'foot': return pos[sd ? ANR : ANL].clone().lerp(pos[sd ? TOR : TOL], 0.3);
+    } return pos[SPN].clone();
+  }
+  function npcDo(kind) {
+    if (!duel || npc.act || fig.dead || fig.c <= 0.02) return;
+    const r = aimRegion === 'random' ? REGIONS[(Math.random() * REGIONS.length) | 0] : aimRegion;
+    npc.act = { kind, t: 0, fired: false, phase: kind === 'shove' ? 'approach' : 'go', region: r, side: Math.random() < 0.5 ? 0 : 1 };
+  }
+
+  // a bullet / knife hit on the player, through the same wound, bone, vital-zone and stumble code the sandbox uses
+  function applyHit(kind, hit, dir) {
+    const ud = hit.object.userData, a = ud.a, b = ud.b, p = hit.point.clone(), A = pos[a], B = pos[b], ab = new V3().subVectors(B, A), l2 = ab.lengthSq();
+    const t = l2 > 1e-6 ? clamp(new V3().subVectors(p, A).dot(ab) / l2, 0, 1) : 0, pistol = kind === 'pistol', thrown = kind === 'throw';
+    const sn = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize(); if (sn.dot(dir) > 0) sn.negate();
+    const w = addWound(a, b, ud.kind, p, dir, pistol ? 1 : 0.75, sn, pistol ? 'bullet' : 'cut', ud.mat0 || hit.object.material);
+    hitImpulse(a, b, t, new V3(dir.x, dir.y * 0.3, dir.z).normalize(), pistol ? 2.4 : 1.1);
+    const z = zoneHit(p, dir, pistol ? 0.7 : 0.06); if (z) applyZone(z, w);
+    if (ud.bone) boneDamage(ud.bone, ud.side, pistol ? (Math.random() < 0.08 ? 100 : rnd(20, 36)) : (Math.random() < 0.03 ? 100 : rnd(6, 14)));
+    playPain(pistol ? 1 : 0.7);
+    if (thrown) { w.knife = makeKnife(); w.kdx = dir.dot(frame.side); w.kdy = dir.dot(frame.up); w.kdz = dir.dot(frame.fwd); scene.add(w.knife); sound('thud'); }
+    if (pistol) for (let i = 0; i < 10; i++) spawnDrop(p, dir.x * (0.8 + Math.random() * 2) + (Math.random() - 0.5), dir.y * 1.5 + Math.random() * 1.2, dir.z * (0.8 + Math.random() * 2) + (Math.random() - 0.5), 0.008 + Math.random() * 0.01);
+    shake = Math.max(shake, 0.05);
+  }
+  const rc = new THREE.Raycaster();
+  function hitscan(kind, origin, dir, far) {
+    rc.set(origin, dir); rc.far = far; const hits = rc.intersectObjects(bodyMeshes, false);
+    if (hits.length) { applyHit(kind, hits[0], dir); return hits[0].point; } return null;
+  }
+
+  // ---- attacker behaviour & posing ----
+  const ez = (k) => k * k * (3 - 2 * k), pole = new V3();
+  function reach(side, target) {                                                   // arm IK onto a world point
+    const S = NP[side ? SHR : SHL]; pole.set(0, 0, 0).addScaledVector(nf.side, side ? 0.8 : -0.8).addScaledVector(nf.up, -0.5).addScaledVector(nf.fwd, -0.3);
+    ik(S, target, 0.3, 0.28, pole, NP[side ? ELR : ELL], NP[side ? HAR : HAL]);
+  }
+  function npcFrame() { nf.side.subVectors(NP[SHR], NP[SHL]).normalize(); nf.up.subVectors(NP[NCK], NP[PEL]).normalize(); nf.fwd.crossVectors(nf.side, nf.up).normalize(); nf.side.crossVectors(nf.up, nf.fwd).normalize(); }
+  const vA = new V3(), vB = new V3(), vC = new V3(), aimDir = new V3();
+  function updateNpc(dt) {
+    if (!duel) return;
+    const dx = pos[PEL].x - npc.pos.x, dz = pos[PEL].z - npc.pos.z, dist = Math.hypot(dx, dz), out = fig.dead || fig.c <= 0.02;
+    npc.yaw += wrapA(Math.atan2(dx, dz) - npc.yaw) * Math.min(1, dt * 6);
+    let a = npc.act, mv = 0;
+    if (out && a) { npc.act = a = null; gun.visible = heldKnife.visible = nade.visible = false; }
+    if (duelAuto && !a && !out) { autoT -= dt; if (autoT <= 0) { autoT = 1.8 + Math.random() * 2; const r = Math.random(); npcDo(r < 0.4 ? 'shoot' : r < 0.65 ? 'throw' : r < 0.8 ? 'shove' : 'grenade'); a = npc.act; } }
+    if (!a) { if (dist > 8.5) mv = 2.3; else if (dist < 3.6 && !out) mv = -1.8; }
+    else if (a.kind === 'shove') {
+      if (a.phase === 'approach') { mv = 3.4; if (dist < 1.15) { a.phase = 'hit'; a.t = 0; } }
+      else if (a.phase === 'hit') a.t += dt; else { mv = -2.2; a.t += dt; if (a.t > 1.1) npc.act = a = null; }
+    } else a.t += dt;
+    npc.pos.x += Math.sin(npc.yaw) * mv * dt; npc.pos.z += Math.cos(npc.yaw) * mv * dt;
+    npc.walk += (Math.min(1, Math.abs(mv) / 1.1) - npc.walk) * (1 - Math.exp(-dt * 10)); npc.phase += (mv / 1.45) * Math.PI * 2 * dt;
+
+    // locomotion on the rig
+    const R = NR, w = npc.walk, ph = npc.phase, sL = Math.sin(ph), sR = Math.sin(ph + Math.PI), cL = Math.cos(ph), cR = Math.cos(ph + Math.PI), A = 0.5, K = 0.8, br = Math.sin(performance.now() * 0.0018);
+    R.root.position.set(npc.pos.x, 0, npc.pos.z); R.root.rotation.y = npc.yaw;
+    R.hips.position.y = HIP_Y - 0.02 * w + 0.03 * Math.abs(cL) * w; R.hips.rotation.y = sL * 0.14 * w; R.torso.rotation.set(0.01 * br * (1 - w), -sL * 0.2 * w, 0);
+    [[sL, cL], [sR, cR]].forEach(([sn, cs], i) => {
+      const L = R.legs[i]; L.th.rotation.x = -sn * A * w; L.shin.rotation.x = Math.max(0, cs) * K * w + 0.06 * w; L.foot.rotation.x = -(L.th.rotation.x + L.shin.rotation.x) * 0.7;
+      R.arms[i].upper.rotation.x = sn * A * 0.85 * w; R.arms[i].upper.rotation.z = (i ? -1 : 1) * (0.07 + 0.02 * w); R.arms[i].fore.rotation.x = -0.12 - 0.25 * w;
+    });
+    R.root.updateMatrixWorld(true); R.markers.forEach((m, i) => m.getWorldPosition(NP[i]));
+    npcFrame(); gun.visible = heldKnife.visible = nade.visible = false;
+    if (a) poseAction(a, dt);
+    for (const [m, p, q] of [[UAL, SHL, ELL], [UAR, SHR, ELR], [FAL, ELL, HAL], [FAR, ELR, HAR]]) NP[m].addVectors(NP[p], NP[q]).multiplyScalar(0.5);
+    updateProjectiles(dt);
+  }
+  function poseAction(a, dt) {
+    const player = fig, handR = NP[HAR].clone(), restL = NP[HAL].clone(), shR = NP[SHR];
+    if (a.kind === 'shoot') {
+      const q = regionPoint(a.region, a.side); aimDir.subVectors(q, shR).normalize();
+      const e = ez(clamp(a.t / 0.45, 0, 1)) * (1 - ez(clamp((a.t - 1.0) / 0.3, 0, 1))), recoil = a.fired ? Math.exp(-(a.t - 0.5) * 14) : 0;
+      vA.copy(shR).addScaledVector(aimDir, 0.55).addScaledVector(nf.up, -0.02); vA.lerpVectors(handR, vA, e).addScaledVector(aimDir, -0.05 * recoil).addScaledVector(nf.up, 0.03 * recoil); reach(1, vA);
+      vB.copy(vA).addScaledVector(nf.side, -0.05).addScaledVector(aimDir, 0.02); vB.lerpVectors(restL, vB, e); reach(0, vB);
+      gun.visible = a.t < 1.25; gun.position.copy(NP[HAR]); gun.lookAt(vC.copy(NP[HAR]).add(aimDir));
+      if (!a.fired && a.t >= 0.5) {
+        a.fired = true; vC.copy(gun.position).addScaledVector(aimDir, 0.2); const tgt = q.clone().add(new V3(rnd(-0.03, 0.03), rnd(-0.03, 0.03), rnd(-0.03, 0.03))); const d = tgt.sub(vC).normalize();
+        const hp = hitscan('pistol', vC.clone(), d, 60); tracer(vC.clone(), hp || vC.clone().addScaledVector(d, 30), 0xffe6a0); sound('shot'); flash(0.15);
+      }
+      if (a.t > 1.3) npc.act = null;
+    } else if (a.kind === 'throw' || a.kind === 'grenade') {
+      const q = regionPoint(a.kind === 'grenade' ? 'chest' : a.region, a.side), gren = a.kind === 'grenade', wind = gren ? 0.55 : 0.42;
+      vA.copy(shR).addScaledVector(nf.fwd, -0.22).addScaledVector(nf.up, 0.34).addScaledVector(nf.side, 0.06);          // wind-up: hand back and high
+      vB.copy(shR).addScaledVector(nf.fwd, 0.5).addScaledVector(nf.up, -0.08);                                          // follow-through
+      const phase = a.t < wind ? 0 : 1, e = phase === 0 ? ez(clamp(a.t / wind, 0, 1)) : ez(clamp((a.t - wind) / 0.22, 0, 1));
+      vC.copy(phase === 0 ? vC.lerpVectors(handR, vA, e) : vC.lerpVectors(vA, vB, e)); reach(1, vC);
+      if (a.t < wind + 0.02) { if (gren) { nade.visible = true; nade.position.copy(NP[HAR]); } else { heldKnife.visible = true; heldKnife.position.copy(NP[HAR]); heldKnife.quaternion.setFromUnitVectors(Z, aimDir.set(0, 0.2, 1).applyAxisAngle(Yax, npc.yaw).normalize()); } }
+      if (!a.fired && a.t >= wind) {
+        a.fired = true; const from = NP[HAR].clone();
+        if (gren) {
+          const T = clamp(from.distanceTo(pos[PEL]) / 9, 0.75, 1.35), tgt = pos[PEL].clone(); tgt.x += (pos[PEL].x - prev[PEL].x) / hStep * T * 0.6; tgt.z += (pos[PEL].z - prev[PEL].z) / hStep * T * 0.6; tgt.y = 0.12;
+          const v = new V3((tgt.x - from.x) / T, (tgt.y - from.y + 0.5 * 9.8 * T * T) / T, (tgt.z - from.z) / T);
+          const m = nade.clone(); m.visible = true; scene.add(m); projectiles.push({ kind: 'nade', mesh: m, p: from, v, t: 0, T });
+        } else {
+          const T = from.distanceTo(q) / 20, tgt = q.clone(); tgt.x += (pos[PEL].x - prev[PEL].x) / hStep * T; tgt.z += (pos[PEL].z - prev[PEL].z) / hStep * T;
+          const d = tgt.sub(from).normalize(), m = makeKnife(); scene.add(m); projectiles.push({ kind: 'knife', mesh: m, p: from, v: d.clone().multiplyScalar(20), t: 0 });
+        }
+        sound('thud');
+      }
+      if (a.t > wind + 0.4) npc.act = null;
+    } else if (a.kind === 'shove' && a.phase === 'hit') {
+      const chest = pos[SPN]; vA.copy(chest).addScaledVector(nf.up, 0.05).addScaledVector(nf.side, -0.1); vB.copy(chest).addScaledVector(nf.up, 0.05).addScaledVector(nf.side, 0.1);
+      const e = ez(clamp(a.t / 0.2, 0, 1)); reach(0, vC.lerpVectors(restL, vA, e)); reach(1, vC.lerpVectors(handR, vB, e));
+      if (!a.fired && a.t >= 0.14) {
+        a.fired = true; const d = new V3(pos[PEL].x - npc.pos.x, 0, pos[PEL].z - npc.pos.z).normalize(); hitImpulse(SPN, NCK, 0.5, d, 6.5);
+        player.stun = Math.min(1, player.stun + 0.5); sound('thud'); shake = Math.max(shake, 0.05); playPain(0.6);
+      }
+      if (a.t > 0.5) { a.phase = 'retreat'; a.t = 0; }
+    }
+  }
+  function updateProjectiles(dt) {
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const pr = projectiles[i]; pr.t += dt; let done = false;
+      if (pr.kind === 'knife') {
+        const step = pr.v.clone().multiplyScalar(dt), len = step.length(), dir = step.clone().normalize();
+        const hp = hitscan('throw', pr.p.clone(), dir, len + 0.03);
+        if (hp) done = true; else { pr.p.add(step); pr.mesh.position.copy(pr.p); pr.mesh.quaternion.setFromUnitVectors(Z, dir); if (pr.p.y < 0.03 || pr.t > 2.5) done = true; }
+      } else {
+        pr.v.y -= 9.8 * dt; pr.p.addScaledVector(pr.v, dt); pr.mesh.position.copy(pr.p); pr.mesh.rotation.x += dt * 9;
+        if (pr.p.y <= 0.1 || pr.t > pr.T + 0.6) { done = true; blast(new V3(pr.p.x, 0.18, pr.p.z)); }
+      }
+      if (done) { scene.remove(pr.mesh); projectiles.splice(i, 1); }
+    }
+  }
+  function syncNpc() {
+    if (!duel) return;
+    const P = NP; npcFrame(); const { side, up, fwd } = nf;
+    for (const L of NV.limbs) placeLimb(L.m, P[L.a], P[L.b]); for (const B of NV.balls) B.m.position.copy(P[B.i]);
+    const T = NV.torso, tl = Math.max(0.2, P[PEL].distanceTo(P[NCK]) - 0.14);
+    T.position.copy(P[PEL]).addScaledVector(up, 0.1); basisQuat(side, up, fwd, T.quaternion); T.scale.set(1, tl, 1);
+    NV.shoulders.position.copy(P[NCK]).addScaledVector(up, -0.03); NV.shoulders.quaternion.copy(T.quaternion);
+    NV.hips.position.copy(P[PEL]).addScaledVector(up, -0.01); NV.hips.quaternion.copy(T.quaternion);
+    NV.torsoGear.position.copy(T.position); NV.torsoGear.quaternion.copy(T.quaternion); NV.torsoGear.scale.set(1, tl / 0.56, 1);
+    NV.hipGear.position.copy(P[PEL]); NV.hipGear.quaternion.copy(T.quaternion);
+    [0, 1].forEach((i) => {
+      const k = P[LEGS[i].knee], d = tmp2.subVectors(P[LEGS[i].hip], P[LEGS[i].ank]).normalize();
+      by.copy(d); bz.copy(fwd).addScaledVector(d, -fwd.dot(d)).normalize(); bx.crossVectors(by, bz).normalize();
+      NV.kneePads[i].position.copy(k).addScaledVector(bz, 0.066); basisQuat(bx, by, bz, NV.kneePads[i].quaternion);
+      const w = P[ARMP[i][4]], fa = P[ARMP[i][3]]; by.subVectors(w, fa).normalize(); bz.copy(fwd).addScaledVector(by, -fwd.dot(by)).normalize(); bx.crossVectors(by, bz).normalize();
+      NV.hands[i].position.copy(w).addScaledVector(by, 0.005); basisQuat(bx, by, bz, NV.hands[i].quaternion);
+      const a = P[LEGS[i].ank], t = P[LEGS[i].toe], F = NV.feet[i];
+      tmp2.subVectors(t, a).normalize(); tmp3.crossVectors(tmp2, side).normalize(); const sd = new V3().crossVectors(tmp3, tmp2).normalize();
+      basisQuat(sd, tmp3, tmp2, F.quaternion); F.position.lerpVectors(a, t, 0.35).addScaledVector(tmp3, -0.03);
+    });
+    tmp.subVectors(P[HED], P[NCK]).normalize(); tmp2.crossVectors(side, tmp).normalize(); const sd2 = new V3().crossVectors(tmp, tmp2).normalize();
+    NV.head.position.copy(P[HED]).addScaledVector(tmp, -0.042); basisQuat(sd2, tmp, tmp2, NV.head.quaternion); NV.head.scale.setScalar(1.1);
+  }
+
   // ================= lifecycle =================
-  function reset() { stopPain(); release(); dropN = 0; poolCtx.clearRect(0, 0, 1024, 1024); poolTex.needsUpdate = true; poolCells.clear(); fig = newFig(); }
+  function reset() { duelReset(); stopPain(); release(); dropN = 0; poolCtx.clearRect(0, 0, 1024, 1024); poolTex.needsUpdate = true; poolCells.clear(); fig = newFig(); }
   reset();
   function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
   addEventListener('resize', resize); resize();
@@ -1264,6 +1500,7 @@
     const f = fig;
     $('blood').style.width = f.blood + '%'; $('bloodTxt').textContent = Math.round(f.blood) + '%';
     $('cons').style.width = Math.round(f.c * 100) + '%'; $('consWrap').style.display = (f.c <= 0.02 || f.dead) ? 'none' : 'block'; $('wcount').textContent = f.wounds.length;
+    $('deadMsg').style.display = duel && (f.dead || f.c <= 0.02) ? 'flex' : 'none'; $('deadTitle').textContent = f.dead ? 'YOU DIED' : 'KNOCKED OUT';
     let s = 'Standing';
     if (f.dead) s = 'DEAD';
     else if (f.c <= 0.05) s = f.down ? 'Unconscious, bleeding out' : 'Losing consciousness';
@@ -1283,10 +1520,10 @@
   function loop(now) {
     const real = clamp((now - last) / 1000, 0.001, 0.033); last = now;   // (the first rAF timestamp can predate `last` after a long load)
     const dt = real * (slow ? 0.2 : 1);
-    control(dt);
+    updateWalkInput(); updateNpc(dt); control(dt);
     hStep = dt / SUB;
     for (let i = 0; i < SUB; i++) physics(hStep);
-    syncBody(fig);
+    syncBody(fig); syncNpc();
     const f = fig, pressure = clamp(f.blood / 100, 0.1, 1);
     for (const w of f.wounds) {
       woundWorld(w, wp); updateWoundVisuals(w, wp, dt);
