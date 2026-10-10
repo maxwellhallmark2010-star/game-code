@@ -28,13 +28,13 @@
   Consciousness<div class="bar c"><i id="cons"></i></div>
   Wounds: <span id="wcount">0</span>
 </div>
-<div id="help">Click the dummy with the selected tool<br>Drag empty space: orbit &middot; wheel: zoom<br>R reset &middot; Space slow-motion &middot; 1-5 tools</div>
+<div id="help">Grab: drag him and he walks where you lead him<br>Hold Shift while grabbing to lift &amp; throw him<br>Drag empty space: orbit &middot; wheel: zoom<br>R reset &middot; Space slow-motion &middot; 1-5 tools</div>
 <div id="tools">
   <button data-t="pistol">1 Pistol</button>
   <button data-t="knife">2 Knife</button>
   <button data-t="shove">3 Shove</button>
   <button data-t="blast">4 Blast</button>
-  <button data-t="grab" class="on">5 Grab &amp; throw</button>
+  <button data-t="grab" class="on">5 Grab / lead</button>
   <button id="reset">Reset (R)</button>
 </div>
 <div id="flash"></div>
@@ -88,7 +88,7 @@
     poolCtx.fillStyle = g; poolCtx.beginPath(); poolCtx.arc(px, py, r, 0, 6.283); poolCtx.fill(); poolDirty = true;
   }
 
-  // ================= the pose rig (invisible; it animates the pose the body tries to hold) =================
+  // ================= the pose rig (invisible; the upper-body pose the dummy tries to hold) =================
   const rigRoot = new THREE.Object3D(); scene.add(rigRoot);
   const O = (parent, x = 0, y = 0, z = 0) => { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; };
   const hips = O(rigRoot, 0, HIP_Y, 0), torso = O(hips, 0, 0.1, 0), neck = O(torso, 0, 0.6, 0), headR = O(neck, 0, 0.1, 0);
@@ -100,17 +100,18 @@
     rLegs[0].th, rLegs[1].th, rLegs[0].shin, rLegs[1].shin, rLegs[0].foot, rLegs[1].foot, rLegs[0].toe, rLegs[1].toe];
   const N = markers.length;
   const [PEL, SPN, NCK, HED, SHL, SHR, ELL, ELR, HAL, HAR, HPL, HPR, KNL, KNR, ANL, ANR, TOL, TOR] = [...Array(N).keys()];
+  const LEGS = [{ hip: HPL, knee: KNL, ank: ANL, toe: TOL }, { hip: HPR, knee: KNR, ank: ANR, toe: TOR }];
 
   // ================= physics particles (Verlet) =================
   const radius = [0.1, 0.12, 0.05, 0.12, 0.07, 0.07, 0.05, 0.05, 0.05, 0.05, 0.08, 0.08, 0.07, 0.07, 0.06, 0.06, 0.04, 0.04];
   const mass = [3, 3, 1, 2.5, 1.2, 1.2, 0.8, 0.8, 0.5, 0.5, 1.5, 1.5, 1, 1, 1.2, 1.2, 0.4, 0.4];
-  const tau = [0.12, 0.14, 0.12, 0.1, 0.14, 0.14, 0.12, 0.12, 0.09, 0.09, 0.12, 0.12, 0.1, 0.1, 0.07, 0.07, 0.07, 0.07];
-  const pos = markers.map(() => new V3()), prev = markers.map(() => new V3()), tgt = markers.map(() => new V3());
+  const tau = [0.12, 0.14, 0.12, 0.1, 0.14, 0.14, 0.12, 0.12, 0.09, 0.09, 0.1, 0.1, 0.07, 0.07, 0.04, 0.04, 0.04, 0.04];
+  const pos = markers.map(() => new V3()), prev = markers.map(() => new V3());
   const BONES = [[PEL, SPN], [SPN, NCK], [NCK, HED], [NCK, SHL], [NCK, SHR], [SHL, ELL], [ELL, HAL], [SHR, ELR], [ELR, HAR], [PEL, HPL], [PEL, HPR],
     [HPL, KNL], [KNL, ANL], [HPR, KNR], [KNR, ANR], [ANL, TOL], [ANR, TOR]];
   const BRACES = [[SHL, SHR], [HPL, HPR], [SHL, HPL], [SHR, HPR], [SHL, HPR], [SHR, HPL], [PEL, SHL], [PEL, SHR], [SPN, HPL], [SPN, HPR], [HED, SHL], [HED, SHR], [PEL, NCK], [SPN, HED]];
   const CONS = BONES.concat(BRACES).map(([a, b]) => ({ a, b, len: 0 }));
-  const tmp = new V3(), tmp2 = new V3(), tmp3 = new V3(), UPV = new V3(0, 1, 0);
+  const tmp = new V3(), tmp2 = new V3(), tmp3 = new V3();
   const frame = { side: new V3(1, 0, 0), up: new V3(0, 1, 0), fwd: new V3(0, 0, 1) };
   function bodyFrame() {
     frame.side.subVectors(pos[SHR], pos[SHL]).normalize();
@@ -118,29 +119,33 @@
     frame.fwd.crossVectors(frame.side, frame.up).normalize();
     frame.side.crossVectors(frame.up, frame.fwd).normalize();
   }
+  // two-bone IK: from root S toward T with segment lengths L1, L2, bending toward `pole`
+  function ik(S, T, L1, L2, pole, outMid, outEnd) {
+    const dv = new V3().subVectors(T, S), d = dv.length() || 1e-6, dc = clamp(d, Math.abs(L1 - L2) + 0.02, L1 + L2 - 0.003), dir = dv.divideScalar(d);
+    const a = (L1 * L1 - L2 * L2 + dc * dc) / (2 * dc), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+    const p = pole.clone().addScaledVector(dir, -pole.dot(dir)); if (p.lengthSq() < 1e-6) p.set(0, 0, 1); p.normalize();
+    outMid.copy(S).addScaledVector(dir, a).addScaledVector(p, h); outEnd.copy(S).addScaledVector(dir, dc);
+  }
 
-  // ================= pose animation (idle / walk / crouch / curl) =================
-  const G = { phase: 0, walk: 0, run: 0, lean: 0, anchor: new V3(), vel: new V3(), yaw: 0, t: 0 };
-  function poseRig(dt, speedFwd, speed, p) {
+  // ================= upper-body pose =================
+  const G = { anchor: new V3(), yaw: 0, t: 0, lean: 0 };
+  function poseRig(dt, p) {
     G.t += dt;
-    const walkT = clamp(speed / 1.1, 0, 1), runT = clamp((speed - 2.4) / 2.2, 0, 1);
-    G.walk = lerp(G.walk, walkT, 1 - Math.exp(-dt * 10)); G.run = lerp(G.run, runT, 1 - Math.exp(-dt * 6));
-    G.phase += (speedFwd / 1.45) * Math.PI * 2 * dt * (1 - 0.15 * G.run);
-    const w = G.walk, r = G.run, idle = 1 - w, ph = G.phase, sL = Math.sin(ph), sR = Math.sin(ph + Math.PI), cL = Math.cos(ph), cR = Math.cos(ph + Math.PI);
-    const A = lerp(0.5, 0.95, r), K = lerp(0.8, 1.7, r), crouch = p.crouch;
-    G.lean = lerp(G.lean, clamp(speed * 0.04, 0, 0.25), 1 - Math.exp(-dt * 6));
+    const idle = 1 - clamp(p.speed / 1.2, 0, 1);
+    G.lean = lerp(G.lean, p.lean, 1 - Math.exp(-dt * 6));
     rigRoot.position.copy(G.anchor); rigRoot.rotation.y = G.yaw;
-    hips.position.y = HIP_Y - 0.02 * w - 0.05 * r - 0.25 * crouch + 0.03 * Math.abs(cL) * w;
-    hips.position.x = sL * 0.02 * w; hips.rotation.y = sL * 0.14 * w; hips.rotation.z = -sL * 0.03 * w + Math.sin(G.t * 0.5) * 0.012 * idle + p.sway;
-    torso.rotation.set(G.lean + p.curl + Math.sin(G.t * 1.8) * 0.008 * idle, -sL * 0.2 * w, sL * 0.025 * w);
+    hips.position.y = HIP_Y - 0.25 * p.crouch;
+    hips.rotation.set(0, p.twist, Math.sin(G.t * 0.5) * 0.012 * idle + p.sway);
+    torso.rotation.set(G.lean + p.curl + Math.sin(G.t * 1.8) * 0.008 * idle, -p.twist * 1.4, p.sway * 0.5);
     headR.rotation.x = p.headDrop;
-    [[sL, cL], [sR, cR]].forEach(([s, c], i) => {
-      const L = rLegs[i], lw = p.legWeak[i];
-      L.th.rotation.x = -s * A * w - crouch * 0.85 - lw * 0.25; L.shin.rotation.x = Math.max(0, c) * K * w + 0.06 * w + crouch * 1.5 + lw * 0.5;
-      L.foot.rotation.x = -(L.th.rotation.x + L.shin.rotation.x) * 0.7;
-      rArms[i].upper.rotation.x = s * A * 0.85 * w + p.armSwing; rArms[i].upper.rotation.z = (i ? -1 : 1) * (0.06 + 0.02 * w);
-      rArms[i].fore.rotation.x = -0.12 - 0.25 * w - 0.7 * r * w;
-    });
+    for (let i = 0; i < 2; i++) {
+      const L = rLegs[i];                                                    // only used while airborne / down (dangling legs)
+      L.th.rotation.x = -0.15 - p.crouch * 0.85; L.shin.rotation.x = 0.3 + p.crouch * 1.5; L.foot.rotation.x = 0.2;
+      const A = rArms[i], out = (i ? -1 : 1);
+      A.upper.rotation.x = p.armSwing[i] - 0.55 * p.flail;
+      A.upper.rotation.z = out * (0.07 + 1.15 * p.flail + 0.03 * (1 - idle));
+      A.fore.rotation.x = -0.15 - 0.25 * (1 - idle) - 0.55 * p.flail;
+    }
   }
 
   // ================= the visible body (follows the particles) =================
@@ -153,20 +158,21 @@
     const g = new THREE.CylinderGeometry(r1, r0, 1, 14); g.translate(0, 0.5, 0);
     const m = reg(new THREE.Mesh(g, mat), kind, a, b); limbs.push(m); return m;
   }
-  function ball(i, r, mat, kind) { return reg(new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), mat), kind, i, i); }
+  const balls = [];
+  function ball(i, r, mat, kind) { const m = reg(new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), mat), kind, i, i); balls.push(m); return m; }
   const bodyParts = {
     torso: reg(new THREE.Mesh(new THREE.BoxGeometry(0.4, 1, 0.23), shirt), 'chest', PEL, NCK),
     shoulders: reg(new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.1, 0.24), shirt), 'chest', NCK, NCK),
     hips: reg(new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.2), pants), 'pelvis', PEL, PEL),
     feet: [0, 1].map((i) => reg(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.27), shoe), 'foot', i ? ANR : ANL, i ? TOR : TOL)),
   };
-  const neckM = limb(NCK, HED, 0.05, 0.05, skin, 'head');
+  limb(NCK, HED, 0.05, 0.05, skin, 'head');
   [[SHL, ELL, HAL], [SHR, ELR, HAR]].forEach(([s, e, h]) => { limb(s, e, 0.055, 0.045, shirt, 'arm'); limb(e, h, 0.045, 0.036, skin, 'arm'); ball(s, 0.058, shirt, 'arm'); ball(e, 0.046, skin, 'arm'); ball(h, 0.045, skin, 'arm'); });
   [[HPL, KNL, ANL], [HPR, KNR, ANR]].forEach(([h, k, a]) => { limb(h, k, 0.075, 0.06, pants, 'leg'); limb(k, a, 0.06, 0.045, pants, 'leg'); ball(h, 0.075, pants, 'leg'); ball(k, 0.06, pants, 'leg'); });
   // head with a face
   const head = new THREE.Group(); scene.add(head);
-  const headSphere = reg(new THREE.Mesh(new THREE.SphereGeometry(0.115, 24, 18), skin), 'head', HED, HED); headSphere.scale.set(0.95, 1.12, 1);
-  scene.remove(headSphere); head.add(headSphere);
+  const headSphere = new THREE.Mesh(new THREE.SphereGeometry(0.115, 24, 18), skin); headSphere.scale.set(0.95, 1.12, 1);
+  headSphere.userData = { kind: 'head', a: HED, b: HED }; headSphere.castShadow = true; head.add(headSphere); bodyMeshes.push(headSphere);
   const hairM = new THREE.Mesh(new THREE.SphereGeometry(0.12, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.52), hair); hairM.position.set(0, 0.02, -0.012); hairM.scale.set(1, 1.1, 1.02); hairM.castShadow = true; head.add(hairM);
   const eyeLids = [], pupils = [];
   for (const sx of [-1, 1]) {
@@ -178,26 +184,23 @@
   const Xs = [0, 1].map(() => { const g = new THREE.Group(); for (const a of [0.8, -0.8]) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.008, 0.006), dark); b.rotation.z = a; g.add(b); } g.visible = false; head.add(g); return g; });
   Xs[0].position.set(-0.04, 0.02, 0.12); Xs[1].position.set(0.04, 0.02, 0.12);
 
-  const Y = new V3(0, 1, 0), mat4 = new THREE.Matrix4(), q4 = new THREE.Quaternion();
+  const Y = new V3(0, 1, 0), mat4 = new THREE.Matrix4();
   function placeLimb(m, A, B) { tmp.subVectors(B, A); const len = Math.max(1e-4, tmp.length()); m.position.copy(A); m.quaternion.setFromUnitVectors(Y, tmp.divideScalar(len)); m.scale.set(1, len, 1); }
   function basisQuat(side, up, fwd, out) { mat4.makeBasis(side, up, fwd); return out.setFromRotationMatrix(mat4); }
   function syncBody(f) {
     bodyFrame();
     for (const m of limbs) placeLimb(m, pos[m.userData.a], pos[m.userData.b]);
-    for (const m of bodyMeshes) if (m.geometry.type === 'SphereGeometry' && m !== headSphere) m.position.copy(pos[m.userData.a]);
+    for (const m of balls) m.position.copy(pos[m.userData.a]);
     const { side, up, fwd } = frame;
-    // torso
-    const T = bodyParts.torso, len = pos[PEL].distanceTo(pos[NCK]) - 0.14;
-    const tl = Math.max(0.2, len); T.position.copy(pos[PEL]).addScaledVector(up, 0.1 + tl / 2); basisQuat(side, up, fwd, T.quaternion); T.scale.set(1, tl, 1);
+    const T = bodyParts.torso, tl = Math.max(0.2, pos[PEL].distanceTo(pos[NCK]) - 0.14);
+    T.position.copy(pos[PEL]).addScaledVector(up, 0.1 + tl / 2); basisQuat(side, up, fwd, T.quaternion); T.scale.set(1, tl, 1);
     bodyParts.shoulders.position.copy(pos[NCK]).addScaledVector(up, -0.06); bodyParts.shoulders.quaternion.copy(T.quaternion);
     bodyParts.hips.position.copy(pos[PEL]); bodyParts.hips.quaternion.copy(T.quaternion);
-    // feet
     [0, 1].forEach((i) => {
-      const a = pos[i ? ANR : ANL], t = pos[i ? TOR : TOL], F = bodyParts.feet[i];
+      const a = pos[LEGS[i].ank], t = pos[LEGS[i].toe], F = bodyParts.feet[i];
       tmp2.subVectors(t, a).normalize(); tmp3.crossVectors(tmp2, side).normalize(); const sd = new V3().crossVectors(tmp3, tmp2).normalize();
       basisQuat(sd, tmp3, tmp2, F.quaternion); F.position.lerpVectors(a, t, 0.35).addScaledVector(tmp3, -0.03);
     });
-    // head
     tmp.subVectors(pos[HED], pos[NCK]).normalize(); tmp2.crossVectors(side, tmp).normalize(); const sd2 = new V3().crossVectors(tmp, tmp2).normalize();
     head.position.copy(pos[HED]); basisQuat(sd2, tmp, tmp2, head.quaternion);
     const awake = f.c > 0.15 && !f.dead, pain = f.stun > 0.25 || f.wounds.length > 0;
@@ -208,15 +211,22 @@
 
   // ================= figure state =================
   let fig, grab = null, slow = false, tool = 'grab';
+  let ANK_H = 0.07, TOE_DY = -0.04, TOE_FWD = 0.2, L_TH = 0.45, L_SH = 0.45;
   const woundSprites = [];
+  const tgtSet = markers.map(() => new V3());
   function newFig() {
-    const wo = { crouch: 0, curl: 0, headDrop: 0, sway: 0, armSwing: 0, legWeak: [0, 0] };
-    G.anchor.set(0, 0, 0); G.vel.set(0, 0, 0); G.yaw = 0; G.phase = 0; G.walk = G.run = G.lean = 0;
-    rigRoot.updateMatrixWorld(true); poseRig(0.0001, 0, 0, wo); rigRoot.updateMatrixWorld(true);
-    markers.forEach((m, i) => { m.getWorldPosition(pos[i]); prev[i].copy(pos[i]); tgt[i].copy(pos[i]); });
+    G.anchor.set(0, 0, 0); G.yaw = 0; G.lean = 0;
+    poseRig(0.0001, { speed: 0, lean: 0, crouch: 0, twist: 0, sway: 0, curl: 0, headDrop: 0, armSwing: [0, 0], flail: 0 });
+    rLegs.forEach((L) => { L.th.rotation.x = 0; L.shin.rotation.x = 0; L.foot.rotation.x = 0; });
+    rigRoot.updateMatrixWorld(true);
+    markers.forEach((m, i) => { m.getWorldPosition(pos[i]); prev[i].copy(pos[i]); tgtSet[i].copy(pos[i]); });
     CONS.forEach((c) => (c.len = pos[c.a].distanceTo(pos[c.b])));
+    ANK_H = pos[ANL].y; TOE_DY = pos[TOL].y - pos[ANL].y; TOE_FWD = pos[TOL].z - pos[ANL].z;
+    L_TH = pos[HPL].distanceTo(pos[KNL]); L_SH = pos[KNL].distanceTo(pos[ANL]);
     woundSprites.forEach((s) => scene.remove(s)); woundSprites.length = 0;
-    return { wounds: [], blood: 100, c: 1, stun: 0, brain: 0, brainT: 0, dead: false, down: false, downT: 0, upT: 0, recover: 1, t: 0, flinch: 1, hands: [null, null], wo, drift: 0 };
+    const feet = [0, 1].map((i) => ({ p: new V3(pos[LEGS[i].ank].x, ANK_H, pos[LEGS[i].ank].z), yaw: 0, swing: null }));
+    return { wounds: [], blood: 100, c: 1, stun: 0, brain: 0, brainT: 0, dead: false, down: false, downT: 0, upT: 0, recover: 1, t: 0, flinch: 1, hands: [null, null],
+      feet, free: false, lastFoot: 1, lurch: new V3(), lurchT: new V3(), lurchTimer: 0, buckle: [0, 0], legStr: [1, 1], s: 1, armC: 1, err: 0, steps: 0, walking: false };
   }
 
   // ================= bleeding =================
@@ -248,7 +258,7 @@
   const glow = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
     r.addColorStop(0, 'rgba(95,4,9,.95)'); r.addColorStop(0.6, 'rgba(140,10,16,.75)'); r.addColorStop(1, 'rgba(140,10,16,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 
-  // ================= wounds =================
+  // ================= wounds & hits =================
   const woundWorld = (w, out) => {
     out.lerpVectors(pos[w.a], pos[w.b], w.t);
     return out.addScaledVector(frame.side, w.ox).addScaledVector(frame.up, w.oy).addScaledVector(frame.fwd, w.oz);
@@ -262,71 +272,168 @@
     f.wounds.push(w);
     const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, depthWrite: false, transparent: true })); sp.scale.setScalar(0.04); scene.add(sp); w.sprite = sp; woundSprites.push(sp);
     if (kind === 'head') f.brain = Math.min(1.2, f.brain + 0.45 * sev * (sev > 0.9 ? 1.5 : 1));
-    f.stun = Math.min(1, f.stun + 0.55 * sev); f.flinch = -Math.sign(dir.x) || 1;
+    f.stun = Math.min(1, f.stun + 0.45 * sev);
+    if (kind === 'leg' || kind === 'foot') { const li = (a === HPL || a === KNL || a === ANL || a === TOL) ? 0 : 1; f.buckle[li] = 0.45; }      // the hit leg gives way
     if (f.wounds.length > 12) { const o = f.wounds.shift(); scene.remove(o.sprite); woundSprites.splice(woundSprites.indexOf(o.sprite), 1); }
   }
+  let hStep = 1 / 240, time = 0;
   function kick(i, v, wgt) { prev[i].addScaledVector(v, -wgt * hStep); }        // add a velocity (m/s) to a particle
   function hitImpulse(a, b, t, dir, speed) {
     kick(a, tmp.copy(dir).multiplyScalar(speed), 1 - t); kick(b, tmp.copy(dir).multiplyScalar(speed), t);
-    kick(PEL, tmp.copy(dir).multiplyScalar(speed * 0.35), 0.4); kick(SPN, tmp.copy(dir).multiplyScalar(speed * 0.35), 0.4);
+    // the whole body takes some of it, the upper body more than the feet, so he gets knocked off balance
+    for (let i = 0; i < N; i++) { const wgt = i <= HED ? 0.6 : i <= HAR ? 0.4 : i <= HPR ? 0.45 : 0.05; kick(i, tmp.copy(dir).multiplyScalar(speed), wgt); }
   }
 
   // ================= controller =================
-  const tgtSet = markers.map(() => new V3());
-  let hStep = 1 / 240, time = 0;
-  const wpos = new V3(), hand = [new V3(), new V3()];
+  const sideYaw = new V3(), fwdYaw = new V3(), cp = new V3(), mid = new V3(), pelV = new V3(), want = [new V3(), new V3()];
   function control(dt) {
     const f = fig; f.t += dt; time += dt;
-    // bleeding
-    let bleed = 0, torso = 0, headW = 0; const legWound = [0, 0];
+    // --- blood ---
+    let bleed = 0, torsoW = 0, headW = 0; const legWound = [0, 0];
     for (const w of f.wounds) {
       w.tt += dt; w.rate = w.rate0 * (0.4 + 0.6 * Math.exp(-w.tt / 50)); bleed += w.rate; w.lost += w.rate * dt;
-      if (w.kind === 'chest' || w.kind === 'pelvis') torso += w.sev; else if (w.kind === 'head') headW += w.sev;
-      if (w.kind === 'leg' || w.kind === 'foot') legWound[(w.a === HPL || w.a === KNL || w.a === ANL) ? 0 : 1] += w.sev;
+      if (w.kind === 'chest' || w.kind === 'pelvis') torsoW += w.sev; else if (w.kind === 'head') headW += w.sev;
+      if (w.kind === 'leg' || w.kind === 'foot') legWound[(w.a === HPL || w.a === KNL || w.a === ANL || w.a === TOL) ? 0 : 1] += w.sev;
     }
     f.blood = Math.max(0, f.blood - bleed * (f.dead ? 0.35 : 1) * dt);
-    f.stun = Math.max(0, f.stun - dt * 0.75);
+    f.stun = Math.max(0, f.stun - dt * 0.6);
     f.c = Math.min(clamp((f.blood - 18) / 45, 0, 1), 1 - f.brain);
     if (f.brain >= 1 && !f.dead) { f.brainT += dt; if (f.brainT > 5) f.dead = true; }
     if (f.blood <= 0 && !f.dead) f.dead = true;
 
+    // --- posture state ---
     bodyFrame();
-    const upY = frame.up.y, low = upY < 0.55 || pos[PEL].y < 0.5;
+    const low = frame.up.y < 0.5 || pos[PEL].y < 0.45;
     f.downT = low ? f.downT + dt : 0;
-    if (!f.down && f.downT > 0.45) { f.down = true; f.upT = 0; }
-    if (f.down) { f.upT += dt; if (!f.dead && f.wounds.length === 0 && f.c > 0.8 && f.upT > 1.8 && f.stun < 0.1) { f.down = false; f.recover = 0; } }
-    f.recover = Math.min(1, f.recover + dt / 1.5);
-    const held = grab ? 0.18 : 1;
-    const s = f.dead ? 0 : f.c * (1 - 0.8 * f.stun) * f.recover * held;
-    const sS = f.down ? s * 0.04 : s;
+    if (!f.down && f.downT > 0.4) { f.down = true; f.upT = 0; }
+    if (f.down) { f.upT += dt; if (!f.dead && f.wounds.length === 0 && f.c > 0.8 && f.upT > 1.8 && f.stun < 0.1 && !grab) { f.down = false; f.recover = 0; } }
+    f.recover = Math.min(1, f.recover + dt / 1.6);
+    const lifting = grab && grab.mode === 'lift';
+    const s = f.dead ? 0 : f.c * (1 - 0.75 * f.stun) * f.recover * (lifting ? 0.2 : 1);
+    const sS = f.down ? s * 0.03 : s;
     const hurtF = clamp((1 - f.c) + 0.25 * Math.min(3, f.wounds.length) + f.stun * 0.5, 0, 1.4);
     f.s = sS;
+    f.buckle = f.buckle.map((b) => Math.max(0, b - dt));
+    f.legStr = [0, 1].map((i) => (legWound[i] > 0 ? 0.65 : 1) * (f.buckle[i] > 0 ? 0.12 : 1));
 
-    // anchor: where the pose is held. It chases the pelvis, so a push becomes a stumble-step and the walk cycle plays.
-    const e = tmp.set(pos[PEL].x - G.anchor.x, 0, pos[PEL].z - G.anchor.z), d = e.length();
-    let tvx = 0, tvz = 0;
-    if (grab) { G.anchor.x += (pos[PEL].x - G.anchor.x) * Math.min(1, dt * 12); G.anchor.z += (pos[PEL].z - G.anchor.z) * Math.min(1, dt * 12); }
-    else if (d > 0.35 || (sS > 0.2 && d > 0.05)) { const sp = Math.min(d > 0.35 ? 7 : 3.6, (d - 0.05) * 8); tvx = e.x / d * sp; tvz = e.z / d * sp; }
-    if (sS > 0.2 && f.wounds.length) {                                       // wounded: lurching, drifting steps
-      const k = clamp(hurtF, 0, 1) * 0.3; tvx += (Math.sin(time * 1.3) + Math.sin(time * 0.7 + 2)) * 0.5 * k; tvz += (Math.cos(time * 1.1) + Math.sin(time * 0.5)) * 0.5 * k + frame.fwd.z * 0.08 * k;
+    // random knee buckles when hurt or bleeding
+    if (!f.down && sS > 0.2 && f.wounds.length) for (let i = 0; i < 2; i++) if (!f.buckle[i] && Math.random() < dt * (0.06 * hurtF + 0.35 * legWound[i])) f.buckle[i] = 0.25 + Math.random() * 0.2;
+
+    // --- yaw / heading ---
+    pelV.set((pos[PEL].x - prev[PEL].x) / hStep, 0, (pos[PEL].z - prev[PEL].z) / hStep);
+    const fh = Math.hypot(frame.fwd.x, frame.fwd.z);
+    let leadTo = null;
+    if (grab && grab.mode === 'lead' && sS > 0.2) {
+      leadTo = new V3(grab.target.x - grab.off.x, 0, grab.target.z - grab.off.z);
+      const dx = leadTo.x - pos[PEL].x, dz = leadTo.z - pos[PEL].z;
+      if (Math.hypot(dx, dz) > 0.3) G.yaw += wrapA(Math.atan2(dx, dz) - G.yaw) * Math.min(1, dt * 3.5);
+    } else if (fh > 0.3 && !f.down) G.yaw += wrapA(Math.atan2(frame.fwd.x, frame.fwd.z) - G.yaw) * Math.min(1, dt * 2);
+    sideYaw.set(Math.cos(G.yaw), 0, -Math.sin(G.yaw)); fwdYaw.set(Math.sin(G.yaw), 0, Math.cos(G.yaw));
+
+    // --- feet: planted in the world, stepping when balance demands it ---
+    const ankY = [pos[ANL].y, pos[ANR].y];
+    if (!f.free && (lifting || f.down || (ankY[0] > ANK_H + 0.22 && ankY[1] > ANK_H + 0.22) || sS < 0.12)) f.free = true;
+    if (f.free && !lifting && !f.down && sS >= 0.15 && Math.min(ankY[0], ankY[1]) < ANK_H + 0.08) {
+      f.free = false;
+      f.feet.forEach((ft, i) => { ft.p.set(pos[LEGS[i].ank].x, ANK_H, pos[LEGS[i].ank].z); ft.yaw = G.yaw; ft.swing = null; });
     }
-    if (f.down) { G.anchor.x = pos[PEL].x; G.anchor.z = pos[PEL].z; tvx = tvz = 0; }
-    G.vel.x += (tvx - G.vel.x) * Math.min(1, dt * 10); G.vel.z += (tvz - G.vel.z) * Math.min(1, dt * 10);
-    G.anchor.x += G.vel.x * dt; G.anchor.z += G.vel.z * dt;
-    const fx = frame.fwd.x, fz = frame.fwd.z, fl = Math.hypot(fx, fz);
-    if (fl > 0.3 && !f.down) G.yaw += wrapA(Math.atan2(fx, fz) - G.yaw) * Math.min(1, dt * 4);
-    const speed = Math.hypot(G.vel.x, G.vel.z), speedFwd = (G.vel.x * Math.sin(G.yaw) + G.vel.z * Math.cos(G.yaw));
+    // wounded lurching: a slowly wandering offset that drags his balance around
+    f.lurchTimer -= dt;
+    if (f.lurchTimer <= 0) { f.lurchTimer = 0.5 + Math.random() * 0.9; const a = Math.random() * 6.283, m = (f.wounds.length ? 0.38 : 0) * clamp(hurtF, 0.3, 1.2); f.lurchT.set(Math.cos(a) * m, 0, Math.sin(a) * m); }
+    f.lurch.lerp(f.lurchT, 1 - Math.exp(-dt * 2.5));
+
+    mid.addVectors(f.feet[0].p, f.feet[1].p).multiplyScalar(0.5); mid.y = 0;
+    cp.set(pos[PEL].x + pelV.x * 0.3 + f.lurch.x, 0, pos[PEL].z + pelV.z * 0.3 + f.lurch.z);
+    if (leadTo) { tmp.subVectors(leadTo, mid); tmp.y = 0; const l = tmp.length(); if (l > 0.2) cp.addScaledVector(tmp, Math.min(0.3, l * 0.5) / l); }
+    const err = Math.hypot(cp.x - mid.x, cp.z - mid.z); f.err = err;
+    const swinging = f.feet.some((ft) => ft.swing);
+    if (!f.free && !swinging && sS > 0.15) {
+      // place the foot a little beyond the capture point so the step actually stops the fall (unless being led)
+      const settle = clamp(1 - pelV.length() / 0.4, 0, 1) * (leadTo ? 0 : 1);   // nearly still: square the feet up under where he stands
+      tmp.copy(cp).lerp(G.anchor, settle * 0.6); tmp.y = 0;
+      want[0].copy(tmp).addScaledVector(sideYaw, -0.1); want[1].copy(tmp).addScaledVector(sideYaw, 0.1);
+      const d0 = Math.hypot(want[0].x - f.feet[0].p.x, want[0].z - f.feet[0].p.z), d1 = Math.hypot(want[1].x - f.feet[1].p.x, want[1].z - f.feet[1].p.z);
+      const lat = tmp.subVectors(f.feet[1].p, f.feet[0].p).dot(sideYaw), split = Math.abs(tmp.dot(fwdYaw));
+      const still = pelV.length() < 0.25 && !leadTo;
+      const needs = err > (leadTo ? 0.06 : 0.1) || lat < 0.07 || lat > 0.5 || (still && split > 0.3 && Math.max(d0, d1) > 0.12);
+      if (needs) {
+        let i = d0 > d1 ? 0 : 1;
+        if (i === f.lastFoot && (i ? d0 : d1) > 0.45 * (i ? d1 : d0)) i = 1 - i;    // prefer alternating feet
+        const ft = f.feet[i], other = f.feet[1 - i], to = want[i].clone(); to.y = ANK_H;
+        const maxStep = 0.22 + 0.5 * clamp(sS, 0, 1);
+        tmp.subVectors(to, ft.p); tmp.y = 0; if (tmp.length() > maxStep) to.copy(ft.p).addScaledVector(tmp.normalize(), maxStep);
+        const sgn = i ? 1 : -1, l2 = tmp2.subVectors(to, other.p).dot(sideYaw) * sgn;
+        if (l2 < 0.09) to.addScaledVector(sideYaw, sgn * (0.09 - l2));                 // don't cross the legs
+        to.y = ANK_H;
+        const urgency = clamp(err / 0.5, 0, 1);
+        const dur = lerp(leadTo ? 0.3 : 0.34, 0.17, urgency) / (0.55 + 0.45 * clamp(sS, 0, 1)) * (1 + 0.4 * clamp(hurtF, 0, 1));
+        ft.swing = { from: ft.p.clone(), to, t: 0, dur, h: 0.06 + 0.07 * urgency, yaw0: ft.yaw };
+        f.lastFoot = i; f.steps++;
+      }
+    }
+    f.feet.forEach((ft) => {
+      if (!ft.swing) return;
+      const sw = ft.swing; sw.t += dt; const u = clamp(sw.t / sw.dur, 0, 1), e = u * u * (3 - 2 * u);
+      ft.p.lerpVectors(sw.from, sw.to, e); ft.p.y = ANK_H + Math.sin(Math.PI * u) * sw.h;
+      ft.yaw = sw.yaw0 + wrapA(G.yaw - sw.yaw0) * e;
+      if (u >= 1) { ft.p.y = ANK_H; ft.swing = null; }
+    });
+    f.walking = !!leadTo && (swinging || pelV.length() > 0.3);
+
+    // --- upper body anchor: where he is trying to stand. The pelvis is pulled toward it, the feet step to catch the body. ---
+    if (f.free) G.anchor.set(pos[PEL].x, 0, pos[PEL].z);
+    else {
+      if (leadTo) {                                                          // being led: walk the anchor toward the hand
+        tmp.subVectors(leadTo, G.anchor); tmp.y = 0; const l = tmp.length();
+        if (l > 0.05) G.anchor.addScaledVector(tmp, Math.min(1.5 * clamp(sS, 0.3, 1), l * 2.2) * dt / l);
+      } else {                                                               // after a shove: give way and settle where he ends up
+        const give = Math.min(1, dt * (1.3 + 8 * pelV.length()));             // the faster he's moving, the more he lets the stumble carry him
+        G.anchor.x += (pos[PEL].x - G.anchor.x) * give + f.lurch.x * dt * 1.5;
+        G.anchor.z += (pos[PEL].z - G.anchor.z) * give + f.lurch.z * dt * 1.5;
+      }
+      tmp.set(G.anchor.x - pos[PEL].x, 0, G.anchor.z - pos[PEL].z); const l = tmp.length();
+      if (l > 0.35) { G.anchor.x = pos[PEL].x + tmp.x * 0.35 / l; G.anchor.z = pos[PEL].z + tmp.z * 0.35 / l; }
+    }
+    G.anchor.y = 0;
+
+    // --- the pose itself ---
+    const off = [0, 1].map((i) => tmp.subVectors(f.feet[i].p, pos[PEL]).dot(fwdYaw));
+    const flail = clamp((err - 0.18) / 0.4, 0, 1) * clamp(sS * 1.5, 0, 1) * (f.free ? 0 : 1);
     const wob = Math.sin(f.t * 1.9 + 1.3) * 0.5 + Math.sin(f.t * 3.1) * 0.5;
-    const wo = f.wo;
-    wo.crouch = clamp(0.12 * hurtF + clamp((legWound[0] + legWound[1]) * 0.25, 0, 0.5) + (1 - clamp(sS * 1.2, 0, 1)) * 0.55, 0, 0.8);
-    wo.curl = clamp(torso * 0.22 + headW * 0.12 + (legWound[0] + legWound[1]) * 0.1, 0, 0.55) + wob * 0.1 * clamp(hurtF, 0, 1) + f.flinch * f.stun * 0.3;
-    wo.headDrop = headW * 0.2 + (1 - f.c) * 0.3; wo.sway = wob * 0.05 * clamp(hurtF, 0, 1); wo.armSwing = 0; wo.legWeak = [clamp(legWound[0] * 0.5, 0, 0.8), clamp(legWound[1] * 0.5, 0, 0.8)];
-    poseRig(dt, speedFwd, speed, wo);
+    const speed = pelV.length();
+    poseRig(dt, {
+      speed, lean: leadTo ? clamp(speed * 0.05, 0, 0.18) : 0,
+      crouch: clamp(0.1 * hurtF + clamp((legWound[0] + legWound[1]) * 0.2, 0, 0.4) + (1 - clamp(sS * 1.2, 0, 1)) * 0.5 + (f.buckle[0] || f.buckle[1] ? 0.3 : 0) + flail * 0.15, 0, 0.8),
+      curl: clamp(torsoW * 0.22 + headW * 0.12 + (legWound[0] + legWound[1]) * 0.08, 0, 0.55) + wob * 0.06 * clamp(hurtF, 0, 1),
+      twist: clamp((off[0] - off[1]) * 0.35, -0.25, 0.25), sway: wob * 0.04 * clamp(hurtF, 0, 1),
+      headDrop: headW * 0.2 + (1 - f.c) * 0.3,
+      armSwing: [clamp(-off[1] * 1.5, -0.7, 0.7), clamp(-off[0] * 1.5, -0.7, 0.7)], flail,
+    });
     rigRoot.updateMatrixWorld(true);
     markers.forEach((m, i) => m.getWorldPosition(tgtSet[i]));
 
+    // legs: knee/ankle/toe from the foot planner (IK from the actual hip)
+    if (!f.free) {
+      let drop = 0;
+      for (let i = 0; i < 2; i++) {
+        const L = LEGS[i], ft = f.feet[i], hip = tgtSet[L.hip];
+        const dh = Math.hypot(ft.p.x - hip.x, ft.p.z - hip.z), reach = L_TH + L_SH - 0.02;
+        const maxHipY = ft.p.y + Math.sqrt(Math.max(0, reach * reach - dh * dh));
+        drop = Math.max(drop, hip.y - maxHipY);
+      }
+      if (drop > 0) for (let i = 0; i <= HPR; i++) tgtSet[i].y -= drop;       // lower the hips so a long stride can still reach the floor
+      for (let i = 0; i < 2; i++) {
+        const L = LEGS[i], ft = f.feet[i];
+        const fdir = new V3(Math.sin(ft.yaw), 0, Math.cos(ft.yaw)), pole = fdir.clone().addScaledVector(sideYaw, (i ? 1 : -1) * 0.15);
+        ik(tmp2.set(pos[L.hip].x, tgtSet[L.hip].y, pos[L.hip].z), ft.p, L_TH, L_SH, pole, tgtSet[L.knee], tmp3);          // from where the hip really is, so the legs don't pin the body in place
+        tgtSet[L.ank].copy(ft.p);
+        const lift = ft.swing ? Math.sin(Math.PI * clamp(ft.swing.t / ft.swing.dur, 0, 1)) * 0.03 : 0;
+        tgtSet[L.toe].copy(ft.p).addScaledVector(fdir, TOE_FWD); tgtSet[L.toe].y = ft.p.y + TOE_DY + lift;
+      }
+    }
+
     // arms: the two worst wounds each get a hand pressed on them
-    const armC = clamp(f.c * 1.6, 0, 1) * (1 - 0.5 * f.stun) * (grab ? 0.3 : 1), assigned = [null, null];
+    const armC = clamp(f.c * 1.6, 0, 1) * (1 - 0.5 * f.stun) * (lifting ? 0.3 : 1), assigned = [null, null];
     if (!f.dead) {
       const ws = f.wounds.slice().sort((a, b) => b.rate - a.rate).slice(0, 2);
       for (const w of ws) {
@@ -335,57 +442,59 @@
         if (order.length) assigned[order[0]] = p;
       }
     }
-    f.hands = assigned;
     for (let i = 0; i < 2; i++) {
       if (!assigned[i]) continue;
-      const S = pos[i ? SHR : SHL], H = tmp.copy(assigned[i]).addScaledVector(frame.fwd, 0.04), dv = tmp2.subVectors(H, S), dist = dv.length(), L1 = 0.3, L2 = 0.28;
-      const dc = clamp(dist, 0.12, L1 + L2 - 0.01), dir = dv.clone().divideScalar(dist || 1), a = (L1 * L1 - L2 * L2 + dc * dc) / (2 * dc), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
-      const pole = new V3().addScaledVector(frame.side, i ? 1 : -1).addScaledVector(frame.up, -0.6).addScaledVector(frame.fwd, -0.4); pole.addScaledVector(dir, -pole.dot(dir)).normalize();
-      tgtSet[i ? ELR : ELL].copy(S).addScaledVector(dir, a).addScaledVector(pole, h);
-      tgtSet[i ? HAR : HAL].copy(S).addScaledVector(dir, dc);
-      hand[i].copy(tgtSet[i ? HAR : HAL]);
+      const pole = new V3().addScaledVector(frame.side, i ? 1 : -1).addScaledVector(frame.up, -0.6).addScaledVector(frame.fwd, -0.4);
+      ik(pos[i ? SHR : SHL], tmp.copy(assigned[i]).addScaledVector(frame.fwd, 0.04), 0.3, 0.28, pole, tgtSet[i ? ELR : ELL], tgtSet[i ? HAR : HAL]);
     }
-    f.armC = armC; f.legWound = legWound;
+    f.hands = assigned; f.armC = armC;
   }
 
   // ================= physics step =================
   function physics(h) {
     const f = fig, sS = f.s || 0;
-    const armIdx = [SHL, SHR, ELL, ELR, HAL, HAR], legIdx = [HPL, HPR, KNL, KNR, ANL, ANR, TOL, TOR];
-    const follow = Math.max(sS, f.armC || 0) ;
-    const damp = 0.9985 - 0.13 * clamp(sS, 0, 1);
+    const a = clamp(sS, 0, 1);
     for (let i = 0; i < N; i++) {                                           // verlet integrate
-      tmp.subVectors(pos[i], prev[i]).multiplyScalar(damp); prev[i].copy(pos[i]);
+      // the trunk keeps its sideways momentum (so a shove carries him off balance); limbs are damped by their muscles
+      const trunk = i <= HED || i === HPL || i === HPR, dh = trunk ? 0.9985 - 0.012 * a : 0.9985 - 0.09 * a, dv = 0.9985 - 0.09 * a;
+      tmp.subVectors(pos[i], prev[i]); tmp.x *= dh; tmp.z *= dh; tmp.y *= dv; prev[i].copy(pos[i]);
       pos[i].add(tmp); pos[i].y -= 9.8 * h * h;
     }
-    // pose following: each particle is pulled toward where the rig wants it
+    // pose following: each particle is pulled toward where the controller wants it
     for (let i = 0; i < N; i++) {
-      let st = sS;
-      if (armIdx.includes(i)) st = f.hands[i % 2] ? (f.armC || 0) * 1.1 : Math.max((f.armC || 0) * 0.55, sS * 0.9);
-      if (legIdx.includes(i)) { const lw = f.legWound ? f.legWound[i % 2] : 0; st = sS * (lw > 0 ? 0.5 : 1); }
+      let st = sS, ta = tau[i], hz = 1;
+      if (i <= HED || i === HPL || i === HPR) hz = 0.12;                                                // the trunk sways freely sideways; the feet catch it
+      if (i >= SHL && i <= HAR) st = f.hands[i % 2] ? f.armC * 1.1 : Math.max(f.armC * 0.55, sS * 0.9);
+      if (i >= HPL) {
+        const leg = i % 2; st = sS * f.legStr[leg] * (f.free ? 0.3 : 1);
+        if ((i === ANL || i === ANR || i === TOL || i === TOR) && !f.free && !f.feet[leg].swing) ta *= 0.7;   // planted feet stay put
+      }
       if (f.dead) st = 0;
       if (st <= 0.002) continue;
-      const k = 1 - Math.exp(-h / (tau[i] / Math.pow(Math.min(st, 1.1), 1.5)));
-      pos[i].x += (tgtSet[i].x - pos[i].x) * k; pos[i].y += (tgtSet[i].y - pos[i].y) * k; pos[i].z += (tgtSet[i].z - pos[i].z) * k;
+      const k = 1 - Math.exp(-h / (ta / Math.pow(Math.min(st, 1.1), 1.5))), kh = k * hz;
+      const T = tgtSet[i];
+      pos[i].x += (T.x - pos[i].x) * kh; pos[i].y += (T.y - pos[i].y) * k; pos[i].z += (T.z - pos[i].z) * kh;
     }
-    if (grab) {                                                              // the mouse holds a particle
-      const p = pos[grab.i]; tmp.copy(grab.target).sub(p); p.addScaledVector(tmp, 0.4);
+    if (grab) {
+      const p = pos[grab.i];
+      if (grab.mode === 'lift') { tmp.copy(grab.target).sub(p); p.addScaledVector(tmp, 0.4); }
+      else if (sS < 0.2) { tmp.set(grab.target.x - p.x, 0, grab.target.z - p.z); p.addScaledVector(tmp, 0.2); }   // can't walk: drag him along the floor
+      else { p.x += (grab.target.x - p.x) * 0.012; p.z += (grab.target.z - p.z) * 0.012; }                   // a gentle tug on the hand you hold
     }
     for (let it = 0; it < 8; it++) {
       for (const c of CONS) {
         const A = pos[c.a], B = pos[c.b]; tmp.subVectors(B, A); const d = tmp.length() || 1e-6, diff = (d - c.len) / d, wa = 1 / mass[c.a], wb = 1 / mass[c.b], ws = wa + wb;
         A.addScaledVector(tmp, diff * wa / ws); B.addScaledVector(tmp, -diff * wb / ws);
       }
-      // knees must bend forwards (relative to the hips), elbows may go anywhere
       bodyFrame();
-      for (const [hp, kn, an] of [[HPL, KNL, ANL], [HPR, KNR, ANR]]) {
-        tmp.addVectors(pos[hp], pos[an]).multiplyScalar(0.5); const dd = tmp2.subVectors(pos[kn], tmp).dot(frame.fwd);
-        if (dd < 0.015) pos[kn].addScaledVector(frame.fwd, (0.015 - dd) * 0.6);
+      for (const L of LEGS) {                                                 // knees bend forwards only
+        tmp.addVectors(pos[L.hip], pos[L.ank]).multiplyScalar(0.5); const dd = tmp2.subVectors(pos[L.knee], tmp).dot(frame.fwd);
+        if (dd < 0.015) pos[L.knee].addScaledVector(frame.fwd, (0.015 - dd) * 0.6);
       }
-      for (let i = 0; i < N; i++) {                                         // floor
+      for (let i = 0; i < N; i++) {                                         // floor with friction
         const r = radius[i];
         if (pos[i].y < r) {
-          pos[i].y = r; const fr = (i === ANL || i === ANR || i === TOL || i === TOR) ? 0.7 : 0.35;
+          pos[i].y = r; const fr = (i >= ANL) ? 0.8 : 0.35;
           prev[i].x += (pos[i].x - prev[i].x) * fr; prev[i].z += (pos[i].z - prev[i].z) * fr;
         }
       }
@@ -395,17 +504,26 @@
   // ================= tools =================
   const cv = renderer.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
   const camS = { yaw: 0.55, pitch: 0.3, dist: 5.2, look: new V3(0, 1, 0) };
-  let orbiting = false, lx = 0, ly = 0;
+  let orbiting = false, lx = 0, ly = 0, shiftDown = false;
   const setNdc = (e) => { ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera); };
   document.querySelectorAll('#tools button[data-t]').forEach((b) => (b.onclick = () => setTool(b.dataset.t)));
   function setTool(t) { tool = t; document.querySelectorAll('#tools button[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); cv.classList.toggle('grab', t === 'grab'); }
+  setTool('grab');
   $('reset').onclick = reset;
+  function setGrabMode(lift) {
+    if (!grab) return;
+    grab.mode = lift ? 'lift' : 'lead';
+    if (lift) { grab.depth = camera.position.distanceTo(pos[grab.i]); grab.target.copy(pos[grab.i]); }
+    else { grab.planeY = pos[grab.i].y; }
+  }
   addEventListener('keydown', (e) => {
     const m = { Digit1: 'pistol', Digit2: 'knife', Digit3: 'shove', Digit4: 'blast', Digit5: 'grab' };
     if (m[e.code]) setTool(m[e.code]);
     if (e.code === 'KeyR') reset();
     if (e.code === 'Space') { slow = !slow; e.preventDefault(); }
+    if (e.key === 'Shift' && !shiftDown) { shiftDown = true; setGrabMode(true); }
   });
+  addEventListener('keyup', (e) => { if (e.key === 'Shift') { shiftDown = false; setGrabMode(false); } });
   let ac;
   function sound(kind) {
     try {
@@ -424,29 +542,36 @@
     const g = new THREE.BufferGeometry().setFromPoints([from, to]), l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: col, transparent: true })); l.userData.t = 0.12; scene.add(l); tracers.push(l);
   }
   function pickBody(e) { setNdc(e); const hits = ray.intersectObjects(bodyMeshes, false); return hits.length ? hits[0] : null; }
-  const bulletDir = new V3();
+  function grabTarget(e) {
+    setNdc(e);
+    if (grab.mode === 'lift') grab.target.copy(ray.ray.origin).addScaledVector(ray.ray.direction, grab.depth);
+    else { const pl = new THREE.Plane(new V3(0, 1, 0), -grab.planeY), q = new V3(); if (ray.ray.intersectPlane(pl, q)) grab.target.copy(q); }
+  }
 
   cv.addEventListener('pointerdown', (e) => {
     cv.setPointerCapture(e.pointerId); lx = e.clientX; ly = e.clientY;
     const hit = pickBody(e);
-    if (e.button === 2 || !hit && tool !== 'blast') { orbiting = true; return; }
+    if (e.button === 2 || (!hit && tool !== 'blast')) { orbiting = true; return; }
     if (tool === 'blast') {
       let p;
       if (hit) p = hit.point.clone(); else { const pl = new THREE.Plane(new V3(0, 1, 0), 0), q = new V3(); if (ray.ray.intersectPlane(pl, q)) p = q.add(new V3(0, 0.15, 0)); else return; }
       blast(p); return;
     }
-    if (!hit) return;
     const { a, b, kind } = hit.object.userData, p = hit.point.clone();
     const A = pos[a], B = pos[b], ab = new V3().subVectors(B, A), l2 = ab.lengthSq(), t = l2 > 1e-6 ? clamp(new V3().subVectors(p, A).dot(ab) / l2, 0, 1) : 0;
-    const dir = bulletDir.copy(ray.ray.direction).normalize();
+    const dir = ray.ray.direction.clone().normalize();
     if (tool === 'grab') {
-      const i = t > 0.5 ? b : a, depth = ray.ray.origin.distanceTo(pos[i]);
-      grab = { i, depth, target: pos[i].clone() }; cv.classList.add('grabbing'); return;
+      const i = t > 0.5 ? b : a;
+      grab = { i, mode: 'lead', depth: 0, planeY: pos[i].y, target: pos[i].clone(), off: new V3(pos[i].x - pos[PEL].x, 0, pos[i].z - pos[PEL].z) };
+      setGrabMode(e.shiftKey || shiftDown); cv.classList.add('grabbing'); return;
     }
-    if (tool === 'shove') { hitImpulse(a, b, t, new V3(dir.x, 0.12, dir.z).normalize(), 7); fig.stun = Math.min(1, fig.stun + 0.5); fig.flinch = -Math.sign(dir.x) || 1; sound('thud'); shake = 0.04; return; }
+    if (tool === 'shove') {
+      const d = new V3(dir.x, 0, dir.z).normalize(); hitImpulse(a, b, t, d, 5.5);
+      fig.stun = Math.min(1, fig.stun + 0.4); sound('thud'); shake = 0.04; return;
+    }
     const pistol = tool === 'pistol';
     addWound(a, b, kind, p, dir, pistol ? 1 : 0.65);
-    hitImpulse(a, b, t, dir, pistol ? 4.5 : 1.2);
+    hitImpulse(a, b, t, new V3(dir.x, dir.y * 0.3, dir.z).normalize(), pistol ? 2.4 : 0.7);
     if (pistol) {
       sound('shot'); flash(0.25); shake = 0.05;
       tracer(ray.ray.origin.clone().add(new V3(0.15, -0.2, 0)).addScaledVector(dir, 0.6), p.clone().addScaledVector(dir, 1.5), 0xffe6a0);
@@ -454,10 +579,16 @@
     } else tracer(p.clone().addScaledVector(dir, -0.25), p, 0xdde6ee);
   });
   cv.addEventListener('pointermove', (e) => {
-    if (grab) { setNdc(e); grab.target.copy(ray.ray.origin).addScaledVector(ray.ray.direction, grab.depth); }
+    if (grab) grabTarget(e);
     else if (orbiting) { camS.yaw -= (e.clientX - lx) * 0.006; camS.pitch = clamp(camS.pitch + (e.clientY - ly) * 0.005, 0.02, 1.45); lx = e.clientX; ly = e.clientY; }
   });
-  const release = () => { grab = null; orbiting = false; cv.classList.remove('grabbing'); };
+  const release = () => {
+    if (grab && grab.mode === 'lift' && fig) {                              // thrown: he's disoriented when he lands, so he stumbles or goes down
+      const v = Math.hypot(pos[PEL].x - prev[PEL].x, pos[PEL].y - prev[PEL].y, pos[PEL].z - prev[PEL].z) / hStep;
+      fig.stun = Math.min(1, fig.stun + 0.35 + v * 0.12);
+    }
+    grab = null; orbiting = false; cv.classList.remove('grabbing');
+  };
   cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
   cv.addEventListener('contextmenu', (e) => e.preventDefault());
   cv.addEventListener('wheel', (e) => { camS.dist = clamp(camS.dist * (1 + e.deltaY * 0.001), 1.8, 18); e.preventDefault(); }, { passive: false });
@@ -469,7 +600,7 @@
       if (dist < 3) { const k = 1 - dist / 3; d.normalize(); d.y += 0.45; kick(i, d.multiplyScalar(11 * k), 1); }
     }
     for (const m of bodyMeshes) {
-      const c = m.position; if (!m.userData || c.distanceTo(p) > 1.3 || Math.random() < 0.35) continue;
+      const c = m.getWorldPosition(new V3()); if (c.distanceTo(p) > 1.3 || Math.random() < 0.35) continue;
       const { a, b, kind } = m.userData, dir = new V3().subVectors(c, p).normalize();
       addWound(a, b, kind, c.clone(), dir, 0.35 + Math.random() * 0.3);
     }
@@ -478,7 +609,7 @@
   }
 
   // ================= lifecycle =================
-  function reset() { release(); grab = null; dropN = 0; poolCtx.clearRect(0, 0, 1024, 1024); poolTex.needsUpdate = true; poolCells.clear(); fig = newFig(); }
+  function reset() { release(); dropN = 0; poolCtx.clearRect(0, 0, 1024, 1024); poolTex.needsUpdate = true; poolCells.clear(); fig = newFig(); }
   reset();
   function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
   addEventListener('resize', resize); resize();
@@ -491,10 +622,11 @@
     let s = 'Standing';
     if (f.dead) s = 'DEAD';
     else if (f.c <= 0.05) s = f.down ? 'Unconscious, bleeding out' : 'Losing consciousness';
+    else if (grab && grab.mode === 'lift') s = 'Being carried';
     else if (f.down) s = f.wounds.length ? 'Collapsed, clutching wounds' : 'Knocked down';
-    else if (f.wounds.length) s = f.c < 0.5 ? 'Stumbling, fading' : 'Clutching wounds, staggering';
-    else if (f.stun > 0.25 || G.walk > 0.3) s = 'Staggering';
-    else if (grab) s = 'Being held';
+    else if (f.walking) s = f.wounds.length ? 'Limping along' : 'Walking';
+    else if (f.err > 0.22 || f.buckle[0] || f.buckle[1]) s = f.wounds.length ? 'Stumbling, clutching wounds' : 'Stumbling';
+    else if (f.wounds.length) s = f.c < 0.5 ? 'Swaying, fading' : 'Clutching wounds';
     $('status').textContent = s; $('status').style.color = f.dead ? '#e05555' : '#e8e8ee';
   }
 
@@ -508,7 +640,6 @@
     hStep = dt / SUB;
     for (let i = 0; i < SUB; i++) physics(hStep);
     syncBody(fig);
-    // bleeding visuals
     const f = fig, pressure = clamp(f.blood / 100, 0.1, 1);
     for (const w of f.wounds) {
       woundWorld(w, wp); w.sprite.position.copy(wp).addScaledVector(frame.fwd, 0.005); w.sprite.scale.setScalar(0.04 + 0.16 * (1 - Math.exp(-w.lost / 5)));
@@ -526,7 +657,6 @@
       if (t.userData.blast !== undefined) { t.userData.blast += real; const k = t.userData.blast / 0.35; t.scale.setScalar(1 + k * 14); t.material.opacity = Math.max(0, 0.8 - k); if (k >= 1) { scene.remove(t); tracers.splice(i, 1); } }
       else { t.userData.t -= real; if (t.userData.t <= 0) { scene.remove(t); tracers.splice(i, 1); } }
     }
-    // camera
     camS.look.lerp(tmp.set(pos[PEL].x, 1.0, pos[PEL].z), 1 - Math.exp(-real * 3));
     shake *= 0.85;
     camera.position.set(camS.look.x + Math.sin(camS.yaw) * Math.cos(camS.pitch) * camS.dist + (Math.random() - 0.5) * shake, camS.look.y + Math.sin(camS.pitch) * camS.dist + (Math.random() - 0.5) * shake, camS.look.z + Math.cos(camS.yaw) * Math.cos(camS.pitch) * camS.dist);
@@ -537,7 +667,7 @@
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  window.__rd = { get fig() { return fig; }, pos, camera, camS, addWound, hitImpulse, PEL, SPN, HED, setTool, reset, blast, bodyMeshes };
+  window.__rd = { G, get fig() { return fig; }, pos, camera, camS, addWound, hitImpulse, setTool, reset, blast, bodyMeshes, get grab() { return grab; } };
 })();
 </script>
 </body>
