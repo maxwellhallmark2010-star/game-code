@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ragdoll Lab 3D</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #cfe3f2; font-family: system-ui, sans-serif; color: #e8e8ee; user-select: none; touch-action: none; }
+  canvas { display: block; cursor: crosshair; }
+  canvas.grab { cursor: grab; } canvas.grabbing { cursor: grabbing; }
+  #panel { position: fixed; top: 12px; left: 12px; width: 230px; font-size: 13px; line-height: 1.5; background: rgba(10,10,14,.7); padding: 10px 12px; border-radius: 8px; pointer-events: none; }
+  .bar { height: 8px; background: #2a2c33; border-radius: 4px; overflow: hidden; margin: 2px 0 8px; }
+  .bar i { display: block; height: 100%; width: 100%; background: #c0272d; transition: width .15s; }
+  .bar.c i { background: #7aa7d9; }
+  #status { font-weight: 700; font-size: 15px; margin-bottom: 6px; }
+  #tools { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; width: 96vw; }
+  #tools button { font: inherit; font-size: 14px; padding: 9px 13px; border-radius: 8px; border: 2px solid #3a3d47; background: rgba(20,22,28,.88); color: #e8e8ee; cursor: pointer; }
+  #tools button.on { border-color: #fff; background: #3a3f4c; }
+  #tools button:hover { background: #2c2f38; }
+  #help { position: fixed; top: 12px; right: 12px; font-size: 12px; color: #26323f; text-align: right; line-height: 1.6; pointer-events: none; }
+  #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <div id="status">Standing</div>
+  Blood <span id="bloodTxt"></span><div class="bar"><i id="blood"></i></div>
+  Consciousness<div class="bar c"><i id="cons"></i></div>
+  Wounds: <span id="wcount">0</span>
+</div>
+<div id="help">Click the dummy with the selected tool<br>Drag empty space: orbit &middot; wheel: zoom<br>R reset &middot; Space slow-motion &middot; 1-5 tools</div>
+<div id="tools">
+  <button data-t="pistol">1 Pistol</button>
+  <button data-t="knife">2 Knife</button>
+  <button data-t="shove">3 Shove</button>
+  <button data-t="blast">4 Blast</button>
+  <button data-t="grab" class="on">5 Grab &amp; throw</button>
+  <button id="reset">Reset (R)</button>
+</div>
+<div id="flash"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const V3 = THREE.Vector3;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const wrapA = (a) => { a = (a + Math.PI) % (2 * Math.PI); if (a < 0) a += 2 * Math.PI; return a - Math.PI; };
+  const HIP_Y = 1.0, SUB = 4;
+
+  // ================= scene =================
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  document.body.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xcfe3f2); scene.fog = new THREE.Fog(0xcfe3f2, 25, 60);
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a97a5, 0.55));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+  sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0004;
+  Object.assign(sun.shadow.camera, { left: -10, right: 10, top: 10, bottom: -10, near: 1, far: 40 });
+  scene.add(sun, sun.target);
+
+  const floorTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d');
+    g.fillStyle = '#b9c4cf'; g.fillRect(0, 0, 256, 256); g.fillStyle = '#a9b6c3'; g.fillRect(0, 0, 128, 128); g.fillRect(128, 128, 128, 128);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30); t.anisotropy = 8; t.encoding = THREE.sRGBEncoding; return t;
+  })();
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 }));
+  floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+
+  // blood pools are painted onto a transparent decal over the floor
+  const POOL = 16, poolCv = document.createElement('canvas'); poolCv.width = poolCv.height = 1024;
+  const poolCtx = poolCv.getContext('2d'), poolTex = new THREE.CanvasTexture(poolCv); poolTex.encoding = THREE.sRGBEncoding;
+  const decal = new THREE.Mesh(new THREE.PlaneGeometry(POOL, POOL), new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  decal.rotation.x = -Math.PI / 2; decal.position.y = 0.003; scene.add(decal);
+  let poolDirty = false;
+  const poolCells = new Map();
+  function paintPool(x, z, amount) {
+    if (Math.abs(x) > POOL / 2 - 0.2 || Math.abs(z) > POOL / 2 - 0.2) return;
+    const k = Math.round(x * 12) + ',' + Math.round(z * 12), q = Math.min(0.45, (poolCells.get(k) || 0.012) + amount * 0.0025); poolCells.set(k, q);
+    const px = (x + POOL / 2) / POOL * 1024, py = (z + POOL / 2) / POOL * 1024, r = Math.max(1.2, q * 64);
+    const g = poolCtx.createRadialGradient(px, py, 0, px, py, r);
+    g.addColorStop(0, 'rgba(110,6,12,.55)'); g.addColorStop(0.7, 'rgba(120,8,14,.4)'); g.addColorStop(1, 'rgba(120,8,14,0)');
+    poolCtx.fillStyle = g; poolCtx.beginPath(); poolCtx.arc(px, py, r, 0, 6.283); poolCtx.fill(); poolDirty = true;
+  }
+
+  // ================= the pose rig (invisible; it animates the pose the body tries to hold) =================
+  const rigRoot = new THREE.Object3D(); scene.add(rigRoot);
+  const O = (parent, x = 0, y = 0, z = 0) => { const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; };
+  const hips = O(rigRoot, 0, HIP_Y, 0), torso = O(hips, 0, 0.1, 0), neck = O(torso, 0, 0.6, 0), headR = O(neck, 0, 0.1, 0);
+  const rArms = [-1, 1].map((s) => { const sh = O(torso, s * 0.255, 0.5, 0), upper = O(sh), fore = O(upper, 0, -0.3, 0), hand = O(fore, 0, -0.28, 0); return { sh, upper, fore, hand }; });
+  const rLegs = [-1, 1].map((s) => { const th = O(hips, s * 0.095, -0.02, 0), shin = O(th, 0, -0.45, 0), foot = O(shin, 0, -0.45, 0), toe = O(foot, 0, -0.05, 0.2); return { th, shin, foot, toe }; });
+  const spineM = O(torso, 0, 0.3, 0), headM = O(headR, 0, 0.12, 0);
+  // particle order: pelvis, spine, neck, head, shoulders(2), elbows(2), hands(2), hips(2), knees(2), ankles(2), toes(2)
+  const markers = [hips, spineM, neck, headM, rArms[0].sh, rArms[1].sh, rArms[0].fore, rArms[1].fore, rArms[0].hand, rArms[1].hand,
+    rLegs[0].th, rLegs[1].th, rLegs[0].shin, rLegs[1].shin, rLegs[0].foot, rLegs[1].foot, rLegs[0].toe, rLegs[1].toe];
+  const N = markers.length;
+  const [PEL, SPN, NCK, HED, SHL, SHR, ELL, ELR, HAL, HAR, HPL, HPR, KNL, KNR, ANL, ANR, TOL, TOR] = [...Array(N).keys()];
+
+  // ================= physics particles (Verlet) =================
+  const radius = [0.1, 0.12, 0.05, 0.12, 0.07, 0.07, 0.05, 0.05, 0.05, 0.05, 0.08, 0.08, 0.07, 0.07, 0.06, 0.06, 0.04, 0.04];
+  const mass = [3, 3, 1, 2.5, 1.2, 1.2, 0.8, 0.8, 0.5, 0.5, 1.5, 1.5, 1, 1, 1.2, 1.2, 0.4, 0.4];
+  const tau = [0.12, 0.14, 0.12, 0.1, 0.14, 0.14, 0.12, 0.12, 0.09, 0.09, 0.12, 0.12, 0.1, 0.1, 0.07, 0.07, 0.07, 0.07];
+  const pos = markers.map(() => new V3()), prev = markers.map(() => new V3()), tgt = markers.map(() => new V3());
+  const BONES = [[PEL, SPN], [SPN, NCK], [NCK, HED], [NCK, SHL], [NCK, SHR], [SHL, ELL], [ELL, HAL], [SHR, ELR], [ELR, HAR], [PEL, HPL], [PEL, HPR],
+    [HPL, KNL], [KNL, ANL], [HPR, KNR], [KNR, ANR], [ANL, TOL], [ANR, TOR]];
+  const BRACES = [[SHL, SHR], [HPL, HPR], [SHL, HPL], [SHR, HPR], [SHL, HPR], [SHR, HPL], [PEL, SHL], [PEL, SHR], [SPN, HPL], [SPN, HPR], [HED, SHL], [HED, SHR], [PEL, NCK], [SPN, HED]];
+  const CONS = BONES.concat(BRACES).map(([a, b]) => ({ a, b, len: 0 }));
+  const tmp = new V3(), tmp2 = new V3(), tmp3 = new V3(), UPV = new V3(0, 1, 0);
+  const frame = { side: new V3(1, 0, 0), up: new V3(0, 1, 0), fwd: new V3(0, 0, 1) };
+  function bodyFrame() {
+    frame.side.subVectors(pos[SHR], pos[SHL]).normalize();
+    frame.up.subVectors(pos[NCK], pos[PEL]).normalize();
+    frame.fwd.crossVectors(frame.side, frame.up).normalize();
+    frame.side.crossVectors(frame.up, frame.fwd).normalize();
+  }
+
+  // ================= pose animation (idle / walk / crouch / curl) =================
+  const G = { phase: 0, walk: 0, run: 0, lean: 0, anchor: new V3(), vel: new V3(), yaw: 0, t: 0 };
+  function poseRig(dt, speedFwd, speed, p) {
+    G.t += dt;
+    const walkT = clamp(speed / 1.1, 0, 1), runT = clamp((speed - 2.4) / 2.2, 0, 1);
+    G.walk = lerp(G.walk, walkT, 1 - Math.exp(-dt * 10)); G.run = lerp(G.run, runT, 1 - Math.exp(-dt * 6));
+    G.phase += (speedFwd / 1.45) * Math.PI * 2 * dt * (1 - 0.15 * G.run);
+    const w = G.walk, r = G.run, idle = 1 - w, ph = G.phase, sL = Math.sin(ph), sR = Math.sin(ph + Math.PI), cL = Math.cos(ph), cR = Math.cos(ph + Math.PI);
+    const A = lerp(0.5, 0.95, r), K = lerp(0.8, 1.7, r), crouch = p.crouch;
+    G.lean = lerp(G.lean, clamp(speed * 0.04, 0, 0.25), 1 - Math.exp(-dt * 6));
+    rigRoot.position.copy(G.anchor); rigRoot.rotation.y = G.yaw;
+    hips.position.y = HIP_Y - 0.02 * w - 0.05 * r - 0.25 * crouch + 0.03 * Math.abs(cL) * w;
+    hips.position.x = sL * 0.02 * w; hips.rotation.y = sL * 0.14 * w; hips.rotation.z = -sL * 0.03 * w + Math.sin(G.t * 0.5) * 0.012 * idle + p.sway;
+    torso.rotation.set(G.lean + p.curl + Math.sin(G.t * 1.8) * 0.008 * idle, -sL * 0.2 * w, sL * 0.025 * w);
+    headR.rotation.x = p.headDrop;
+    [[sL, cL], [sR, cR]].forEach(([s, c], i) => {
+      const L = rLegs[i], lw = p.legWeak[i];
+      L.th.rotation.x = -s * A * w - crouch * 0.85 - lw * 0.25; L.shin.rotation.x = Math.max(0, c) * K * w + 0.06 * w + crouch * 1.5 + lw * 0.5;
+      L.foot.rotation.x = -(L.th.rotation.x + L.shin.rotation.x) * 0.7;
+      rArms[i].upper.rotation.x = s * A * 0.85 * w + p.armSwing; rArms[i].upper.rotation.z = (i ? -1 : 1) * (0.06 + 0.02 * w);
+      rArms[i].fore.rotation.x = -0.12 - 0.25 * w - 0.7 * r * w;
+    });
+  }
+
+  // ================= the visible body (follows the particles) =================
+  const M = (c, rough = 0.7) => new THREE.MeshStandardMaterial({ color: c, roughness: rough });
+  const skin = M(0xe0b08a, 0.6), shirt = M(0x3f6fb0), pants = M(0x343a47), shoe = M(0x1c1c20, 0.5), hair = M(0x3b2a1e), white = M(0xffffff, 0.3), dark = M(0x111111, 0.4);
+  const bodyMeshes = [];
+  function reg(m, kind, a, b) { m.userData = { kind, a, b }; m.castShadow = m.receiveShadow = true; scene.add(m); bodyMeshes.push(m); return m; }
+  const limbs = [];
+  function limb(a, b, r0, r1, mat, kind) {
+    const g = new THREE.CylinderGeometry(r1, r0, 1, 14); g.translate(0, 0.5, 0);
+    const m = reg(new THREE.Mesh(g, mat), kind, a, b); limbs.push(m); return m;
+  }
+  function ball(i, r, mat, kind) { return reg(new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), mat), kind, i, i); }
+  const bodyParts = {
+    torso: reg(new THREE.Mesh(new THREE.BoxGeometry(0.4, 1, 0.23), shirt), 'chest', PEL, NCK),
+    shoulders: reg(new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.1, 0.24), shirt), 'chest', NCK, NCK),
+    hips: reg(new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.2), pants), 'pelvis', PEL, PEL),
+    feet: [0, 1].map((i) => reg(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.27), shoe), 'foot', i ? ANR : ANL, i ? TOR : TOL)),
+  };
+  const neckM = limb(NCK, HED, 0.05, 0.05, skin, 'head');
+  [[SHL, ELL, HAL], [SHR, ELR, HAR]].forEach(([s, e, h]) => { limb(s, e, 0.055, 0.045, shirt, 'arm'); limb(e, h, 0.045, 0.036, skin, 'arm'); ball(s, 0.058, shirt, 'arm'); ball(e, 0.046, skin, 'arm'); ball(h, 0.045, skin, 'arm'); });
+  [[HPL, KNL, ANL], [HPR, KNR, ANR]].forEach(([h, k, a]) => { limb(h, k, 0.075, 0.06, pants, 'leg'); limb(k, a, 0.06, 0.045, pants, 'leg'); ball(h, 0.075, pants, 'leg'); ball(k, 0.06, pants, 'leg'); });
+  // head with a face
+  const head = new THREE.Group(); scene.add(head);
+  const headSphere = reg(new THREE.Mesh(new THREE.SphereGeometry(0.115, 24, 18), skin), 'head', HED, HED); headSphere.scale.set(0.95, 1.12, 1);
+  scene.remove(headSphere); head.add(headSphere);
+  const hairM = new THREE.Mesh(new THREE.SphereGeometry(0.12, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.52), hair); hairM.position.set(0, 0.02, -0.012); hairM.scale.set(1, 1.1, 1.02); hairM.castShadow = true; head.add(hairM);
+  const eyeLids = [], pupils = [];
+  for (const sx of [-1, 1]) {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.02, 10, 8), white); e.position.set(sx * 0.04, 0.02, 0.098); head.add(e); eyeLids.push(e);
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 8), dark); p.position.set(sx * 0.04, 0.02, 0.116); head.add(p); pupils.push(p);
+  }
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.012, 0.01), dark); mouth.position.set(0, -0.055, 0.11); head.add(mouth);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.018, 8, 8), skin); nose.position.set(0, -0.005, 0.118); head.add(nose);
+  const Xs = [0, 1].map(() => { const g = new THREE.Group(); for (const a of [0.8, -0.8]) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.008, 0.006), dark); b.rotation.z = a; g.add(b); } g.visible = false; head.add(g); return g; });
+  Xs[0].position.set(-0.04, 0.02, 0.12); Xs[1].position.set(0.04, 0.02, 0.12);
+
+  const Y = new V3(0, 1, 0), mat4 = new THREE.Matrix4(), q4 = new THREE.Quaternion();
+  function placeLimb(m, A, B) { tmp.subVectors(B, A); const len = Math.max(1e-4, tmp.length()); m.position.copy(A); m.quaternion.setFromUnitVectors(Y, tmp.divideScalar(len)); m.scale.set(1, len, 1); }
+  function basisQuat(side, up, fwd, out) { mat4.makeBasis(side, up, fwd); return out.setFromRotationMatrix(mat4); }
+  function syncBody(f) {
+    bodyFrame();
+    for (const m of limbs) placeLimb(m, pos[m.userData.a], pos[m.userData.b]);
+    for (const m of bodyMeshes) if (m.geometry.type === 'SphereGeometry' && m !== headSphere) m.position.copy(pos[m.userData.a]);
+    const { side, up, fwd } = frame;
+    // torso
+    const T = bodyParts.torso, len = pos[PEL].distanceTo(pos[NCK]) - 0.14;
+    const tl = Math.max(0.2, len); T.position.copy(pos[PEL]).addScaledVector(up, 0.1 + tl / 2); basisQuat(side, up, fwd, T.quaternion); T.scale.set(1, tl, 1);
+    bodyParts.shoulders.position.copy(pos[NCK]).addScaledVector(up, -0.06); bodyParts.shoulders.quaternion.copy(T.quaternion);
+    bodyParts.hips.position.copy(pos[PEL]); bodyParts.hips.quaternion.copy(T.quaternion);
+    // feet
+    [0, 1].forEach((i) => {
+      const a = pos[i ? ANR : ANL], t = pos[i ? TOR : TOL], F = bodyParts.feet[i];
+      tmp2.subVectors(t, a).normalize(); tmp3.crossVectors(tmp2, side).normalize(); const sd = new V3().crossVectors(tmp3, tmp2).normalize();
+      basisQuat(sd, tmp3, tmp2, F.quaternion); F.position.lerpVectors(a, t, 0.35).addScaledVector(tmp3, -0.03);
+    });
+    // head
+    tmp.subVectors(pos[HED], pos[NCK]).normalize(); tmp2.crossVectors(side, tmp).normalize(); const sd2 = new V3().crossVectors(tmp, tmp2).normalize();
+    head.position.copy(pos[HED]); basisQuat(sd2, tmp, tmp2, head.quaternion);
+    const awake = f.c > 0.15 && !f.dead, pain = f.stun > 0.25 || f.wounds.length > 0;
+    pupils.forEach((p) => (p.visible = awake)); Xs.forEach((x) => (x.visible = f.dead));
+    eyeLids.forEach((e) => { e.scale.y = f.dead ? 0.01 : (!awake ? 0.12 : (G.t % 4.2 > 4.05 ? 0.1 : 1)); e.visible = !f.dead; });
+    mouth.scale.set(pain && awake ? 0.5 : 1, pain && awake ? 3 : 1, 1);
+  }
+
+  // ================= figure state =================
+  let fig, grab = null, slow = false, tool = 'grab';
+  const woundSprites = [];
+  function newFig() {
+    const wo = { crouch: 0, curl: 0, headDrop: 0, sway: 0, armSwing: 0, legWeak: [0, 0] };
+    G.anchor.set(0, 0, 0); G.vel.set(0, 0, 0); G.yaw = 0; G.phase = 0; G.walk = G.run = G.lean = 0;
+    rigRoot.updateMatrixWorld(true); poseRig(0.0001, 0, 0, wo); rigRoot.updateMatrixWorld(true);
+    markers.forEach((m, i) => { m.getWorldPosition(pos[i]); prev[i].copy(pos[i]); tgt[i].copy(pos[i]); });
+    CONS.forEach((c) => (c.len = pos[c.a].distanceTo(pos[c.b])));
+    woundSprites.forEach((s) => scene.remove(s)); woundSprites.length = 0;
+    return { wounds: [], blood: 100, c: 1, stun: 0, brain: 0, brainT: 0, dead: false, down: false, downT: 0, upT: 0, recover: 1, t: 0, flinch: 1, hands: [null, null], wo, drift: 0 };
+  }
+
+  // ================= bleeding =================
+  const DMAX = 1600, dropPos = new Float32Array(DMAX * 3), dropVel = new Float32Array(DMAX * 3), dropR = new Float32Array(DMAX);
+  let dropN = 0;
+  const dropMesh = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 4), new THREE.MeshBasicMaterial({ color: 0xa3121a }), DMAX);
+  dropMesh.frustumCulled = false; scene.add(dropMesh);
+  function spawnDrop(p, vx, vy, vz, r) {
+    const i = dropN < DMAX ? dropN++ : (Math.random() * DMAX) | 0;
+    dropPos[i * 3] = p.x; dropPos[i * 3 + 1] = p.y; dropPos[i * 3 + 2] = p.z; dropVel[i * 3] = vx; dropVel[i * 3 + 1] = vy; dropVel[i * 3 + 2] = vz; dropR[i] = r;
+  }
+  const dm = new THREE.Object3D();
+  function stepDrops(dt) {
+    for (let i = 0; i < dropN; i++) {
+      dropVel[i * 3 + 1] -= 9.8 * dt;
+      dropPos[i * 3] += dropVel[i * 3] * dt; dropPos[i * 3 + 1] += dropVel[i * 3 + 1] * dt; dropPos[i * 3 + 2] += dropVel[i * 3 + 2] * dt;
+      if (dropPos[i * 3 + 1] <= 0.01) {
+        paintPool(dropPos[i * 3], dropPos[i * 3 + 2], dropR[i] * 2.2);
+        const l = dropN - 1; dropPos.copyWithin(i * 3, l * 3, l * 3 + 3); dropVel.copyWithin(i * 3, l * 3, l * 3 + 3); dropR[i] = dropR[l]; dropN--; i--;
+      }
+    }
+    for (let i = 0; i < DMAX; i++) {
+      if (i < dropN) { dm.position.set(dropPos[i * 3], dropPos[i * 3 + 1], dropPos[i * 3 + 2]); dm.scale.setScalar(dropR[i]); } else dm.scale.setScalar(0);
+      dm.updateMatrix(); dropMesh.setMatrixAt(i, dm.matrix);
+    }
+    dropMesh.instanceMatrix.needsUpdate = true;
+    if (poolDirty) { poolTex.needsUpdate = true; poolDirty = false; }
+  }
+  const glow = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, 'rgba(95,4,9,.95)'); r.addColorStop(0.6, 'rgba(140,10,16,.75)'); r.addColorStop(1, 'rgba(140,10,16,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+
+  // ================= wounds =================
+  const woundWorld = (w, out) => {
+    out.lerpVectors(pos[w.a], pos[w.b], w.t);
+    return out.addScaledVector(frame.side, w.ox).addScaledVector(frame.up, w.oy).addScaledVector(frame.fwd, w.oz);
+  };
+  const REGION = { head: 2.2, chest: 1.5, pelvis: 1.25, arm: 0.8, leg: 0.9, foot: 0.4 };
+  function addWound(a, b, kind, point, dir, sev) {
+    const f = fig, A = pos[a], B = pos[b], ab = tmp.subVectors(B, A), l2 = ab.lengthSq();
+    const t = l2 > 1e-6 ? clamp(tmp2.subVectors(point, A).dot(ab) / l2, 0, 1) : 0;
+    const on = new V3().lerpVectors(A, B, t), off = new V3().subVectors(point, on), mult = REGION[kind] || 1;
+    const w = { a, b, t, ox: off.dot(frame.side), oy: off.dot(frame.up), oz: off.dot(frame.fwd), sev: sev * mult, rate0: 2.1 * sev * mult, rate: 2.1 * sev * mult, tt: 0, lost: 0, dir: dir.clone(), kind, acc: 0 };
+    f.wounds.push(w);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, depthWrite: false, transparent: true })); sp.scale.setScalar(0.04); scene.add(sp); w.sprite = sp; woundSprites.push(sp);
+    if (kind === 'head') f.brain = Math.min(1.2, f.brain + 0.45 * sev * (sev > 0.9 ? 1.5 : 1));
+    f.stun = Math.min(1, f.stun + 0.55 * sev); f.flinch = -Math.sign(dir.x) || 1;
+    if (f.wounds.length > 12) { const o = f.wounds.shift(); scene.remove(o.sprite); woundSprites.splice(woundSprites.indexOf(o.sprite), 1); }
+  }
+  function kick(i, v, wgt) { prev[i].addScaledVector(v, -wgt * hStep); }        // add a velocity (m/s) to a particle
+  function hitImpulse(a, b, t, dir, speed) {
+    kick(a, tmp.copy(dir).multiplyScalar(speed), 1 - t); kick(b, tmp.copy(dir).multiplyScalar(speed), t);
+    kick(PEL, tmp.copy(dir).multiplyScalar(speed * 0.35), 0.4); kick(SPN, tmp.copy(dir).multiplyScalar(speed * 0.35), 0.4);
+  }
+
+  // ================= controller =================
+  const tgtSet = markers.map(() => new V3());
+  let hStep = 1 / 240, time = 0;
+  const wpos = new V3(), hand = [new V3(), new V3()];
+  function control(dt) {
+    const f = fig; f.t += dt; time += dt;
+    // bleeding
+    let bleed = 0, torso = 0, headW = 0; const legWound = [0, 0];
+    for (const w of f.wounds) {
+      w.tt += dt; w.rate = w.rate0 * (0.4 + 0.6 * Math.exp(-w.tt / 50)); bleed += w.rate; w.lost += w.rate * dt;
+      if (w.kind === 'chest' || w.kind === 'pelvis') torso += w.sev; else if (w.kind === 'head') headW += w.sev;
+      if (w.kind === 'leg' || w.kind === 'foot') legWound[(w.a === HPL || w.a === KNL || w.a === ANL) ? 0 : 1] += w.sev;
+    }
+    f.blood = Math.max(0, f.blood - bleed * (f.dead ? 0.35 : 1) * dt);
+    f.stun = Math.max(0, f.stun - dt * 0.75);
+    f.c = Math.min(clamp((f.blood - 18) / 45, 0, 1), 1 - f.brain);
+    if (f.brain >= 1 && !f.dead) { f.brainT += dt; if (f.brainT > 5) f.dead = true; }
+    if (f.blood <= 0 && !f.dead) f.dead = true;
+
+    bodyFrame();
+    const upY = frame.up.y, low = upY < 0.55 || pos[PEL].y < 0.5;
+    f.downT = low ? f.downT + dt : 0;
+    if (!f.down && f.downT > 0.45) { f.down = true; f.upT = 0; }
+    if (f.down) { f.upT += dt; if (!f.dead && f.wounds.length === 0 && f.c > 0.8 && f.upT > 1.8 && f.stun < 0.1) { f.down = false; f.recover = 0; } }
+    f.recover = Math.min(1, f.recover + dt / 1.5);
+    const held = grab ? 0.18 : 1;
+    const s = f.dead ? 0 : f.c * (1 - 0.8 * f.stun) * f.recover * held;
+    const sS = f.down ? s * 0.04 : s;
+    const hurtF = clamp((1 - f.c) + 0.25 * Math.min(3, f.wounds.length) + f.stun * 0.5, 0, 1.4);
+    f.s = sS;
+
+    // anchor: where the pose is held. It chases the pelvis, so a push becomes a stumble-step and the walk cycle plays.
+    const e = tmp.set(pos[PEL].x - G.anchor.x, 0, pos[PEL].z - G.anchor.z), d = e.length();
+    let tvx = 0, tvz = 0;
+    if (grab) { G.anchor.x += (pos[PEL].x - G.anchor.x) * Math.min(1, dt * 12); G.anchor.z += (pos[PEL].z - G.anchor.z) * Math.min(1, dt * 12); }
+    else if (d > 0.35 || (sS > 0.2 && d > 0.05)) { const sp = Math.min(d > 0.35 ? 7 : 3.6, (d - 0.05) * 8); tvx = e.x / d * sp; tvz = e.z / d * sp; }
+    if (sS > 0.2 && f.wounds.length) {                                       // wounded: lurching, drifting steps
+      const k = clamp(hurtF, 0, 1) * 0.3; tvx += (Math.sin(time * 1.3) + Math.sin(time * 0.7 + 2)) * 0.5 * k; tvz += (Math.cos(time * 1.1) + Math.sin(time * 0.5)) * 0.5 * k + frame.fwd.z * 0.08 * k;
+    }
+    if (f.down) { G.anchor.x = pos[PEL].x; G.anchor.z = pos[PEL].z; tvx = tvz = 0; }
+    G.vel.x += (tvx - G.vel.x) * Math.min(1, dt * 10); G.vel.z += (tvz - G.vel.z) * Math.min(1, dt * 10);
+    G.anchor.x += G.vel.x * dt; G.anchor.z += G.vel.z * dt;
+    const fx = frame.fwd.x, fz = frame.fwd.z, fl = Math.hypot(fx, fz);
+    if (fl > 0.3 && !f.down) G.yaw += wrapA(Math.atan2(fx, fz) - G.yaw) * Math.min(1, dt * 4);
+    const speed = Math.hypot(G.vel.x, G.vel.z), speedFwd = (G.vel.x * Math.sin(G.yaw) + G.vel.z * Math.cos(G.yaw));
+    const wob = Math.sin(f.t * 1.9 + 1.3) * 0.5 + Math.sin(f.t * 3.1) * 0.5;
+    const wo = f.wo;
+    wo.crouch = clamp(0.12 * hurtF + clamp((legWound[0] + legWound[1]) * 0.25, 0, 0.5) + (1 - clamp(sS * 1.2, 0, 1)) * 0.55, 0, 0.8);
+    wo.curl = clamp(torso * 0.22 + headW * 0.12 + (legWound[0] + legWound[1]) * 0.1, 0, 0.55) + wob * 0.1 * clamp(hurtF, 0, 1) + f.flinch * f.stun * 0.3;
+    wo.headDrop = headW * 0.2 + (1 - f.c) * 0.3; wo.sway = wob * 0.05 * clamp(hurtF, 0, 1); wo.armSwing = 0; wo.legWeak = [clamp(legWound[0] * 0.5, 0, 0.8), clamp(legWound[1] * 0.5, 0, 0.8)];
+    poseRig(dt, speedFwd, speed, wo);
+    rigRoot.updateMatrixWorld(true);
+    markers.forEach((m, i) => m.getWorldPosition(tgtSet[i]));
+
+    // arms: the two worst wounds each get a hand pressed on them
+    const armC = clamp(f.c * 1.6, 0, 1) * (1 - 0.5 * f.stun) * (grab ? 0.3 : 1), assigned = [null, null];
+    if (!f.dead) {
+      const ws = f.wounds.slice().sort((a, b) => b.rate - a.rate).slice(0, 2);
+      for (const w of ws) {
+        const p = woundWorld(w, new V3()), own = (w.a === SHL || w.a === ELL || w.a === HAL) ? 0 : (w.a === SHR || w.a === ELR || w.a === HAR) ? 1 : -1;
+        const order = [0, 1].filter((i) => i !== own && !assigned[i]).sort((a, b) => pos[a ? SHR : SHL].distanceTo(p) - pos[b ? SHR : SHL].distanceTo(p));
+        if (order.length) assigned[order[0]] = p;
+      }
+    }
+    f.hands = assigned;
+    for (let i = 0; i < 2; i++) {
+      if (!assigned[i]) continue;
+      const S = pos[i ? SHR : SHL], H = tmp.copy(assigned[i]).addScaledVector(frame.fwd, 0.04), dv = tmp2.subVectors(H, S), dist = dv.length(), L1 = 0.3, L2 = 0.28;
+      const dc = clamp(dist, 0.12, L1 + L2 - 0.01), dir = dv.clone().divideScalar(dist || 1), a = (L1 * L1 - L2 * L2 + dc * dc) / (2 * dc), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+      const pole = new V3().addScaledVector(frame.side, i ? 1 : -1).addScaledVector(frame.up, -0.6).addScaledVector(frame.fwd, -0.4); pole.addScaledVector(dir, -pole.dot(dir)).normalize();
+      tgtSet[i ? ELR : ELL].copy(S).addScaledVector(dir, a).addScaledVector(pole, h);
+      tgtSet[i ? HAR : HAL].copy(S).addScaledVector(dir, dc);
+      hand[i].copy(tgtSet[i ? HAR : HAL]);
+    }
+    f.armC = armC; f.legWound = legWound;
+  }
+
+  // ================= physics step =================
+  function physics(h) {
+    const f = fig, sS = f.s || 0;
+    const armIdx = [SHL, SHR, ELL, ELR, HAL, HAR], legIdx = [HPL, HPR, KNL, KNR, ANL, ANR, TOL, TOR];
+    const follow = Math.max(sS, f.armC || 0) ;
+    const damp = 0.9985 - 0.13 * clamp(sS, 0, 1);
+    for (let i = 0; i < N; i++) {                                           // verlet integrate
+      tmp.subVectors(pos[i], prev[i]).multiplyScalar(damp); prev[i].copy(pos[i]);
+      pos[i].add(tmp); pos[i].y -= 9.8 * h * h;
+    }
+    // pose following: each particle is pulled toward where the rig wants it
+    for (let i = 0; i < N; i++) {
+      let st = sS;
+      if (armIdx.includes(i)) st = f.hands[i % 2] ? (f.armC || 0) * 1.1 : Math.max((f.armC || 0) * 0.55, sS * 0.9);
+      if (legIdx.includes(i)) { const lw = f.legWound ? f.legWound[i % 2] : 0; st = sS * (lw > 0 ? 0.5 : 1); }
+      if (f.dead) st = 0;
+      if (st <= 0.002) continue;
+      const k = 1 - Math.exp(-h / (tau[i] / Math.pow(Math.min(st, 1.1), 1.5)));
+      pos[i].x += (tgtSet[i].x - pos[i].x) * k; pos[i].y += (tgtSet[i].y - pos[i].y) * k; pos[i].z += (tgtSet[i].z - pos[i].z) * k;
+    }
+    if (grab) {                                                              // the mouse holds a particle
+      const p = pos[grab.i]; tmp.copy(grab.target).sub(p); p.addScaledVector(tmp, 0.4);
+    }
+    for (let it = 0; it < 8; it++) {
+      for (const c of CONS) {
+        const A = pos[c.a], B = pos[c.b]; tmp.subVectors(B, A); const d = tmp.length() || 1e-6, diff = (d - c.len) / d, wa = 1 / mass[c.a], wb = 1 / mass[c.b], ws = wa + wb;
+        A.addScaledVector(tmp, diff * wa / ws); B.addScaledVector(tmp, -diff * wb / ws);
+      }
+      // knees must bend forwards (relative to the hips), elbows may go anywhere
+      bodyFrame();
+      for (const [hp, kn, an] of [[HPL, KNL, ANL], [HPR, KNR, ANR]]) {
+        tmp.addVectors(pos[hp], pos[an]).multiplyScalar(0.5); const dd = tmp2.subVectors(pos[kn], tmp).dot(frame.fwd);
+        if (dd < 0.015) pos[kn].addScaledVector(frame.fwd, (0.015 - dd) * 0.6);
+      }
+      for (let i = 0; i < N; i++) {                                         // floor
+        const r = radius[i];
+        if (pos[i].y < r) {
+          pos[i].y = r; const fr = (i === ANL || i === ANR || i === TOL || i === TOR) ? 0.7 : 0.35;
+          prev[i].x += (pos[i].x - prev[i].x) * fr; prev[i].z += (pos[i].z - prev[i].z) * fr;
+        }
+      }
+    }
+  }
+
+  // ================= tools =================
+  const cv = renderer.domElement, ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+  const camS = { yaw: 0.55, pitch: 0.3, dist: 5.2, look: new V3(0, 1, 0) };
+  let orbiting = false, lx = 0, ly = 0;
+  const setNdc = (e) => { ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera); };
+  document.querySelectorAll('#tools button[data-t]').forEach((b) => (b.onclick = () => setTool(b.dataset.t)));
+  function setTool(t) { tool = t; document.querySelectorAll('#tools button[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); cv.classList.toggle('grab', t === 'grab'); }
+  $('reset').onclick = reset;
+  addEventListener('keydown', (e) => {
+    const m = { Digit1: 'pistol', Digit2: 'knife', Digit3: 'shove', Digit4: 'blast', Digit5: 'grab' };
+    if (m[e.code]) setTool(m[e.code]);
+    if (e.code === 'KeyR') reset();
+    if (e.code === 'Space') { slow = !slow; e.preventDefault(); }
+  });
+  let ac;
+  function sound(kind) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const a = ac, len = kind === 'shot' ? 0.35 : 0.14, buf = a.createBuffer(1, a.sampleRate * len, a.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, kind === 'shot' ? 4 : 2);
+      const s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain();
+      fl.type = 'lowpass'; fl.frequency.value = kind === 'shot' ? 4000 : kind === 'blast' ? 500 : 900; g.gain.value = kind === 'blast' ? 1 : 0.6;
+      s.buffer = buf; s.connect(fl); fl.connect(g); g.connect(a.destination); s.start();
+    } catch (e) {}
+  }
+  let shake = 0;
+  function flash(a) { const f = $('flash'); f.style.transition = 'none'; f.style.opacity = a; requestAnimationFrame(() => { f.style.transition = 'opacity .25s'; f.style.opacity = 0; }); }
+  const tracers = [];
+  function tracer(from, to, col) {
+    const g = new THREE.BufferGeometry().setFromPoints([from, to]), l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: col, transparent: true })); l.userData.t = 0.12; scene.add(l); tracers.push(l);
+  }
+  function pickBody(e) { setNdc(e); const hits = ray.intersectObjects(bodyMeshes, false); return hits.length ? hits[0] : null; }
+  const bulletDir = new V3();
+
+  cv.addEventListener('pointerdown', (e) => {
+    cv.setPointerCapture(e.pointerId); lx = e.clientX; ly = e.clientY;
+    const hit = pickBody(e);
+    if (e.button === 2 || !hit && tool !== 'blast') { orbiting = true; return; }
+    if (tool === 'blast') {
+      let p;
+      if (hit) p = hit.point.clone(); else { const pl = new THREE.Plane(new V3(0, 1, 0), 0), q = new V3(); if (ray.ray.intersectPlane(pl, q)) p = q.add(new V3(0, 0.15, 0)); else return; }
+      blast(p); return;
+    }
+    if (!hit) return;
+    const { a, b, kind } = hit.object.userData, p = hit.point.clone();
+    const A = pos[a], B = pos[b], ab = new V3().subVectors(B, A), l2 = ab.lengthSq(), t = l2 > 1e-6 ? clamp(new V3().subVectors(p, A).dot(ab) / l2, 0, 1) : 0;
+    const dir = bulletDir.copy(ray.ray.direction).normalize();
+    if (tool === 'grab') {
+      const i = t > 0.5 ? b : a, depth = ray.ray.origin.distanceTo(pos[i]);
+      grab = { i, depth, target: pos[i].clone() }; cv.classList.add('grabbing'); return;
+    }
+    if (tool === 'shove') { hitImpulse(a, b, t, new V3(dir.x, 0.12, dir.z).normalize(), 7); fig.stun = Math.min(1, fig.stun + 0.5); fig.flinch = -Math.sign(dir.x) || 1; sound('thud'); shake = 0.04; return; }
+    const pistol = tool === 'pistol';
+    addWound(a, b, kind, p, dir, pistol ? 1 : 0.65);
+    hitImpulse(a, b, t, dir, pistol ? 4.5 : 1.2);
+    if (pistol) {
+      sound('shot'); flash(0.25); shake = 0.05;
+      tracer(ray.ray.origin.clone().add(new V3(0.15, -0.2, 0)).addScaledVector(dir, 0.6), p.clone().addScaledVector(dir, 1.5), 0xffe6a0);
+      for (let i = 0; i < 10; i++) spawnDrop(p, dir.x * (0.8 + Math.random() * 2) + (Math.random() - 0.5), dir.y * 1.5 + Math.random() * 1.2, dir.z * (0.8 + Math.random() * 2) + (Math.random() - 0.5), 0.008 + Math.random() * 0.01);
+    } else tracer(p.clone().addScaledVector(dir, -0.25), p, 0xdde6ee);
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (grab) { setNdc(e); grab.target.copy(ray.ray.origin).addScaledVector(ray.ray.direction, grab.depth); }
+    else if (orbiting) { camS.yaw -= (e.clientX - lx) * 0.006; camS.pitch = clamp(camS.pitch + (e.clientY - ly) * 0.005, 0.02, 1.45); lx = e.clientX; ly = e.clientY; }
+  });
+  const release = () => { grab = null; orbiting = false; cv.classList.remove('grabbing'); };
+  cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
+  cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  cv.addEventListener('wheel', (e) => { camS.dist = clamp(camS.dist * (1 + e.deltaY * 0.001), 1.8, 18); e.preventDefault(); }, { passive: false });
+
+  function blast(p) {
+    sound('blast'); flash(0.7); shake = 0.2;
+    for (let i = 0; i < N; i++) {
+      const d = tmp.subVectors(pos[i], p), dist = d.length() || 0.01;
+      if (dist < 3) { const k = 1 - dist / 3; d.normalize(); d.y += 0.45; kick(i, d.multiplyScalar(11 * k), 1); }
+    }
+    for (const m of bodyMeshes) {
+      const c = m.position; if (!m.userData || c.distanceTo(p) > 1.3 || Math.random() < 0.35) continue;
+      const { a, b, kind } = m.userData, dir = new V3().subVectors(c, p).normalize();
+      addWound(a, b, kind, c.clone(), dir, 0.35 + Math.random() * 0.3);
+    }
+    fig.stun = 1;
+    const ring = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0.8 })); ring.position.copy(p); ring.userData.blast = 0; scene.add(ring); tracers.push(ring);
+  }
+
+  // ================= lifecycle =================
+  function reset() { release(); grab = null; dropN = 0; poolCtx.clearRect(0, 0, 1024, 1024); poolTex.needsUpdate = true; poolCells.clear(); fig = newFig(); }
+  reset();
+  function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+  addEventListener('resize', resize); resize();
+
+  // ================= HUD =================
+  function updateHud() {
+    const f = fig;
+    $('blood').style.width = f.blood + '%'; $('bloodTxt').textContent = Math.round(f.blood) + '%';
+    $('cons').style.width = Math.round(f.c * 100) + '%'; $('wcount').textContent = f.wounds.length;
+    let s = 'Standing';
+    if (f.dead) s = 'DEAD';
+    else if (f.c <= 0.05) s = f.down ? 'Unconscious, bleeding out' : 'Losing consciousness';
+    else if (f.down) s = f.wounds.length ? 'Collapsed, clutching wounds' : 'Knocked down';
+    else if (f.wounds.length) s = f.c < 0.5 ? 'Stumbling, fading' : 'Clutching wounds, staggering';
+    else if (f.stun > 0.25 || G.walk > 0.3) s = 'Staggering';
+    else if (grab) s = 'Being held';
+    $('status').textContent = s; $('status').style.color = f.dead ? '#e05555' : '#e8e8ee';
+  }
+
+  // ================= main loop =================
+  let last = performance.now();
+  const wp = new V3();
+  function loop(now) {
+    const real = Math.min(0.033, (now - last) / 1000); last = now;
+    const dt = real * (slow ? 0.2 : 1);
+    control(dt);
+    hStep = dt / SUB;
+    for (let i = 0; i < SUB; i++) physics(hStep);
+    syncBody(fig);
+    // bleeding visuals
+    const f = fig, pressure = clamp(f.blood / 100, 0.1, 1);
+    for (const w of f.wounds) {
+      woundWorld(w, wp); w.sprite.position.copy(wp).addScaledVector(frame.fwd, 0.005); w.sprite.scale.setScalar(0.04 + 0.16 * (1 - Math.exp(-w.lost / 5)));
+      if (w.rate < 0.03) continue;
+      w.acc += w.rate * 14 * dt;
+      const pulse = 0.35 + 0.65 * Math.max(0, Math.sin(f.t * 2 * Math.PI * (1.1 + 0.6 * (1 - pressure)))), spurt = w.sev > 0.9 ? 1.6 * pulse * pressure : 0;
+      while (w.acc > 1) {
+        w.acc -= 1; const sp = spurt * (0.4 + Math.random() * 0.6) + 0.15 * Math.random();
+        spawnDrop(wp, w.dir.x * sp + (Math.random() - 0.5) * 0.4, w.dir.y * sp * 0.5 + spurt * 0.6 * Math.random() + (Math.random() - 0.3) * 0.3, w.dir.z * sp + (Math.random() - 0.5) * 0.4, 0.007 + Math.random() * 0.01);
+      }
+    }
+    stepDrops(dt);
+    for (let i = tracers.length - 1; i >= 0; i--) {
+      const t = tracers[i];
+      if (t.userData.blast !== undefined) { t.userData.blast += real; const k = t.userData.blast / 0.35; t.scale.setScalar(1 + k * 14); t.material.opacity = Math.max(0, 0.8 - k); if (k >= 1) { scene.remove(t); tracers.splice(i, 1); } }
+      else { t.userData.t -= real; if (t.userData.t <= 0) { scene.remove(t); tracers.splice(i, 1); } }
+    }
+    // camera
+    camS.look.lerp(tmp.set(pos[PEL].x, 1.0, pos[PEL].z), 1 - Math.exp(-real * 3));
+    shake *= 0.85;
+    camera.position.set(camS.look.x + Math.sin(camS.yaw) * Math.cos(camS.pitch) * camS.dist + (Math.random() - 0.5) * shake, camS.look.y + Math.sin(camS.pitch) * camS.dist + (Math.random() - 0.5) * shake, camS.look.z + Math.cos(camS.yaw) * Math.cos(camS.pitch) * camS.dist);
+    camera.lookAt(camS.look);
+    sun.position.set(camS.look.x + 5, 11, camS.look.z + 4); sun.target.position.copy(camS.look);
+    updateHud();
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  window.__rd = { get fig() { return fig; }, pos, camera, camS, addWound, hitImpulse, PEL, SPN, HED, setTool, reset, blast, bodyMeshes };
+})();
+</script>
+</body>
+</html>
