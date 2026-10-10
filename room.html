@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>White Room</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #fff; font-family: system-ui, sans-serif; }
+  canvas { display: block; cursor: crosshair; }
+  #hint { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); padding: 8px 14px; border-radius: 8px;
+          background: rgba(0,0,0,.65); color: #fff; font-size: 14px; text-align: center; pointer-events: none; }
+  #dot { position: fixed; top: 50%; left: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(0,0,0,.5); pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="dot"></div>
+<div id="hint">Click to look around &middot; WASD move &middot; Shift run &middot; Arrow keys also turn &middot; Esc releases mouse</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  const ROOM = 12, H = 4;           // room is ROOM x ROOM, H tall
+  const EYE = 1.7, RADIUS = 0.3;
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xffffff);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
+  camera.rotation.order = 'YXZ';
+  camera.position.set(0, EYE, 4);
+
+  // ---------- lighting ----------
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xdddddd, 0.75));
+  const lamp = new THREE.PointLight(0xffffff, 0.6, 30);
+  lamp.position.set(0, H - 0.4, 0);
+  lamp.castShadow = true;
+  lamp.shadow.mapSize.set(1024, 1024);
+  lamp.shadow.bias = -0.002;
+  scene.add(lamp);
+
+  // ---------- room ----------
+  const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, side: THREE.DoubleSide });
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.9 });
+  function plane(w, h, mat, pos, rot) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    m.position.set(...pos); m.rotation.set(...rot); m.receiveShadow = true; scene.add(m); return m;
+  }
+  plane(ROOM, ROOM, floorMat, [0, 0, 0], [-Math.PI / 2, 0, 0]);
+  plane(ROOM, ROOM, white, [0, H, 0], [Math.PI / 2, 0, 0]);
+  plane(ROOM, H, white, [0, H / 2, -ROOM / 2], [0, 0, 0]);
+  plane(ROOM, H, white, [0, H / 2, ROOM / 2], [0, Math.PI, 0]);
+  plane(ROOM, H, white, [-ROOM / 2, H / 2, 0], [0, Math.PI / 2, 0]);
+  plane(ROOM, H, white, [ROOM / 2, H / 2, 0], [0, -Math.PI / 2, 0]);
+
+  // ---------- wooden chair ----------
+  // procedural wood grain texture
+  const wc = document.createElement('canvas'); wc.width = wc.height = 256;
+  const g = wc.getContext('2d');
+  g.fillStyle = '#9c6b3c'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 90; i++) {
+    const y = Math.random() * 256, a = 0.05 + Math.random() * 0.12;
+    g.strokeStyle = Math.random() < 0.5 ? `rgba(60,30,10,${a})` : `rgba(210,160,100,${a})`;
+    g.lineWidth = 0.5 + Math.random() * 2.5;
+    g.beginPath(); g.moveTo(0, y);
+    g.bezierCurveTo(80, y + (Math.random() - 0.5) * 12, 170, y + (Math.random() - 0.5) * 12, 256, y + (Math.random() - 0.5) * 6);
+    g.stroke();
+  }
+  const woodTex = new THREE.CanvasTexture(wc);
+  woodTex.wrapS = woodTex.wrapT = THREE.RepeatWrapping;
+  const wood = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.6 });
+
+  const chair = new THREE.Group();
+  function part(w, h, d, x, y, z) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wood);
+    m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; chair.add(m); return m;
+  }
+  const SEAT_Y = 0.46, S = 0.45;                    // seat height, half-size footprint
+  part(0.5, 0.05, 0.5, 0, SEAT_Y, 0);               // seat
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) =>
+    part(0.05, SEAT_Y - 0.025, 0.05, sx * 0.21, (SEAT_Y - 0.025) / 2, sz * 0.21));   // legs
+  part(0.46, 0.04, 0.04, 0, 0.18, -0.21);           // rungs
+  part(0.46, 0.04, 0.04, 0, 0.18, 0.21);
+  part(0.05, 0.05, 0.05, -0.21, 0.9, -0.21);        // back posts
+  part(0.05, 0.05, 0.05, 0.21, 0.9, -0.21);
+  part(0.05, 0.43 + 0.45, 0.05, -0.21, SEAT_Y + 0.025 + 0.22, -0.21).scale.y = 1;
+  part(0.05, 0.43 + 0.45, 0.05, 0.21, SEAT_Y + 0.025 + 0.22, -0.21);
+  part(0.42, 0.07, 0.04, 0, 0.86, -0.21);          // top rail
+  part(0.42, 0.05, 0.03, 0, 0.64, -0.21);          // middle slats
+  part(0.42, 0.05, 0.03, 0, 0.74, -0.21);
+  chair.position.set(0, 0, 0);
+  scene.add(chair);
+
+  // rectangles (x, z half-extents) the player can't enter
+  const colliders = [{ x: 0, z: 0, hx: 0.3, hz: 0.3 }];
+
+  // ---------- controls ----------
+  const keys = {};
+  addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault(); });
+  addEventListener('keyup', (e) => { keys[e.code] = false; });
+  addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+  let yaw = 0, pitch = 0, dragging = false;
+  const cv = renderer.domElement;
+  const locked = () => document.pointerLockElement === cv;
+  cv.addEventListener('click', () => { try { cv.requestPointerLock(); } catch (e) {} });
+  cv.addEventListener('pointerdown', () => { dragging = true; });
+  addEventListener('pointerup', () => { dragging = false; });
+  addEventListener('mousemove', (e) => {
+    // pointer-lock look, or click-and-drag fallback if lock is unavailable (e.g. sandboxed iframe)
+    if (!locked() && !dragging) return;
+    yaw -= (e.movementX || 0) * 0.0022;
+    pitch = Math.max(-1.5, Math.min(1.5, pitch - (e.movementY || 0) * 0.0022));
+  });
+
+  // touch: drag to look
+  let tx = 0, ty = 0;
+  cv.addEventListener('touchstart', (e) => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
+  cv.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    yaw -= (t.clientX - tx) * 0.005; pitch = Math.max(-1.5, Math.min(1.5, pitch - (t.clientY - ty) * 0.005));
+    tx = t.clientX; ty = t.clientY;
+  }, { passive: true });
+
+  function resize() {
+    renderer.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  // move with axis-separated collision so you slide along walls and the chair
+  function blocked(x, z) {
+    const lim = ROOM / 2 - RADIUS;
+    if (Math.abs(x) > lim || Math.abs(z) > lim) return true;
+    return colliders.some((c) => Math.abs(x - c.x) < c.hx + RADIUS && Math.abs(z - c.z) < c.hz + RADIUS);
+  }
+
+  let last = performance.now(), bob = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+
+    if (keys.ArrowLeft) yaw += 1.8 * dt;
+    if (keys.ArrowRight) yaw -= 1.8 * dt;
+    if (keys.ArrowUp) pitch = Math.min(1.5, pitch + 1.2 * dt);
+    if (keys.ArrowDown) pitch = Math.max(-1.5, pitch - 1.2 * dt);
+
+    let f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+    let r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    const moving = f || r;
+    if (moving) {
+      const len = Math.hypot(f, r);
+      const speed = (keys.ShiftLeft || keys.ShiftRight ? 5 : 2.8) * dt;
+      const sin = Math.sin(yaw), cos = Math.cos(yaw);
+      // forward = (-sin, -cos), right = (cos, -sin)
+      const dx = (-sin * f + cos * r) / len * speed;
+      const dz = (-cos * f - sin * r) / len * speed;
+      const p = camera.position;
+      if (!blocked(p.x + dx, p.z)) p.x += dx;
+      if (!blocked(p.x, p.z + dz)) p.z += dz;
+      bob += dt * (keys.ShiftLeft || keys.ShiftRight ? 12 : 8);
+    }
+    camera.position.y = EYE + (moving ? Math.sin(bob) * 0.025 : 0);
+    camera.rotation.set(pitch, yaw, 0);
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  document.addEventListener('pointerlockchange', () => {
+    document.getElementById('hint').style.opacity = locked() ? 0 : 1;
+  });
+})();
+</script>
+</body>
+</html>
