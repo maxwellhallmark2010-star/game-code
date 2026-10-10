@@ -18,6 +18,11 @@
   #tools button.on { border-color: #fff; background: #3a3f4c; }
   #tools button:hover { background: #2c2f38; }
   #help { position: fixed; top: 12px; right: 12px; font-size: 12px; color: #26323f; text-align: right; line-height: 1.6; pointer-events: none; }
+  #injuries { margin-top: 4px; font-size: 12px; line-height: 1.45; color: #ffb4a8; white-space: pre-line; }
+  #therm { position: fixed; inset: 0; pointer-events: none; display: none; background: repeating-linear-gradient(0deg, rgba(0,0,0,.2) 0 1px, transparent 1px 3px), radial-gradient(ellipse at center, transparent 55%, rgba(0,0,10,.65)); }
+  #legend { position: fixed; right: 12px; top: 112px; font-size: 12px; line-height: 1.7; background: rgba(0,0,10,.7); padding: 8px 12px; border-radius: 8px; display: none; pointer-events: none; }
+  #legend i { display: inline-block; width: 11px; height: 11px; margin-right: 7px; border-radius: 2px; vertical-align: -1px; }
+  #thermTag { position: fixed; right: 14px; bottom: 16px; font-size: 13px; letter-spacing: .15em; color: #ffd070; display: none; pointer-events: none; }
   #flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
 </style>
 </head>
@@ -27,14 +32,20 @@
   Blood <span id="bloodTxt"></span><div class="bar"><i id="blood"></i></div>
   <div id="consWrap">Consciousness<div class="bar c"><i id="cons"></i></div></div>
   Wounds: <span id="wcount">0</span>
+  <div id="injuries"></div>
 </div>
-<div id="help">Grab: drag him and he walks where you lead him<br>Hold Shift while grabbing to lift &amp; throw him<br>Drag empty space: orbit &middot; wheel: zoom<br>R reset &middot; Space slow-motion &middot; 1-5 tools</div>
+<div id="therm"></div>
+<div id="legend"><div><i style="background:#fff"></i>LETHAL: brain, heart</div><div><i style="background:#ff5a1c"></i>SERIOUS: head, torso</div><div><i style="background:#ffe030"></i>DISABLING: knees, feet (limp)</div><div><i style="background:#2f6bff"></i>NON-LETHAL: arms, legs</div><div><i style="background:#f4f4ff"></i>bones &middot; <i style="background:#ff2a2a"></i>broken</div></div>
+<div id="thermTag">THERMAL</div>
+<div id="help">Grab: drag him and he walks where you lead him<br>Hold Shift while grabbing to lift &amp; throw him<br>Drag empty space: orbit &middot; wheel: zoom<br>R reset &middot; Space slow-motion &middot; 1-6 tools &middot; T thermal vision</div>
 <div id="tools">
   <button data-t="pistol">1 Pistol</button>
   <button data-t="knife">2 Knife</button>
   <button data-t="shove">3 Shove</button>
   <button data-t="blast">4 Blast</button>
   <button data-t="grab" class="on">5 Grab / lead</button>
+  <button data-t="throw">6 Throw knife</button>
+  <button id="thermBtn">Thermal (T)</button>
   <button id="reset">Reset (R)</button>
 </div>
 <div id="flash"></div>
@@ -81,7 +92,7 @@
   const poolCells = new Map();
   function paintPool(x, z, amount) {
     if (Math.abs(x) > POOL / 2 - 0.2 || Math.abs(z) > POOL / 2 - 0.2) return;
-    const k = Math.round(x * 12) + ',' + Math.round(z * 12), q = Math.min(0.45, (poolCells.get(k) || 0.012) + amount * 0.0025); poolCells.set(k, q);
+    const k = Math.round(x * 12) + ',' + Math.round(z * 12), q = Math.min(0.6, (poolCells.get(k) || 0.012) + amount * 0.0045); poolCells.set(k, q);
     const px = (x + POOL / 2) / POOL * 1024, py = (z + POOL / 2) / POOL * 1024, r = Math.max(1.2, q * 64);
     const g = poolCtx.createRadialGradient(px, py, 0, px, py, r);
     g.addColorStop(0, 'rgba(110,6,12,.55)'); g.addColorStop(0.7, 'rgba(120,8,14,.4)'); g.addColorStop(1, 'rgba(120,8,14,0)');
@@ -96,21 +107,36 @@
   const rLegs = [-1, 1].map((s) => { const th = O(hips, s * 0.095, -0.02, 0), shin = O(th, 0, -0.45, 0), foot = O(shin, 0, -0.45, 0), toe = O(foot, 0, -0.05, 0.2); return { th, shin, foot, toe }; });
   const spineM = O(torso, 0, 0.3, 0), headM = O(headR, 0, 0.12, 0);
   // particle order: pelvis, spine, neck, head, shoulders(2), elbows(2), hands(2), hips(2), knees(2), ankles(2), toes(2)
+  // plus the middle of every long bone (upper arms, forearms, thighs, shins): that is where a bone can snap and the limb folds
+  const midM = [O(rArms[0].upper, 0, -0.15, 0), O(rArms[1].upper, 0, -0.15, 0), O(rArms[0].fore, 0, -0.14, 0), O(rArms[1].fore, 0, -0.14, 0),
+    O(rLegs[0].th, 0, -0.225, 0), O(rLegs[1].th, 0, -0.225, 0), O(rLegs[0].shin, 0, -0.225, 0), O(rLegs[1].shin, 0, -0.225, 0)];
   const markers = [hips, spineM, neck, headM, rArms[0].sh, rArms[1].sh, rArms[0].fore, rArms[1].fore, rArms[0].hand, rArms[1].hand,
-    rLegs[0].th, rLegs[1].th, rLegs[0].shin, rLegs[1].shin, rLegs[0].foot, rLegs[1].foot, rLegs[0].toe, rLegs[1].toe];
+    rLegs[0].th, rLegs[1].th, rLegs[0].shin, rLegs[1].shin, rLegs[0].foot, rLegs[1].foot, rLegs[0].toe, rLegs[1].toe, ...midM];
   const N = markers.length;
-  const [PEL, SPN, NCK, HED, SHL, SHR, ELL, ELR, HAL, HAR, HPL, HPR, KNL, KNR, ANL, ANR, TOL, TOR] = [...Array(N).keys()];
+  const [PEL, SPN, NCK, HED, SHL, SHR, ELL, ELR, HAL, HAR, HPL, HPR, KNL, KNR, ANL, ANR, TOL, TOR, UAL, UAR, FAL, FAR, THL, THR, SNL, SNR] = [...Array(N).keys()];
   const LEGS = [{ hip: HPL, knee: KNL, ank: ANL, toe: TOL }, { hip: HPR, knee: KNR, ank: ANR, toe: TOR }];
+  const ARMP = [[SHL, UAL, ELL, FAL, HAL], [SHR, UAR, ELR, FAR, HAR]], LEGP = [[HPL, THL, KNL, SNL, ANL, TOL], [HPR, THR, KNR, SNR, ANR, TOR]];
+  const armSideOf = new Int8Array(N).fill(-1), legSideOf = new Int8Array(N).fill(-1);
+  ARMP.forEach((a, s) => a.forEach((i) => (armSideOf[i] = s))); LEGP.forEach((a, s) => a.forEach((i) => (legSideOf[i] = s)));
+  const SIDE_NAME = ['right', 'left'];
 
   // ================= physics particles (Verlet) =================
-  const radius = [0.1, 0.12, 0.05, 0.12, 0.07, 0.07, 0.05, 0.05, 0.05, 0.05, 0.08, 0.08, 0.07, 0.07, 0.06, 0.06, 0.04, 0.04];
-  const mass = [3, 3, 1, 2.5, 1.2, 1.2, 0.8, 0.8, 0.5, 0.5, 1.5, 1.5, 1, 1, 1.2, 1.2, 0.4, 0.4];
-  const tau = [0.12, 0.14, 0.12, 0.1, 0.14, 0.14, 0.12, 0.12, 0.09, 0.09, 0.1, 0.1, 0.07, 0.07, 0.04, 0.04, 0.04, 0.04];
+  const radius = [0.1, 0.12, 0.05, 0.12, 0.07, 0.07, 0.05, 0.05, 0.05, 0.05, 0.08, 0.08, 0.07, 0.07, 0.06, 0.06, 0.04, 0.04, 0.05, 0.05, 0.045, 0.045, 0.07, 0.07, 0.06, 0.06];
+  const mass = [3, 3, 1, 2.5, 1.2, 1.2, 0.8, 0.8, 0.5, 0.5, 1.5, 1.5, 1, 1, 1.2, 1.2, 0.4, 0.4, 0.5, 0.5, 0.4, 0.4, 0.8, 0.8, 0.6, 0.6];
+  const tau = [0.12, 0.14, 0.12, 0.1, 0.14, 0.14, 0.12, 0.12, 0.09, 0.09, 0.1, 0.1, 0.07, 0.07, 0.04, 0.04, 0.04, 0.04, 0.11, 0.11, 0.1, 0.1, 0.09, 0.09, 0.06, 0.06];
   const pos = markers.map(() => new V3()), prev = markers.map(() => new V3());
-  const BONES = [[PEL, SPN], [SPN, NCK], [NCK, HED], [NCK, SHL], [NCK, SHR], [SHL, ELL], [ELL, HAL], [SHR, ELR], [ELR, HAR], [PEL, HPL], [PEL, HPR],
-    [HPL, KNL], [KNL, ANL], [HPR, KNR], [KNR, ANR], [ANL, TOL], [ANR, TOR]];
+  const BONES = [[PEL, SPN], [SPN, NCK], [NCK, HED], [NCK, SHL], [NCK, SHR], [SHL, UAL], [UAL, ELL], [ELL, FAL], [FAL, HAL], [SHR, UAR], [UAR, ELR], [ELR, FAR], [FAR, HAR],
+    [PEL, HPL], [PEL, HPR], [HPL, THL], [THL, KNL], [KNL, SNL], [SNL, ANL], [HPR, THR], [THR, KNR], [KNR, SNR], [SNR, ANR], [ANL, TOL], [ANR, TOR]];
+  // each long bone is also held straight by one long "rigid" constraint. When the bone breaks that constraint turns into a
+  // maximum-length one, so the limb can fold at the break; a minimum-length constraint stops it folding completely.
+  const BONE_ENDS = { armUp: [[SHL, ELL], [SHR, ELR]], armFore: [[ELL, HAL], [ELR, HAR]], thigh: [[HPL, KNL], [HPR, KNR]], shin: [[KNL, ANL], [KNR, ANR]] };
+  const BONE_NAME = { armUp: 'upper arm', armFore: 'forearm', thigh: 'thigh bone', shin: 'shin bone' };
   const BRACES = [[SHL, SHR], [HPL, HPR], [SHL, HPL], [SHR, HPR], [SHL, HPR], [SHR, HPL], [PEL, SHL], [PEL, SHR], [SPN, HPL], [SPN, HPR], [HED, SHL], [HED, SHR], [PEL, NCK], [SPN, HED]];
-  const CONS = BONES.concat(BRACES).map(([a, b]) => ({ a, b, len: 0 }));
+  const CONS = BONES.concat(BRACES).map(([a, b]) => ({ a, b, len: 0, type: 'rigid' }));
+  const CON_BONE = {};
+  for (const key in BONE_ENDS) CON_BONE[key] = BONE_ENDS[key].map(([a, b]) => {
+    const main = { a, b, len: 0, type: 'rigid' }, min = { a, b, len: 0, type: 'min', enabled: false, frac: 0.3 }; CONS.push(main, min); return { main, min };
+  });
   const tmp = new V3(), tmp2 = new V3(), tmp3 = new V3();
   const frame = { side: new V3(1, 0, 0), up: new V3(0, 1, 0), fwd: new V3(0, 0, 1) };
   function bodyFrame() {
@@ -152,14 +178,14 @@
   const M = (c, rough = 0.7) => new THREE.MeshStandardMaterial({ color: c, roughness: rough });
   const skin = M(0xe0b08a, 0.6), shirt = M(0x3f6fb0), pants = M(0x343a47), shoe = M(0x1c1c20, 0.5), hair = M(0x3b2a1e), white = M(0xffffff, 0.3), dark = M(0x111111, 0.4);
   const bodyMeshes = [];
-  function reg(m, kind, a, b) { m.userData = { kind, a, b }; m.castShadow = m.receiveShadow = true; scene.add(m); bodyMeshes.push(m); return m; }
+  function reg(m, kind, a, b, extra) { m.userData = Object.assign({ kind, a, b }, extra); m.castShadow = m.receiveShadow = true; scene.add(m); bodyMeshes.push(m); return m; }
   const limbs = [];
-  function limb(a, b, r0, r1, mat, kind) {
+  function limb(a, b, r0, r1, mat, kind, extra) {
     const g = new THREE.CylinderGeometry(r1, r0, 1, 14); g.translate(0, 0.5, 0);
-    const m = reg(new THREE.Mesh(g, mat), kind, a, b); limbs.push(m); return m;
+    const m = reg(new THREE.Mesh(g, mat), kind, a, b, extra); limbs.push(m); return m;
   }
   const balls = [];
-  function ball(i, r, mat, kind) { const m = reg(new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), mat), kind, i, i); balls.push(m); return m; }
+  function ball(i, r, mat, kind, extra) { const m = reg(new THREE.Mesh(new THREE.SphereGeometry(r, 14, 10), mat), kind, i, i, extra); balls.push(m); return m; }
   const bodyParts = {
     torso: reg(new THREE.Mesh(new THREE.BoxGeometry(0.4, 1, 0.23), shirt), 'chest', PEL, NCK),
     shoulders: reg(new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.1, 0.24), shirt), 'chest', NCK, NCK),
@@ -167,8 +193,17 @@
     feet: [0, 1].map((i) => reg(new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.07, 0.27), shoe), 'foot', i ? ANR : ANL, i ? TOR : TOL)),
   };
   limb(NCK, HED, 0.05, 0.05, skin, 'head');
-  [[SHL, ELL, HAL], [SHR, ELR, HAR]].forEach(([s, e, h]) => { limb(s, e, 0.055, 0.045, shirt, 'arm'); limb(e, h, 0.045, 0.036, skin, 'arm'); ball(s, 0.058, shirt, 'arm'); ball(e, 0.046, skin, 'arm'); ball(h, 0.045, skin, 'arm'); });
-  [[HPL, KNL, ANL], [HPR, KNR, ANR]].forEach(([h, k, a]) => { limb(h, k, 0.075, 0.06, pants, 'leg'); limb(k, a, 0.06, 0.045, pants, 'leg'); ball(h, 0.075, pants, 'leg'); ball(k, 0.06, pants, 'leg'); });
+  ARMP.forEach(([s, um, e, fm, h], side) => {
+    limb(s, um, 0.055, 0.05, shirt, 'arm', { bone: 'armUp', side }); limb(um, e, 0.05, 0.045, shirt, 'arm', { bone: 'armUp', side });
+    limb(e, fm, 0.045, 0.04, skin, 'arm', { bone: 'armFore', side }); limb(fm, h, 0.04, 0.036, skin, 'arm', { bone: 'armFore', side });
+    ball(s, 0.058, shirt, 'arm', { bone: 'armUp', side }); ball(um, 0.05, shirt, 'arm', { bone: 'armUp', side }); ball(e, 0.046, skin, 'arm', { bone: 'armFore', side });
+    ball(fm, 0.04, skin, 'arm', { bone: 'armFore', side }); ball(h, 0.045, skin, 'arm', { bone: 'armFore', side });
+  });
+  LEGP.forEach(([h, tm, k, sm, a], side) => {
+    limb(h, tm, 0.075, 0.068, pants, 'leg', { bone: 'thigh', side }); limb(tm, k, 0.068, 0.06, pants, 'leg', { bone: 'thigh', side });
+    limb(k, sm, 0.06, 0.052, pants, 'leg', { bone: 'shin', side }); limb(sm, a, 0.052, 0.045, pants, 'leg', { bone: 'shin', side });
+    ball(h, 0.075, pants, 'leg', { bone: 'thigh', side }); ball(tm, 0.068, pants, 'leg', { bone: 'thigh', side }); ball(k, 0.06, pants, 'leg', { bone: 'thigh', side }); ball(sm, 0.052, pants, 'leg', { bone: 'shin', side });
+  });
   // head with a face
   const head = new THREE.Group(); scene.add(head);
   const headSphere = new THREE.Mesh(new THREE.SphereGeometry(0.115, 24, 18), skin); headSphere.scale.set(0.95, 1.12, 1);
@@ -209,6 +244,56 @@
     mouth.scale.set(pain && awake ? 0.5 : 1, pain && awake ? 3 : 1, 1);
   }
 
+  // ================= thermal vision =================
+  // Body parts are re-coloured by how dangerous a hit there is, a skeleton shows through (broken bones in red), and the vital
+  // zones glow. The body also cools as he loses blood and after he dies.
+  let thermal = false;
+  const faceBits = [hairM, mouth, nose, ...eyeLids, ...pupils, ...Xs];
+  const cold = new THREE.Color(0x1a0a58), tcol = new THREE.Color();
+  const TB = { head: 0xff8f2a, chest: 0xff5a1c, pelvis: 0xff7a24, armUp: 0x2f6bff, armFore: 0x2a4fd0, thigh: 0x3a7aff, shin: 0x2f58d8, foot: 0x3a2f9a, arm: 0x2a4fd0, leg: 0x2f58d8 };
+  bodyMeshes.forEach((m) => { m.userData.mat0 = m.material; m.userData.matT = new THREE.MeshBasicMaterial({ color: 0xffffff }); });
+  const zoneMats = (c) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.8, depthTest: false, depthWrite: false });
+  const zoneViz = ['brain', 'heart', 'knee0', 'knee1', 'foot0', 'foot1'].map((n) => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), zoneMats(n === 'brain' ? 0xffffff : n === 'heart' ? 0xff4040 : 0xffe030)); m.renderOrder = 6; m.visible = false; scene.add(m); return m;
+  });
+  const BONE_VIZ = [[PEL, SPN], [SPN, NCK], [NCK, HED], [SHL, NCK], [SHR, NCK], [HPL, PEL], [HPR, PEL], [ANL, TOL], [ANR, TOR]].map(([a, b]) => ({ a, b }));
+  ARMP.forEach((p, side) => { BONE_VIZ.push({ a: p[0], b: p[1], key: 'armUp', side }, { a: p[1], b: p[2], key: 'armUp', side }, { a: p[2], b: p[3], key: 'armFore', side }, { a: p[3], b: p[4], key: 'armFore', side }); });
+  LEGP.forEach((p, side) => { BONE_VIZ.push({ a: p[0], b: p[1], key: 'thigh', side }, { a: p[1], b: p[2], key: 'thigh', side }, { a: p[2], b: p[3], key: 'shin', side }, { a: p[3], b: p[4], key: 'shin', side }); });
+  const boneGeo = new THREE.CylinderGeometry(0.011, 0.011, 1, 6); boneGeo.translate(0, 0.5, 0);
+  BONE_VIZ.forEach((bv) => { bv.mesh = new THREE.Mesh(boneGeo, new THREE.MeshBasicMaterial({ color: 0xf4f4ff, depthTest: false, transparent: true, opacity: 0.95 })); bv.mesh.renderOrder = 5; bv.mesh.visible = false; scene.add(bv.mesh); });
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), new THREE.MeshBasicMaterial({ color: 0xf4f4ff, wireframe: true, depthTest: false, transparent: true, opacity: 0.8 })); skull.renderOrder = 5; skull.visible = false; scene.add(skull);
+  const ribs = [0, 1, 2].map(() => { const m = new THREE.Mesh(new THREE.TorusGeometry(0.115, 0.006, 6, 18), new THREE.MeshBasicMaterial({ color: 0xf4f4ff, depthTest: false, transparent: true, opacity: 0.75 })); m.renderOrder = 5; m.visible = false; m.scale.set(1, 0.75, 1); scene.add(m); return m; });
+  function setThermal(on) {
+    thermal = on;
+    scene.background = new THREE.Color(on ? 0x05050f : 0xcfe3f2); scene.fog.color.set(on ? 0x05050f : 0xcfe3f2);
+    floor.material.color.set(on ? 0x2a2150 : 0xffffff);
+    bodyMeshes.forEach((m) => (m.material = on ? m.userData.matT : m.userData.mat0));
+    $('therm').style.display = $('legend').style.display = $('thermTag').style.display = on ? 'block' : 'none';
+    $('thermBtn').classList.toggle('on', on);
+    zoneViz.forEach((z) => (z.visible = on)); BONE_VIZ.forEach((b) => (b.mesh.visible = on)); skull.visible = on; ribs.forEach((r) => (r.visible = on));
+    if (!on) faceBits.forEach((b) => (b.visible = true));
+  }
+  function updateThermal(f, now) {
+    const cool = clamp(1 - f.blood / 100, 0, 1) * 0.55 + (f.dead ? clamp(f.deadT / 25, 0, 1) * 0.85 : 0);
+    for (const m of bodyMeshes) {
+      const u = m.userData, base = TB[u.bone] || TB[u.kind] || 0xff7a24;
+      tcol.setHex(base).lerp(cold, cool); u.matT.color.copy(tcol);
+    }
+    faceBits.forEach((b) => (b.visible = false));
+    const zs = zoneList(), beat = f.dead ? 0 : (f.heart ? 1 + 0.35 * Math.sin(now * 0.03) : 1) * (0.5 + 0.5 * Math.pow(Math.max(0, Math.sin(now * (f.heart ? 0.016 : 0.008))), 3));
+    zoneViz.forEach((zv, i) => {
+      const z = zs[i], pulse = i === 1 ? 0.55 + 0.6 * beat : 0.9 + 0.15 * Math.sin(now * 0.004 + i);
+      zv.position.copy(z.c); zv.scale.setScalar(z.r * (i < 2 ? 0.7 : 0.62) * pulse * (f.dead ? 0.6 : 1));
+      zv.material.opacity = f.dead ? 0.25 : (i < 2 ? 0.95 : f.limp[z.side] > 0.5 ? 1 : 0.6);
+    });
+    for (const bv of BONE_VIZ) {
+      placeLimb(bv.mesh, pos[bv.a], pos[bv.b]); bv.mesh.scale.x = bv.mesh.scale.z = 1;
+      bv.mesh.material.color.setHex(bv.key && f.broken[bv.key][bv.side] ? 0xff2a2a : 0xf4f4ff);
+    }
+    skull.position.copy(pos[HED]); skull.quaternion.copy(head.quaternion);
+    ribs.forEach((r, k) => { r.position.copy(pos[SPN]).addScaledVector(frame.up, 0.08 - k * 0.07).addScaledVector(frame.fwd, 0.0); r.quaternion.setFromUnitVectors(new V3(0, 0, 1), frame.up); r.rotateZ(0); });
+  }
+
   // ================= figure state =================
   let fig, grab = null, slow = false, tool = 'grab';
   let ANK_H = 0.07, TOE_DY = -0.04, TOE_FWD = 0.2, L_TH = 0.45, L_SH = 0.45;
@@ -219,12 +304,15 @@
     rLegs.forEach((L) => { L.th.rotation.x = 0; L.shin.rotation.x = 0; L.foot.rotation.x = 0; });
     rigRoot.updateMatrixWorld(true);
     markers.forEach((m, i) => { m.getWorldPosition(pos[i]); prev[i].copy(pos[i]); tgtSet[i].copy(pos[i]); });
-    CONS.forEach((c) => (c.len = pos[c.a].distanceTo(pos[c.b])));
+    CONS.forEach((c) => { c.len = pos[c.a].distanceTo(pos[c.b]) * (c.type === 'min' ? c.frac : 1); if (c.type === 'min') c.enabled = false; if (c.bone && c.type !== 'min') c.type = 'rigid'; });
+    for (const k in CON_BONE) CON_BONE[k].forEach((cb) => { cb.main.type = 'rigid'; cb.min.enabled = false; });
     ANK_H = pos[ANL].y; TOE_DY = pos[TOL].y - pos[ANL].y; TOE_FWD = pos[TOL].z - pos[ANL].z;
     L_TH = pos[HPL].distanceTo(pos[KNL]); L_SH = pos[KNL].distanceTo(pos[ANL]);
     woundMeshes.slice().forEach(removeWoundVisuals);
     const feet = [0, 1].map((i) => ({ p: new V3(pos[LEGS[i].ank].x, ANK_H, pos[LEGS[i].ank].z), yaw: 0, swing: null }));
     return { wounds: [], blood: 100, c: 1, stun: 0, brain: 0, brainT: 0, dead: false, down: false, downT: 0, upT: 0, recover: 1, t: 0, flinch: 1, hands: [null, null],
+      bones: { armUp: [100, 100], armFore: [100, 100], thigh: [100, 100], shin: [100, 100] }, broken: { armUp: [false, false], armFore: [false, false], thigh: [false, false], shin: [false, false] },
+      limp: [0, 0], injuries: [], heart: false, deadT: 0, impactCD: new Float32Array(N), armOK: [true, true],
       feet, free: false, lastFoot: 1, lurch: new V3(), lurchT: new V3(), lurchTimer: 0, buckle: [0, 0], legStr: [1, 1], s: 1, armC: 1, err: 0, steps: 0, walking: false };
   }
 
@@ -313,19 +401,26 @@
     const size = type === 'bullet' ? 0.11 : type === 'cut' ? 0.16 : 0.17;
     w.core.userData.size = size * (0.9 + 0.2 * Math.min(1.5, w.sev));
     w.trails = [];
-    for (let i = 0; i < 3; i++) {
+    const nR = w.rate0 < 1.2 ? 0 : w.rate0 < 2.4 ? 1 : 3;                         // minor wounds only drip; bigger ones run
+    for (let i = 0; i < nR; i++) {
       const geo = new THREE.BufferGeometry(), uv = [], idx = [];
       geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(RN * 6), 3));
       for (let k = 0; k < RN; k++) { uv.push(0, k / (RN - 1), 1, k / (RN - 1)); if (k < RN - 1) { const a = k * 2; idx.push(a, a + 1, a + 2, a + 2, a + 1, a + 3); } }
       geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uv), 2)); geo.setIndex(idx);
       const m = new THREE.Mesh(geo, rivMat); m.frustumCulled = false; m.renderOrder = 2; m.visible = false;
       m.userData = { u0: (i - 1) * 0.02 + rnd(-0.008, 0.008), A1: rnd(0.005, 0.013), f1: rnd(11, 24), p1: rnd(0, 6.3), A2: rnd(0.002, 0.006), f2: rnd(28, 52), p2: rnd(0, 6.3),
-        drift: rnd(-0.06, 0.06), speed: rnd(0.6, 1.1), delay: i * 1.8 + rnd(0, 1.2), b1: rnd(0.22, 0.42), b2: rnd(0.55, 0.8), base: rnd(0.0065, 0.0105) };
+        drift: rnd(-0.06, 0.06), speed: rnd(0.8, 1.25), delay: i * 0.35 + rnd(0, 0.3), head: 0, drip: 0, b1: rnd(0.22, 0.42), b2: rnd(0.55, 0.8), base: rnd(0.008, 0.0125) };
       w.trails.push(m); scene.add(m);
     }
     scene.add(w.stain, w.core); woundMeshes.push(w);
   }
-  function removeWoundVisuals(w) { [w.stain, w.core, ...(w.trails || [])].forEach((m) => { if (m) { scene.remove(m); if (m.geometry !== planeGeo) m.geometry.dispose(); } }); const i = woundMeshes.indexOf(w); if (i >= 0) woundMeshes.splice(i, 1); }
+  function removeWoundVisuals(w) { if (w.knife) { scene.remove(w.knife); w.knife = null; } [w.stain, w.core, ...(w.trails || [])].forEach((m) => { if (m) { scene.remove(m); if (m.geometry !== planeGeo) m.geometry.dispose(); } }); const i = woundMeshes.indexOf(w); if (i >= 0) woundMeshes.splice(i, 1); }
+  const kMetal = new THREE.MeshStandardMaterial({ color: 0xcfd6dd, metalness: 0.8, roughness: 0.25 }), kGrip = new THREE.MeshStandardMaterial({ color: 0x2a1a12, roughness: 0.7 });
+  function makeKnife() {                                                      // origin is the tip, +z points the way the blade went in
+    const g = new THREE.Group(), add = (geo, mat, z) => { const m = new THREE.Mesh(geo, mat); m.position.z = z; m.castShadow = true; g.add(m); };
+    add(new THREE.BoxGeometry(0.006, 0.028, 0.13), kMetal, -0.065); add(new THREE.BoxGeometry(0.008, 0.05, 0.008), kGrip, -0.134); add(new THREE.BoxGeometry(0.02, 0.022, 0.1), kGrip, -0.185);
+    return g;
+  }
   const wn = new V3(), wb = new V3(), rvA = new V3(), rvT = new V3(), rvL = new V3(), rvC = new V3(), rvD = new V3();
   const rvP = Array.from({ length: RN }, () => new V3()), rvN = Array.from({ length: RN }, () => new V3()), rvW = new Float32Array(RN);
   // keep a point on the skin: wrap it onto the limb / head it belongs to (the torso is flat enough to leave alone)
@@ -339,7 +434,7 @@
       rvC.copy(pos[HED]); nOut.subVectors(q, rvC).normalize(); q.copy(rvC).addScaledVector(nOut, 0.122);
     } else nOut.copy(wn);
   }
-  function updateWoundVisuals(w, pos3) {
+  function updateWoundVisuals(w, pos3, dt) {
     wn.set(0, 0, 0).addScaledVector(frame.side, w.nx).addScaledVector(frame.up, w.ny).addScaledVector(frame.fwd, w.nz).normalize();
     qN.setFromUnitVectors(Z, wn); qSpin.setFromAxisAngle(Z, w.spin);
     const lost = w.lost, grow = 1 - Math.exp(-lost / 6);
@@ -353,13 +448,15 @@
     const curved = w.kind === 'arm' || w.kind === 'leg' || w.kind === 'foot' || w.kind === 'head', maxLen = curved ? 0.34 : 0.55;
     const sideV = rvA.crossVectors(wn, dwn).normalize();
     for (const m of w.trails) {
-      const u = m.userData, len = clamp((lost - 0.25 - u.delay * 0.4) * u.speed * 0.12, 0, maxLen);
+      const u = m.userData;
+      if (w.rate > 0.03) { if (u.delay > 0) u.delay -= dt; else u.head += dt * (0.28 + 0.3 * Math.min(w.rate, 3.5)) * u.speed; }     // liquid: it runs quickly and runs faster the harder it bleeds
+      const len = Math.min(maxLen, u.head);
       m.visible = !flat && len > 0.012;
       if (!m.visible) continue;
       const arr = m.geometry.attributes.position.array, thick = 1 + clamp(w.rate * 0.12, 0, 0.5);
       for (let k = 0; k < RN; k++) {
         const sN = k / (RN - 1), v = sN * len;
-        const uu = u.u0 + u.A1 * Math.sin(v * u.f1 + u.p1) * (0.35 + sN) + u.A2 * Math.sin(v * u.f2 + u.p2) + u.drift * v;
+        const uu = u.u0 + u.A1 * Math.sin(v * u.f1 + u.p1 - time * 2.4) * (0.35 + sN) + u.A2 * Math.sin(v * u.f2 + u.p2 - time * 3.6) + u.drift * v;
         rvP[k].copy(pos3).addScaledVector(sideV, uu).addScaledVector(dwn, v).addScaledVector(wn, 0.006);
         conform(rvP[k], w, rvN[k]);
         let wd = u.base * thick * (1.15 - 0.3 * sN);
@@ -374,6 +471,10 @@
         arr[k * 6 + 3] = rvP[k].x + rvL.x; arr[k * 6 + 4] = rvP[k].y + rvL.y; arr[k * 6 + 5] = rvP[k].z + rvL.z;
       }
       m.geometry.attributes.position.needsUpdate = true;
+      if (len >= maxLen * 0.97 && w.rate > 0.03) {                                // once it has run its course it drips off the end and pools below
+        u.drip += w.rate * 2.4 * dt;
+        while (u.drip > 1) { u.drip -= 1; spawnDrop(rvP[RN - 1], rnd(-0.03, 0.03), -0.04, rnd(-0.03, 0.03), rnd(0.009, 0.016)); }
+      }
     }
   }
 
@@ -393,15 +494,50 @@
     buildWoundVisuals(w);
     if (kind === 'head') f.brain = Math.min(1.2, f.brain + 0.45 * sev * (sev > 0.9 ? 1.5 : 1));
     f.stun = Math.min(1, f.stun + 0.45 * sev);
-    if (kind === 'leg' || kind === 'foot') { const li = (a === HPL || a === KNL || a === ANL || a === TOL) ? 0 : 1; f.buckle[li] = 0.45; }      // the hit leg gives way
+    if (kind === 'leg' || kind === 'foot') { const li = Math.max(0, legSideOf[a]); f.buckle[li] = 0.45; }      // the hit leg gives way
     if (f.wounds.length > 12) removeWoundVisuals(f.wounds.shift());
+    return w;
   }
   let hStep = 1 / 240, time = 0;
   function kick(i, v, wgt) { prev[i].addScaledVector(v, -wgt * hStep); }        // add a velocity (m/s) to a particle
   function hitImpulse(a, b, t, dir, speed) {
     kick(a, tmp.copy(dir).multiplyScalar(speed), 1 - t); kick(b, tmp.copy(dir).multiplyScalar(speed), t);
     // the whole body takes some of it, the upper body more than the feet, so he gets knocked off balance
-    for (let i = 0; i < N; i++) { const wgt = i <= HED ? 0.6 : i <= HAR ? 0.4 : i <= HPR ? 0.45 : 0.05; kick(i, tmp.copy(dir).multiplyScalar(speed), wgt); }
+    for (let i = 0; i < N; i++) { const wgt = i <= HED ? 0.6 : armSideOf[i] >= 0 ? 0.4 : (i === HPL || i === HPR) ? 0.45 : 0.05; kick(i, tmp.copy(dir).multiplyScalar(speed), wgt); }
+  }
+
+  // ================= bones, vital zones, limping =================
+  const note = (msg) => { const f = fig; f.injuries.push(msg); if (f.injuries.length > 9) f.injuries.shift(); };
+  function breakBone(key, side) {
+    const f = fig; if (f.broken[key][side]) return;
+    f.broken[key][side] = true; const cb = CON_BONE[key][side]; cb.main.type = 'max'; cb.min.enabled = true; cb.min.len = cb.main.len * cb.min.frac;
+    f.stun = Math.min(1, f.stun + 0.5); sound('crack'); shake = Math.max(shake, 0.03);
+    if (key === 'thigh' || key === 'shin') { f.limp[side] = 1; f.buckle[side] = 1.5; }
+    note(SIDE_NAME[side] + ' ' + BONE_NAME[key] + ' broken: ' + (key.startsWith('arm') ? 'arm hangs limp' : 'leg gives way'));
+  }
+  function boneDamage(key, side, dmg) { const f = fig; if (!key || f.broken[key][side]) return; f.bones[key][side] -= dmg; if (f.bones[key][side] <= 0) breakBone(key, side); }
+  const BONE_OF = { [UAL]: ['armUp', 0], [UAR]: ['armUp', 1], [ELL]: ['armUp', 0], [ELR]: ['armUp', 1], [FAL]: ['armFore', 0], [FAR]: ['armFore', 1], [HAL]: ['armFore', 0], [HAR]: ['armFore', 1],
+    [THL]: ['thigh', 0], [THR]: ['thigh', 1], [KNL]: ['thigh', 0], [KNR]: ['thigh', 1], [SNL]: ['shin', 0], [SNR]: ['shin', 1], [ANL]: ['shin', 0], [ANR]: ['shin', 1], [TOL]: ['shin', 0], [TOR]: ['shin', 1] };
+  function impactDamage(i, v) { const b = BONE_OF[i]; if (b) boneDamage(b[0], b[1], (v - 6) * 9); }   // hard landings can snap a limb, but it takes a real fall
+  function zoneList() {
+    return [
+      { type: 'brain', c: pos[HED].clone().addScaledVector(frame.up, 0.015), r: 0.085 },
+      { type: 'heart', c: pos[SPN].clone().addScaledVector(frame.up, 0.06).addScaledVector(frame.side, 0.05), r: 0.065 },
+      { type: 'knee', side: 0, c: pos[KNL].clone(), r: 0.08 }, { type: 'knee', side: 1, c: pos[KNR].clone(), r: 0.08 },
+      { type: 'foot', side: 0, c: pos[ANL].clone().lerp(pos[TOL], 0.4), r: 0.095 }, { type: 'foot', side: 1, c: pos[ANR].clone().lerp(pos[TOR], 0.4), r: 0.095 },
+    ];
+  }
+  // does the projectile (entering at p, travelling along dir, able to reach `pen` metres in) pass through a vital zone?
+  function zoneHit(p, dir, pen) {
+    for (const z of zoneList()) { const v = z.c.clone().sub(p), along = v.dot(dir); if (along < -0.07 || along > pen) continue; if (v.addScaledVector(dir, -along).length() < z.r) return z; }
+    return null;
+  }
+  function applyZone(z, w) {
+    const f = fig;
+    if (z.type === 'brain') { f.brain = 1.6; f.stun = 1; w.rate0 *= 1.4; w.rate *= 1.4; note('Brain hit: unconscious instantly'); }
+    else if (z.type === 'heart') { w.heart = true; w.rate0 *= 4.5; w.rate = w.rate0; w.sev *= 2; f.heart = true; f.stun = 1; note('Heart hit: massive blood loss'); }
+    else if (z.type === 'knee') { f.limp[z.side] = 1; f.buckle[z.side] = 1.2; f.stun = Math.min(1, f.stun + 0.3); note(SIDE_NAME[z.side] + ' knee hit: leg gives out'); }
+    else if (z.type === 'foot') { f.limp[z.side] = Math.max(f.limp[z.side], 0.65); f.buckle[z.side] = 0.8; note(SIDE_NAME[z.side] + ' foot hit: limping'); }
   }
 
   // ================= controller =================
@@ -411,15 +547,17 @@
     // --- blood ---
     let bleed = 0, torsoW = 0, headW = 0; const legWound = [0, 0];
     for (const w of f.wounds) {
-      w.tt += dt; w.rate = w.rate0 * (0.4 + 0.6 * Math.exp(-w.tt / 50)); bleed += w.rate; w.lost += w.rate * dt;
+      w.tt += dt; w.rate = w.rate0 * (w.heart ? 0.8 + 0.2 * Math.exp(-w.tt / 30) : 0.4 + 0.6 * Math.exp(-w.tt / 50)); bleed += w.rate; w.lost += w.rate * dt;
       if (w.kind === 'chest' || w.kind === 'pelvis') torsoW += w.sev; else if (w.kind === 'head') headW += w.sev;
-      if (w.kind === 'leg' || w.kind === 'foot') legWound[(w.a === HPL || w.a === KNL || w.a === ANL || w.a === TOL) ? 0 : 1] += w.sev;
+      if (w.kind === 'leg' || w.kind === 'foot') legWound[Math.max(0, legSideOf[w.a])] += w.sev;
     }
     f.blood = Math.max(0, f.blood - bleed * (f.dead ? 0.35 : 1) * dt);
     f.stun = Math.max(0, f.stun - dt * 0.6);
-    f.c = Math.min(clamp((f.blood - 18) / 45, 0, 1), 1 - f.brain);
-    if (f.brain >= 1 && !f.dead) { f.brainT += dt; if (f.brainT > 5) f.dead = true; }
+    f.c = clamp(Math.min(clamp((f.blood - 18) / 45, 0, 1), 1 - f.brain), 0, 1);
+    if (f.brain >= 1 && !f.dead) { f.brainT += dt; if (f.brainT > (f.brain > 1.3 ? 7 : 5)) f.dead = true; }
     if (f.blood <= 0 && !f.dead) f.dead = true;
+    if (f.dead) f.deadT += dt;
+    f.armOK = [0, 1].map((i) => !f.broken.armUp[i] && !f.broken.armFore[i]);
 
     // --- posture state ---
     bodyFrame();
@@ -430,14 +568,15 @@
     f.recover = Math.min(1, f.recover + dt / 1.6);
     const lifting = grab && grab.mode === 'lift';
     const s = f.dead ? 0 : f.c * (1 - 0.75 * f.stun) * f.recover * (lifting ? 0.2 : 1);
-    const sS = f.down ? s * 0.03 : s;
+    const bothLimp = Math.min(f.limp[0], f.limp[1]);
+    const sS = (f.down ? s * 0.03 : s) * (1 - 0.7 * bothLimp);
     const hurtF = clamp((1 - f.c) + 0.25 * Math.min(3, f.wounds.length) + f.stun * 0.5, 0, 1.4);
     f.s = sS;
     f.buckle = f.buckle.map((b) => Math.max(0, b - dt));
-    f.legStr = [0, 1].map((i) => (legWound[i] > 0 ? 0.65 : 1) * (f.buckle[i] > 0 ? 0.12 : 1));
+    f.legStr = [0, 1].map((i) => (legWound[i] > 0 ? 0.65 : 1) * (f.buckle[i] > 0 ? 0.12 : 1) * (1 - 0.9 * f.limp[i]));
 
     // random knee buckles when hurt or bleeding
-    if (!f.down && sS > 0.2 && f.wounds.length) for (let i = 0; i < 2; i++) if (!f.buckle[i] && Math.random() < dt * (0.06 * hurtF + 0.35 * legWound[i])) f.buckle[i] = 0.25 + Math.random() * 0.2;
+    if (!f.down && sS > 0.2 && f.wounds.length) for (let i = 0; i < 2; i++) if (!f.buckle[i] && Math.random() < dt * (0.06 * hurtF + 0.35 * legWound[i] + 1.1 * f.limp[i])) f.buckle[i] = 0.25 + Math.random() * 0.25;
 
     // --- yaw / heading ---
     pelV.set((pos[PEL].x - prev[PEL].x) / hStep, 0, (pos[PEL].z - prev[PEL].z) / hStep);
@@ -479,14 +618,15 @@
       if (needs) {
         let i = d0 > d1 ? 0 : 1;
         if (i === f.lastFoot && (i ? d0 : d1) > 0.45 * (i ? d1 : d0)) i = 1 - i;    // prefer alternating feet
+        if (f.limp[i] > 0.5 && f.limp[1 - i] < 0.5 && Math.random() < 0.55) i = 1 - i;    // a limp: lean on the good leg
         const ft = f.feet[i], other = f.feet[1 - i], to = want[i].clone(); to.y = ANK_H;
-        const maxStep = 0.22 + 0.5 * clamp(sS, 0, 1);
+        const maxStep = (0.22 + 0.5 * clamp(sS, 0, 1)) * (1 - 0.5 * f.limp[i]);
         tmp.subVectors(to, ft.p); tmp.y = 0; if (tmp.length() > maxStep) to.copy(ft.p).addScaledVector(tmp.normalize(), maxStep);
         const sgn = i ? 1 : -1, l2 = tmp2.subVectors(to, other.p).dot(sideYaw) * sgn;
         if (l2 < 0.09) to.addScaledVector(sideYaw, sgn * (0.09 - l2));                 // don't cross the legs
         to.y = ANK_H;
         const urgency = clamp(err / 0.5, 0, 1);
-        const dur = lerp(leadTo ? 0.3 : 0.34, 0.17, urgency) / (0.55 + 0.45 * clamp(sS, 0, 1)) * (1 + 0.4 * clamp(hurtF, 0, 1));
+        const dur = lerp(leadTo ? 0.3 : 0.34, 0.17, urgency) / (0.55 + 0.45 * clamp(sS, 0, 1)) * (1 + 0.4 * clamp(hurtF, 0, 1)) * (1 + 0.8 * f.limp[i]);
         ft.swing = { from: ft.p.clone(), to, t: 0, dur, h: 0.06 + 0.07 * urgency, yaw0: ft.yaw };
         f.lastFoot = i; f.steps++;
       }
@@ -520,14 +660,14 @@
     const flail = clamp((err - 0.18) / 0.4, 0, 1) * clamp(sS * 1.5, 0, 1) * (f.free ? 0 : 1);
     const wob = Math.sin(f.t * 1.9 + 1.3) * 0.5 + Math.sin(f.t * 3.1) * 0.5;
     const speed = pelV.length();
-    const crouchAmt = clamp(0.1 * hurtF + clamp((legWound[0] + legWound[1]) * 0.2, 0, 0.4) + (1 - clamp(sS * 1.2, 0, 1)) * 0.5 + (f.buckle[0] || f.buckle[1] ? 0.3 : 0) + flail * 0.15, 0, 0.8);
+    const crouchAmt = clamp(0.1 * hurtF + 0.25 * Math.max(f.limp[0], f.limp[1]) + clamp((legWound[0] + legWound[1]) * 0.2, 0, 0.4) + (1 - clamp(sS * 1.2, 0, 1)) * 0.5 + (f.buckle[0] || f.buckle[1] ? 0.3 : 0) + flail * 0.15, 0, 0.8);
     // off the ground (lifted / thrown / falling) the pose hangs from the pelvis instead of from the floor, so nothing pulls him back down
     G.anchor.y = f.free ? pos[PEL].y - (HIP_Y - 0.25 * crouchAmt) : 0;
     poseRig(dt, {
       speed, lean: leadTo ? clamp(speed * 0.05, 0, 0.18) : 0,
       crouch: crouchAmt,
       curl: clamp(torsoW * 0.22 + headW * 0.12 + (legWound[0] + legWound[1]) * 0.08, 0, 0.55) + wob * 0.06 * clamp(hurtF, 0, 1),
-      twist: clamp((off[0] - off[1]) * 0.35, -0.25, 0.25), sway: wob * 0.04 * clamp(hurtF, 0, 1),
+      twist: clamp((off[0] - off[1]) * 0.35, -0.25, 0.25), sway: wob * 0.04 * clamp(hurtF, 0, 1) + (f.limp[0] - f.limp[1]) * 0.07,
       headDrop: headW * 0.2 + (1 - f.c) * 0.3,
       armSwing: [clamp(-off[1] * 1.5, -0.7, 0.7), clamp(-off[0] * 1.5, -0.7, 0.7)], flail,
     });
@@ -559,8 +699,8 @@
     if (!f.dead) {
       const ws = f.wounds.slice().sort((a, b) => b.rate - a.rate).slice(0, 2);
       for (const w of ws) {
-        const p = woundWorld(w, new V3()), own = (w.a === SHL || w.a === ELL || w.a === HAL) ? 0 : (w.a === SHR || w.a === ELR || w.a === HAR) ? 1 : -1;
-        const order = [0, 1].filter((i) => i !== own && !assigned[i]).sort((a, b) => pos[a ? SHR : SHL].distanceTo(p) - pos[b ? SHR : SHL].distanceTo(p));
+        const p = woundWorld(w, new V3()), own = armSideOf[w.a];
+        const order = [0, 1].filter((i) => i !== own && !assigned[i] && f.armOK[i]).sort((a, b) => pos[a ? SHR : SHL].distanceTo(p) - pos[b ? SHR : SHL].distanceTo(p));
         if (order.length) assigned[order[0]] = p;
       }
     }
@@ -569,16 +709,26 @@
       const pole = new V3().addScaledVector(frame.side, i ? 1 : -1).addScaledVector(frame.up, -0.6).addScaledVector(frame.fwd, -0.4);
       ik(pos[i ? SHR : SHL], tmp.copy(assigned[i]).addScaledVector(frame.fwd, 0.04), 0.3, 0.28, pole, tgtSet[i ? ELR : ELL], tgtSet[i ? HAR : HAL]);
     }
+    for (const [m, a, b] of [[UAL, SHL, ELL], [UAR, SHR, ELR], [FAL, ELL, HAL], [FAR, ELR, HAR], [THL, HPL, KNL], [THR, HPR, KNR], [SNL, KNL, ANL], [SNR, KNR, ANR]]) tgtSet[m].addVectors(tgtSet[a], tgtSet[b]).multiplyScalar(0.5);
     f.hands = assigned; f.armC = armC;
   }
 
   // ================= physics step =================
+  const limpMask = new Float32Array(N);
   function physics(h) {
     const f = fig, sS = f.s || 0;
     const a = clamp(sS, 0, 1);
+    for (let i = 0; i < N; i++) f.impactCD[i] = Math.max(0, f.impactCD[i] - h);
+    limpMask.fill(0);                                                       // limbs distal to a broken bone hang loose (and swing)
+    for (let sd = 0; sd < 2; sd++) {
+      if (f.broken.armUp[sd]) [UAL, ELL, FAL, HAL].forEach((k, j) => (limpMask[k + sd] = 1));
+      if (f.broken.armFore[sd]) [FAL, HAL].forEach((k) => (limpMask[k + sd] = 1));
+      if (f.broken.thigh[sd]) [THL, KNL, SNL, ANL, TOL].forEach((k) => (limpMask[k + sd] = 1));
+      if (f.broken.shin[sd]) [SNL, ANL, TOL].forEach((k) => (limpMask[k + sd] = 1));
+    }
     for (let i = 0; i < N; i++) {                                           // verlet integrate
       // the trunk keeps its sideways momentum (so a shove carries him off balance); limbs are damped by their muscles
-      const trunk = i <= HED || i === HPL || i === HPR, dh = trunk ? 0.9985 - 0.012 * a : 0.9985 - 0.09 * a, dv = 0.9985 - 0.09 * a;
+      const trunk = i <= HED || i === HPL || i === HPR, free = limpMask[i] > 0.5, dh = trunk ? 0.9985 - 0.012 * a : free ? 0.9975 : 0.9985 - 0.09 * a, dv = free ? 0.9985 : 0.9985 - 0.09 * a;
       tmp.subVectors(pos[i], prev[i]); tmp.x *= dh; tmp.z *= dh; tmp.y *= dv; prev[i].copy(pos[i]);
       pos[i].add(tmp); pos[i].y -= 9.8 * h * h;
     }
@@ -586,11 +736,13 @@
     for (let i = 0; i < N; i++) {
       let st = sS, ta = tau[i], hz = 1;
       if (i <= HED || i === HPL || i === HPR) hz = 0.12;                                                // the trunk sways freely sideways; the feet catch it
-      if (i >= SHL && i <= HAR) st = f.hands[i % 2] ? f.armC * 1.1 : Math.max(f.armC * 0.55, sS * 0.9);
-      if (i >= HPL) {
-        const leg = i % 2; st = sS * f.legStr[leg] * (f.free ? 0.3 : 1);
-        if ((i === ANL || i === ANR || i === TOL || i === TOR) && !f.free && !f.feet[leg].swing) ta *= 0.7;   // planted feet stay put
+      const as = armSideOf[i], ls = legSideOf[i];
+      if (as >= 0) st = f.hands[as] ? f.armC * 1.1 : Math.max(f.armC * 0.55, sS * 0.9);
+      if (ls >= 0) {
+        st = sS * f.legStr[ls] * (f.free ? 0.3 : 1);
+        if ((i === ANL || i === ANR || i === TOL || i === TOR) && !f.free && !f.feet[ls].swing) ta *= 0.7;   // planted feet stay put
       }
+      st *= 1 - limpMask[i];
       if (f.dead) st = 0;
       if (st <= 0.002) continue;
       const k = 1 - Math.exp(-h / (ta / Math.pow(Math.min(st, 1.1), 1.5))), kh = k * hz;
@@ -605,7 +757,10 @@
     }
     for (let it = 0; it < 8; it++) {
       for (const c of CONS) {
-        const A = pos[c.a], B = pos[c.b]; tmp.subVectors(B, A); const d = tmp.length() || 1e-6, diff = (d - c.len) / d, wa = 1 / mass[c.a], wb = 1 / mass[c.b], ws = wa + wb;
+        if (c.enabled === false) continue;
+        const A = pos[c.a], B = pos[c.b]; tmp.subVectors(B, A); const d = tmp.length() || 1e-6;
+        if (c.type === 'max' && d <= c.len) continue; if (c.type === 'min' && d >= c.len) continue;
+        const diff = (d - c.len) / d, wa = 1 / mass[c.a], wb = 1 / mass[c.b], ws = wa + wb;
         A.addScaledVector(tmp, diff * wa / ws); B.addScaledVector(tmp, -diff * wb / ws);
       }
       bodyFrame();
@@ -616,7 +771,9 @@
       for (let i = 0; i < N; i++) {                                         // floor with friction
         const r = radius[i];
         if (pos[i].y < r) {
-          pos[i].y = r; const fr = (i >= ANL) ? 0.8 : 0.35;
+          const impact = (prev[i].y - pos[i].y) / h;                         // downward speed at the moment of contact
+          if (impact > 6.5 && f.impactCD[i] <= 0) { f.impactCD[i] = 0.5; impactDamage(i, impact); }
+          pos[i].y = r; const fr = (i === ANL || i === ANR || i === TOL || i === TOR) ? 0.8 : 0.35;
           prev[i].x += (pos[i].x - prev[i].x) * fr; prev[i].z += (pos[i].z - prev[i].z) * fr;
         }
       }
@@ -631,7 +788,7 @@
   document.querySelectorAll('#tools button[data-t]').forEach((b) => (b.onclick = () => setTool(b.dataset.t)));
   function setTool(t) { tool = t; document.querySelectorAll('#tools button[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === t)); cv.classList.toggle('grab', t === 'grab'); }
   setTool('grab');
-  $('reset').onclick = reset;
+  $('reset').onclick = reset; $('thermBtn').onclick = () => setThermal(!thermal);
   function setGrabMode(lift) {
     if (!grab) return;
     grab.mode = lift ? 'lift' : 'lead';
@@ -639,9 +796,10 @@
     else { grab.planeY = pos[grab.i].y; }
   }
   addEventListener('keydown', (e) => {
-    const m = { Digit1: 'pistol', Digit2: 'knife', Digit3: 'shove', Digit4: 'blast', Digit5: 'grab' };
+    const m = { Digit1: 'pistol', Digit2: 'knife', Digit3: 'shove', Digit4: 'blast', Digit5: 'grab', Digit6: 'throw' };
     if (m[e.code]) setTool(m[e.code]);
     if (e.code === 'KeyR') reset();
+    if (e.code === 'KeyT') setThermal(!thermal);
     if (e.code === 'Space') { slow = !slow; e.preventDefault(); }
     if (e.key === 'Shift' && !shiftDown) { shiftDown = true; setGrabMode(true); }
   });
@@ -650,10 +808,10 @@
   function sound(kind) {
     try {
       ac = ac || new (window.AudioContext || window.webkitAudioContext)();
-      const a = ac, len = kind === 'shot' ? 0.35 : 0.14, buf = a.createBuffer(1, a.sampleRate * len, a.sampleRate), d = buf.getChannelData(0);
+      const a = ac, len = kind === 'shot' ? 0.35 : kind === 'crack' ? 0.09 : 0.14, buf = a.createBuffer(1, a.sampleRate * len, a.sampleRate), d = buf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, kind === 'shot' ? 4 : 2);
       const s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain();
-      fl.type = 'lowpass'; fl.frequency.value = kind === 'shot' ? 4000 : kind === 'blast' ? 500 : 900; g.gain.value = kind === 'blast' ? 1 : 0.6;
+      fl.type = 'lowpass'; fl.frequency.value = kind === 'shot' ? 4000 : kind === 'crack' ? 2600 : kind === 'blast' ? 500 : 900; g.gain.value = kind === 'blast' ? 1 : kind === 'crack' ? 0.9 : 0.6;
       s.buffer = buf; s.connect(fl); fl.connect(g); g.connect(a.destination); s.start();
     } catch (e) {}
   }
@@ -691,15 +849,19 @@
       const d = new V3(dir.x, 0, dir.z).normalize(); hitImpulse(a, b, t, d, 5.5);
       fig.stun = Math.min(1, fig.stun + 0.4); sound('thud'); shake = 0.04; return;
     }
-    const pistol = tool === 'pistol';
+    const pistol = tool === 'pistol', thrown = tool === 'throw';
     const sn = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize(); if (sn.dot(dir) > 0) sn.negate();
-    addWound(a, b, kind, p, dir, pistol ? 1 : 0.65, sn, pistol ? 'bullet' : 'cut');
-    hitImpulse(a, b, t, new V3(dir.x, dir.y * 0.3, dir.z).normalize(), pistol ? 2.4 : 0.7);
+    const w = addWound(a, b, kind, p, dir, pistol ? 1 : thrown ? 0.75 : 0.65, sn, pistol ? 'bullet' : 'cut');
+    hitImpulse(a, b, t, new V3(dir.x, dir.y * 0.3, dir.z).normalize(), pistol ? 2.4 : thrown ? 1.1 : 0.7);
+    const z = zoneHit(p, dir, pistol ? 0.7 : 0.06); if (z) applyZone(z, w);                    // bullets pass right through; blades only reach just under the skin
+    const ud = hit.object.userData;                                                            // bones are tough: it takes a few hits (or a lucky direct one)
+    if (ud.bone) boneDamage(ud.bone, ud.side, pistol ? (Math.random() < 0.08 ? 100 : rnd(20, 36)) : thrown ? (Math.random() < 0.03 ? 100 : rnd(6, 14)) : rnd(2, 6));
+    if (thrown) { w.knife = makeKnife(); w.kdx = dir.dot(frame.side); w.kdy = dir.dot(frame.up); w.kdz = dir.dot(frame.fwd); scene.add(w.knife); sound('thud'); }
     if (pistol) {
       sound('shot'); flash(0.25); shake = 0.05;
       tracer(ray.ray.origin.clone().add(new V3(0.15, -0.2, 0)).addScaledVector(dir, 0.6), p.clone().addScaledVector(dir, 1.5), 0xffe6a0);
       for (let i = 0; i < 10; i++) spawnDrop(p, dir.x * (0.8 + Math.random() * 2) + (Math.random() - 0.5), dir.y * 1.5 + Math.random() * 1.2, dir.z * (0.8 + Math.random() * 2) + (Math.random() - 0.5), 0.008 + Math.random() * 0.01);
-    } else tracer(p.clone().addScaledVector(dir, -0.25), p, 0xdde6ee);
+    } else tracer(p.clone().addScaledVector(dir, thrown ? -0.9 : -0.25), p, 0xdde6ee);
   });
   cv.addEventListener('pointermove', (e) => {
     if (grab) grabTarget(e);
@@ -727,6 +889,7 @@
       const { a, b, kind } = m.userData, dir = new V3().subVectors(c, p).normalize();
       addWound(a, b, kind, c.clone(), dir, 0.35 + Math.random() * 0.3, dir, 'tear');
     }
+    for (const i in BONE_OF) { const d = pos[i].distanceTo(p); if (d < 1.6 && Math.random() < 0.55) boneDamage(BONE_OF[i][0], BONE_OF[i][1], rnd(25, 60) * (1 - d / 1.6)); }
     fig.stun = 1;
     const ring = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0.8 })); ring.position.copy(p); ring.userData.blast = 0; scene.add(ring); tracers.push(ring);
   }
@@ -750,7 +913,9 @@
     else if (f.walking) s = f.wounds.length ? 'Limping along' : 'Walking';
     else if (f.err > 0.22 || f.buckle[0] || f.buckle[1]) s = f.wounds.length ? 'Stumbling, clutching wounds' : 'Stumbling';
     else if (f.wounds.length) s = f.c < 0.5 ? 'Swaying, fading' : 'Clutching wounds';
+    if (!f.dead && f.c > 0.05 && !f.down && (f.limp[0] > 0.5 || f.limp[1] > 0.5) && s === 'Standing') s = 'Limping';
     $('status').textContent = s; $('status').style.color = f.dead ? '#e05555' : '#e8e8ee';
+    const inj = f.injuries.join('\n'); if ($('injuries').dataset.v !== inj) { $('injuries').dataset.v = inj; $('injuries').textContent = inj ? 'Injuries:\n' + inj : ''; }
   }
 
   // ================= main loop =================
@@ -765,16 +930,20 @@
     syncBody(fig);
     const f = fig, pressure = clamp(f.blood / 100, 0.1, 1);
     for (const w of f.wounds) {
-      woundWorld(w, wp); updateWoundVisuals(w, wp);
+      woundWorld(w, wp); updateWoundVisuals(w, wp, dt);
+      if (w.knife) { tmp.set(0, 0, 0).addScaledVector(frame.side, w.kdx).addScaledVector(frame.up, w.kdy).addScaledVector(frame.fwd, w.kdz).normalize(); w.knife.position.copy(wp).addScaledVector(tmp, 0.02); w.knife.quaternion.setFromUnitVectors(Z, tmp); }
       if (w.rate < 0.03) continue;
-      w.acc += w.rate * 14 * dt;
-      const pulse = 0.35 + 0.65 * Math.max(0, Math.sin(f.t * 2 * Math.PI * (1.1 + 0.6 * (1 - pressure)))), spurt = w.sev > 0.9 ? 1.6 * pulse * pressure : 0;
-      while (w.acc > 1) {
+      const minor = w.rate0 < 1.2 && !w.heart;
+      w.acc += w.rate * (minor ? 3 : 14) * dt;
+      const pulse = 0.35 + 0.65 * Math.max(0, Math.sin(f.t * 2 * Math.PI * (1.1 + 0.6 * (1 - pressure)))), spurt = w.sev > 0.9 ? (w.heart ? 2.6 : 1.6) * pulse * pressure : 0;
+      while (minor && w.acc > 1) { w.acc -= 1; spawnDrop(wp, rnd(-0.03, 0.03), -0.05, rnd(-0.03, 0.03), rnd(0.011, 0.018)); }      // single heavy drops
+      while (!minor && w.acc > 1) {
         w.acc -= 1; const sp = spurt * (0.4 + Math.random() * 0.6) + 0.15 * Math.random();
         spawnDrop(wp, w.dir.x * sp + (Math.random() - 0.5) * 0.4, w.dir.y * sp * 0.5 + spurt * 0.6 * Math.random() + (Math.random() - 0.3) * 0.3, w.dir.z * sp + (Math.random() - 0.5) * 0.4, 0.007 + Math.random() * 0.01);
       }
     }
     stepDrops(dt);
+    if (thermal) updateThermal(f, now);
     for (let i = tracers.length - 1; i >= 0; i--) {
       const t = tracers[i];
       if (t.userData.blast !== undefined) { t.userData.blast += real; const k = t.userData.blast / 0.35; t.scale.setScalar(1 + k * 14); t.material.opacity = Math.max(0, 0.8 - k); if (k >= 1) { scene.remove(t); tracers.splice(i, 1); } }
@@ -790,7 +959,7 @@
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
-  window.__rd = { G, get fig() { return fig; }, pos, camera, camS, addWound, hitImpulse, setTool, reset, blast, bodyMeshes, get grab() { return grab; } };
+  window.__rd = { G, zoneList, setThermal, boneDamage, breakBone, zoneHit, applyZone, get fig() { return fig; }, pos, camera, camS, addWound, hitImpulse, setTool, reset, blast, bodyMeshes, get grab() { return grab; } };
 })();
 </script>
 </body>
