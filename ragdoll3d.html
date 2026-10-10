@@ -25,7 +25,7 @@
 <div id="panel">
   <div id="status">Standing</div>
   Blood <span id="bloodTxt"></span><div class="bar"><i id="blood"></i></div>
-  Consciousness<div class="bar c"><i id="cons"></i></div>
+  <div id="consWrap">Consciousness<div class="bar c"><i id="cons"></i></div></div>
   Wounds: <span id="wcount">0</span>
 </div>
 <div id="help">Grab: drag him and he walks where you lead him<br>Hold Shift while grabbing to lift &amp; throw him<br>Drag empty space: orbit &middot; wheel: zoom<br>R reset &middot; Space slow-motion &middot; 1-5 tools</div>
@@ -212,7 +212,6 @@
   // ================= figure state =================
   let fig, grab = null, slow = false, tool = 'grab';
   let ANK_H = 0.07, TOE_DY = -0.04, TOE_FWD = 0.2, L_TH = 0.45, L_SH = 0.45;
-  const woundSprites = [];
   const tgtSet = markers.map(() => new V3());
   function newFig() {
     G.anchor.set(0, 0, 0); G.yaw = 0; G.lean = 0;
@@ -223,7 +222,7 @@
     CONS.forEach((c) => (c.len = pos[c.a].distanceTo(pos[c.b])));
     ANK_H = pos[ANL].y; TOE_DY = pos[TOL].y - pos[ANL].y; TOE_FWD = pos[TOL].z - pos[ANL].z;
     L_TH = pos[HPL].distanceTo(pos[KNL]); L_SH = pos[KNL].distanceTo(pos[ANL]);
-    woundSprites.forEach((s) => scene.remove(s)); woundSprites.length = 0;
+    woundMeshes.slice().forEach(removeWoundVisuals);
     const feet = [0, 1].map((i) => ({ p: new V3(pos[LEGS[i].ank].x, ANK_H, pos[LEGS[i].ank].z), yaw: 0, swing: null }));
     return { wounds: [], blood: 100, c: 1, stun: 0, brain: 0, brainT: 0, dead: false, down: false, downT: 0, upT: 0, recover: 1, t: 0, flinch: 1, hands: [null, null],
       feet, free: false, lastFoot: 1, lurch: new V3(), lurchT: new V3(), lurchTimer: 0, buckle: [0, 0], legStr: [1, 1], s: 1, armC: 1, err: 0, steps: 0, walking: false };
@@ -258,23 +257,105 @@
   const glow = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
     r.addColorStop(0, 'rgba(95,4,9,.95)'); r.addColorStop(0.6, 'rgba(140,10,16,.75)'); r.addColorStop(1, 'rgba(140,10,16,0)'); g.fillStyle = r; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
 
+
+  // ================= wound visuals =================
+  // Each wound is built from layers lying on the skin: a soft stain that soaks outward, the injury itself (bullet hole /
+  // cut / ragged shrapnel tear, with bruising and torn edges) and rivulets of blood that run down under gravity.
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  function canvasTex(w, h, draw) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4; return t; }
+  const blob = (g, x, y, r, a0, a1, col) => { const gr = g.createRadialGradient(x, y, 0, x, y, r); gr.addColorStop(0, `rgba(${col},${a0})`); gr.addColorStop(1, `rgba(${col},${a1})`); g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, 6.283); g.fill(); };
+  const jag = (g, cx, cy, r0, r1, n, sx = 1, sy = 1) => { g.beginPath(); for (let i = 0; i < n; i++) { const a = i / n * 6.283, r = (i % 2 ? r1 : r0) * rnd(0.75, 1.15); const x = cx + Math.cos(a) * r * sx, y = cy + Math.sin(a) * r * sy; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); };
+  const TEX = {
+    stain: [0, 1, 2].map(() => canvasTex(128, 128, (g) => {                       // soaked cloth / skin: dark core, irregular edge
+      for (let i = 0; i < 9; i++) blob(g, 64 + rnd(-22, 22), 64 + rnd(-22, 22), rnd(22, 40), 0.55, 0, i < 3 ? '90,4,8' : '120,8,14');
+      blob(g, 64, 64, 26, 0.85, 0, '70,2,6');
+    })),
+    bullet: canvasTex(128, 128, (g) => {
+      blob(g, 64, 64, 60, 0.5, 0, '110,40,70');                                        // bruising
+      blob(g, 64, 64, 40, 0.65, 0, '160,25,35');                                       // inflamed skin
+      jag(g, 64, 64, 17, 26, 18); g.fillStyle = 'rgba(120,12,18,.95)'; g.fill();      // torn edge
+      jag(g, 64, 64, 13, 17, 16); g.fillStyle = 'rgba(55,3,6,1)'; g.fill();
+      blob(g, 64, 64, 11, 1, 0.9, '12,0,2');                                           // the hole
+      g.strokeStyle = 'rgba(200,60,60,.35)'; g.lineWidth = 1.5; g.beginPath(); g.arc(61, 60, 8, 3.5, 5.2); g.stroke();   // wet highlight
+    }),
+    cut: canvasTex(128, 128, (g) => {
+      blob(g, 64, 64, 55, 0.35, 0, '140,40,50');
+      g.save(); g.translate(64, 64); g.rotate(rnd(-0.1, 0.1));
+      g.fillStyle = 'rgba(150,18,26,.95)'; g.beginPath(); g.ellipse(0, 0, 40, 9, 0, 0, 6.283); g.fill();                 // lips of the cut
+      g.fillStyle = 'rgba(60,2,6,1)'; g.beginPath(); g.moveTo(-38, 0); g.quadraticCurveTo(0, -9, 38, 0); g.quadraticCurveTo(0, 9, -38, 0); g.fill();
+      g.strokeStyle = 'rgba(210,70,70,.5)'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(-30, -3); g.quadraticCurveTo(0, -8, 30, -3); g.stroke();
+      g.restore();
+    }),
+    tear: canvasTex(128, 128, (g) => {
+      blob(g, 64, 64, 62, 0.55, 0, '110,35,60');
+      jag(g, 64, 64, 22, 38, 14, 1, 0.8); g.fillStyle = 'rgba(130,14,20,.95)'; g.fill();
+      jag(g, 62, 66, 14, 25, 12, 1, 0.8); g.fillStyle = 'rgba(58,3,7,1)'; g.fill();
+      for (let i = 0; i < 6; i++) blob(g, 64 + rnd(-34, 34), 64 + rnd(-30, 30), rnd(3, 7), 0.9, 0.7, '40,2,5');
+    }),
+    trail: canvasTex(32, 128, (g, w, h) => {
+      const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, 'rgba(110,6,12,.95)'); gr.addColorStop(0.85, 'rgba(135,10,16,.9)'); gr.addColorStop(1, 'rgba(135,10,16,0)');
+      g.fillStyle = gr; g.beginPath(); g.moveTo(w * 0.32, 0); g.lineTo(w * 0.68, 0); g.lineTo(w * 0.6, h * 0.86); g.lineTo(w * 0.4, h * 0.86); g.closePath(); g.fill();
+      blob(g, w / 2, h * 0.9, w * 0.3, 0.95, 0.5, '140,10,16');                       // bead of blood at the tip
+      g.fillStyle = 'rgba(210,70,70,.35)'; g.fillRect(w * 0.42, 6, 2, h * 0.7);
+    }),
+  };
+  const decalMat = (map) => new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, fog: false });
+  const planeGeo = new THREE.PlaneGeometry(1, 1), trailGeo = new THREE.PlaneGeometry(1, 1); trailGeo.translate(0, -0.5, 0);
+  const woundMeshes = [], Z = new V3(0, 0, 1), DOWN = new V3(0, -1, 0), qSpin = new THREE.Quaternion(), qN = new THREE.Quaternion();
+  function buildWoundVisuals(w) {
+    const type = w.type, coreTex = type === 'bullet' ? TEX.bullet : type === 'cut' ? TEX.cut : TEX.tear;
+    w.spin = type === 'cut' ? rnd(-0.6, 0.6) : rnd(0, 6.283);
+    w.stain = new THREE.Mesh(planeGeo, decalMat(TEX.stain[(Math.random() * 3) | 0])); w.stain.renderOrder = 1;
+    w.core = new THREE.Mesh(planeGeo, decalMat(coreTex)); w.core.renderOrder = 3;
+    const size = type === 'bullet' ? 0.11 : type === 'cut' ? 0.16 : 0.17;
+    w.core.userData.size = size * (0.9 + 0.2 * Math.min(1.5, w.sev));
+    w.trails = [];
+    for (let i = 0; i < 3; i++) { const m = new THREE.Mesh(trailGeo, decalMat(TEX.trail)); m.renderOrder = 2; m.visible = false; m.userData = { off: (i - 1) * 0.022 + rnd(-0.006, 0.006), speed: rnd(0.6, 1.1), delay: i * 1.8 + rnd(0, 1.2), wob: rnd(0, 6) }; w.trails.push(m); scene.add(m); }
+    scene.add(w.stain, w.core); woundMeshes.push(w);
+  }
+  function removeWoundVisuals(w) { [w.stain, w.core, ...(w.trails || [])].forEach((m) => m && scene.remove(m)); const i = woundMeshes.indexOf(w); if (i >= 0) woundMeshes.splice(i, 1); }
+  const wn = new V3(), wb = new V3();
+  function updateWoundVisuals(w, pos3) {
+    wn.set(0, 0, 0).addScaledVector(frame.side, w.nx).addScaledVector(frame.up, w.ny).addScaledVector(frame.fwd, w.nz).normalize();
+    qN.setFromUnitVectors(Z, wn); qSpin.setFromAxisAngle(Z, w.spin);
+    const lost = w.lost, grow = 1 - Math.exp(-lost / 6);
+    w.stain.position.copy(pos3).addScaledVector(wn, 0.006); w.stain.quaternion.copy(qN).multiply(qSpin);
+    const sz = (0.06 + 0.2 * grow) * (0.8 + 0.3 * Math.min(1.5, w.sev)); w.stain.scale.set(sz, sz, 1);
+    w.core.position.copy(pos3).addScaledVector(wn, 0.009); w.core.quaternion.copy(qN).multiply(qSpin);
+    const cs = w.core.userData.size * (1 + 0.15 * grow); w.core.scale.set(cs, cs, 1);
+    // rivulets: they run down the skin (surface-projected "down") while the wound is bleeding, and dry up when it stops
+    const dwn = wb.copy(DOWN).addScaledVector(wn, -DOWN.dot(wn)), flat = dwn.length() < 0.35;
+    if (!flat) dwn.normalize();
+    for (const m of w.trails) {
+      const u = m.userData, run = clamp((lost - 0.25 - u.delay * 0.4) * u.speed * 0.12, 0, 0.5) * (w.rate > 0.03 ? 1 : 1);
+      m.visible = !flat && run > 0.01;
+      if (!m.visible) continue;
+      const side = new V3().crossVectors(wn, dwn).normalize();
+      mat4.makeBasis(side, dwn.clone().negate(), wn);                              // plane y axis points "up the trail"; geometry hangs toward -y, i.e. down
+      m.quaternion.setFromRotationMatrix(mat4);
+      m.position.copy(pos3).addScaledVector(side, u.off + Math.sin(lost * 0.3 + u.wob) * 0.004).addScaledVector(dwn, 0.014).addScaledVector(wn, 0.008);
+      m.scale.set(0.017, run, 1);
+    }
+  }
+
   // ================= wounds & hits =================
   const woundWorld = (w, out) => {
     out.lerpVectors(pos[w.a], pos[w.b], w.t);
     return out.addScaledVector(frame.side, w.ox).addScaledVector(frame.up, w.oy).addScaledVector(frame.fwd, w.oz);
   };
   const REGION = { head: 2.2, chest: 1.5, pelvis: 1.25, arm: 0.8, leg: 0.9, foot: 0.4 };
-  function addWound(a, b, kind, point, dir, sev) {
+  function addWound(a, b, kind, point, dir, sev, normal, type) {
     const f = fig, A = pos[a], B = pos[b], ab = tmp.subVectors(B, A), l2 = ab.lengthSq();
     const t = l2 > 1e-6 ? clamp(tmp2.subVectors(point, A).dot(ab) / l2, 0, 1) : 0;
     const on = new V3().lerpVectors(A, B, t), off = new V3().subVectors(point, on), mult = REGION[kind] || 1;
-    const w = { a, b, t, ox: off.dot(frame.side), oy: off.dot(frame.up), oz: off.dot(frame.fwd), sev: sev * mult, rate0: 2.1 * sev * mult, rate: 2.1 * sev * mult, tt: 0, lost: 0, dir: dir.clone(), kind, acc: 0 };
+    const w = { a, b, t, ox: off.dot(frame.side), oy: off.dot(frame.up), oz: off.dot(frame.fwd), sev: sev * mult, rate0: 2.1 * sev * mult, rate: 2.1 * sev * mult, tt: 0, lost: 0, dir: dir.clone(), kind, acc: 0, type: type || 'bullet' };
+    const nrm = (normal || dir.clone().negate()).clone().normalize(); w.nx = nrm.dot(frame.side); w.ny = nrm.dot(frame.up); w.nz = nrm.dot(frame.fwd);
     f.wounds.push(w);
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glow, depthWrite: false, transparent: true })); sp.scale.setScalar(0.04); scene.add(sp); w.sprite = sp; woundSprites.push(sp);
+    buildWoundVisuals(w);
     if (kind === 'head') f.brain = Math.min(1.2, f.brain + 0.45 * sev * (sev > 0.9 ? 1.5 : 1));
     f.stun = Math.min(1, f.stun + 0.45 * sev);
     if (kind === 'leg' || kind === 'foot') { const li = (a === HPL || a === KNL || a === ANL || a === TOL) ? 0 : 1; f.buckle[li] = 0.45; }      // the hit leg gives way
-    if (f.wounds.length > 12) { const o = f.wounds.shift(); scene.remove(o.sprite); woundSprites.splice(woundSprites.indexOf(o.sprite), 1); }
+    if (f.wounds.length > 12) removeWoundVisuals(f.wounds.shift());
   }
   let hStep = 1 / 240, time = 0;
   function kick(i, v, wgt) { prev[i].addScaledVector(v, -wgt * hStep); }        // add a velocity (m/s) to a particle
@@ -394,16 +475,18 @@
       tmp.set(G.anchor.x - pos[PEL].x, 0, G.anchor.z - pos[PEL].z); const l = tmp.length();
       if (l > 0.35) { G.anchor.x = pos[PEL].x + tmp.x * 0.35 / l; G.anchor.z = pos[PEL].z + tmp.z * 0.35 / l; }
     }
-    G.anchor.y = 0;
 
     // --- the pose itself ---
     const off = [0, 1].map((i) => tmp.subVectors(f.feet[i].p, pos[PEL]).dot(fwdYaw));
     const flail = clamp((err - 0.18) / 0.4, 0, 1) * clamp(sS * 1.5, 0, 1) * (f.free ? 0 : 1);
     const wob = Math.sin(f.t * 1.9 + 1.3) * 0.5 + Math.sin(f.t * 3.1) * 0.5;
     const speed = pelV.length();
+    const crouchAmt = clamp(0.1 * hurtF + clamp((legWound[0] + legWound[1]) * 0.2, 0, 0.4) + (1 - clamp(sS * 1.2, 0, 1)) * 0.5 + (f.buckle[0] || f.buckle[1] ? 0.3 : 0) + flail * 0.15, 0, 0.8);
+    // off the ground (lifted / thrown / falling) the pose hangs from the pelvis instead of from the floor, so nothing pulls him back down
+    G.anchor.y = f.free ? pos[PEL].y - (HIP_Y - 0.25 * crouchAmt) : 0;
     poseRig(dt, {
       speed, lean: leadTo ? clamp(speed * 0.05, 0, 0.18) : 0,
-      crouch: clamp(0.1 * hurtF + clamp((legWound[0] + legWound[1]) * 0.2, 0, 0.4) + (1 - clamp(sS * 1.2, 0, 1)) * 0.5 + (f.buckle[0] || f.buckle[1] ? 0.3 : 0) + flail * 0.15, 0, 0.8),
+      crouch: crouchAmt,
       curl: clamp(torsoW * 0.22 + headW * 0.12 + (legWound[0] + legWound[1]) * 0.08, 0, 0.55) + wob * 0.06 * clamp(hurtF, 0, 1),
       twist: clamp((off[0] - off[1]) * 0.35, -0.25, 0.25), sway: wob * 0.04 * clamp(hurtF, 0, 1),
       headDrop: headW * 0.2 + (1 - f.c) * 0.3,
@@ -570,7 +653,8 @@
       fig.stun = Math.min(1, fig.stun + 0.4); sound('thud'); shake = 0.04; return;
     }
     const pistol = tool === 'pistol';
-    addWound(a, b, kind, p, dir, pistol ? 1 : 0.65);
+    const sn = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize(); if (sn.dot(dir) > 0) sn.negate();
+    addWound(a, b, kind, p, dir, pistol ? 1 : 0.65, sn, pistol ? 'bullet' : 'cut');
     hitImpulse(a, b, t, new V3(dir.x, dir.y * 0.3, dir.z).normalize(), pistol ? 2.4 : 0.7);
     if (pistol) {
       sound('shot'); flash(0.25); shake = 0.05;
@@ -602,7 +686,7 @@
     for (const m of bodyMeshes) {
       const c = m.getWorldPosition(new V3()); if (c.distanceTo(p) > 1.3 || Math.random() < 0.35) continue;
       const { a, b, kind } = m.userData, dir = new V3().subVectors(c, p).normalize();
-      addWound(a, b, kind, c.clone(), dir, 0.35 + Math.random() * 0.3);
+      addWound(a, b, kind, c.clone(), dir, 0.35 + Math.random() * 0.3, dir, 'tear');
     }
     fig.stun = 1;
     const ring = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0.8 })); ring.position.copy(p); ring.userData.blast = 0; scene.add(ring); tracers.push(ring);
@@ -618,7 +702,7 @@
   function updateHud() {
     const f = fig;
     $('blood').style.width = f.blood + '%'; $('bloodTxt').textContent = Math.round(f.blood) + '%';
-    $('cons').style.width = Math.round(f.c * 100) + '%'; $('wcount').textContent = f.wounds.length;
+    $('cons').style.width = Math.round(f.c * 100) + '%'; $('consWrap').style.display = (f.c <= 0.02 || f.dead) ? 'none' : 'block'; $('wcount').textContent = f.wounds.length;
     let s = 'Standing';
     if (f.dead) s = 'DEAD';
     else if (f.c <= 0.05) s = f.down ? 'Unconscious, bleeding out' : 'Losing consciousness';
@@ -642,7 +726,7 @@
     syncBody(fig);
     const f = fig, pressure = clamp(f.blood / 100, 0.1, 1);
     for (const w of f.wounds) {
-      woundWorld(w, wp); w.sprite.position.copy(wp).addScaledVector(frame.fwd, 0.005); w.sprite.scale.setScalar(0.04 + 0.16 * (1 - Math.exp(-w.lost / 5)));
+      woundWorld(w, wp); updateWoundVisuals(w, wp);
       if (w.rate < 0.03) continue;
       w.acc += w.rate * 14 * dt;
       const pulse = 0.35 + 0.65 * Math.max(0, Math.sin(f.t * 2 * Math.PI * (1.1 + 0.6 * (1 - pressure)))), spurt = w.sev > 0.9 ? 1.6 * pulse * pressure : 0;
