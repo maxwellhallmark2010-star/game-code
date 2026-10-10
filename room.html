@@ -7,45 +7,54 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #fff; font-family: system-ui, sans-serif; }
   canvas { display: block; cursor: crosshair; }
-  #hint { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); padding: 8px 14px; border-radius: 8px;
-          background: rgba(0,0,0,.65); color: #fff; font-size: 14px; text-align: center; pointer-events: none; }
+  .tag { position: fixed; left: 50%; transform: translateX(-50%); padding: 8px 14px; border-radius: 8px;
+         background: rgba(0,0,0,.65); color: #fff; font-size: 14px; text-align: center; pointer-events: none; transition: opacity .2s; }
+  #hint { bottom: 20px; }
+  #prompt { bottom: 90px; font-size: 18px; opacity: 0; }
   #dot { position: fixed; top: 50%; left: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: rgba(0,0,0,.5); pointer-events: none; }
+  #sit { position: fixed; right: 16px; bottom: 16px; padding: 14px 20px; font-size: 16px; border-radius: 12px; border: 0;
+         background: rgba(0,0,0,.7); color: #fff; display: none; touch-action: manipulation; }
+  @media (hover: none) { #sit { display: block; } }
 </style>
 </head>
 <body>
 <div id="dot"></div>
-<div id="hint">Click to look around &middot; WASD move &middot; Shift run &middot; Arrow keys also turn &middot; Esc releases mouse</div>
+<div id="hint" class="tag">Click to look &middot; WASD move &middot; Shift run &middot; E sit / stand &middot; Esc frees mouse</div>
+<div id="prompt" class="tag"></div>
+<button id="sit">Sit / Stand</button>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
-  const ROOM = 12, H = 4;           // room is ROOM x ROOM, H tall
+  const ROOM = 12, H = 4;
   const EYE = 1.7, RADIUS = 0.3;
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputEncoding = THREE.sRGBEncoding;
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xffffff);
-  const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.03, 100);
   camera.rotation.order = 'YXZ';
   camera.position.set(0, EYE, 4);
 
   // ---------- lighting ----------
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xdddddd, 0.75));
-  const lamp = new THREE.PointLight(0xffffff, 0.6, 30);
-  lamp.position.set(0, H - 0.4, 0);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xe6e0d8, 0.8));
+  const lamp = new THREE.PointLight(0xfff6ea, 0.7, 30);
+  lamp.position.set(0.8, H - 0.4, 0.6);
   lamp.castShadow = true;
-  lamp.shadow.mapSize.set(1024, 1024);
-  lamp.shadow.bias = -0.002;
+  lamp.shadow.mapSize.set(2048, 2048);
+  lamp.shadow.bias = -0.0008;
+  lamp.shadow.radius = 4;
   scene.add(lamp);
 
   // ---------- room ----------
   const white = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, side: THREE.DoubleSide });
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, roughness: 0.9 });
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.9 });
   function plane(w, h, mat, pos, rot) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
     m.position.set(...pos); m.rotation.set(...rot); m.receiveShadow = true; scene.add(m); return m;
@@ -57,50 +66,185 @@
   plane(ROOM, H, white, [-ROOM / 2, H / 2, 0], [0, Math.PI / 2, 0]);
   plane(ROOM, H, white, [ROOM / 2, H / 2, 0], [0, -Math.PI / 2, 0]);
 
-  // ---------- wooden chair ----------
-  // procedural wood grain texture
-  const wc = document.createElement('canvas'); wc.width = wc.height = 256;
-  const g = wc.getContext('2d');
-  g.fillStyle = '#9c6b3c'; g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 90; i++) {
-    const y = Math.random() * 256, a = 0.05 + Math.random() * 0.12;
-    g.strokeStyle = Math.random() < 0.5 ? `rgba(60,30,10,${a})` : `rgba(210,160,100,${a})`;
-    g.lineWidth = 0.5 + Math.random() * 2.5;
-    g.beginPath(); g.moveTo(0, y);
-    g.bezierCurveTo(80, y + (Math.random() - 0.5) * 12, 170, y + (Math.random() - 0.5) * 12, 256, y + (Math.random() - 0.5) * 6);
-    g.stroke();
-  }
-  const woodTex = new THREE.CanvasTexture(wc);
-  woodTex.wrapS = woodTex.wrapT = THREE.RepeatWrapping;
-  const wood = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.6 });
+  // ---------- wood ----------
+  // Procedural oak: base tone variation, wavy grain lines, pores and a couple of knots.
+  // The same canvas doubles as a bump map so the grain has real relief under the light.
+  function makeWoodCanvas() {
+    const S = 512, c = document.createElement('canvas'); c.width = c.height = S;
+    const g = c.getContext('2d');
+    const base = g.createLinearGradient(0, 0, 0, S);
+    base.addColorStop(0, '#b0814f'); base.addColorStop(0.35, '#9a6c3d');
+    base.addColorStop(0.7, '#a97a49'); base.addColorStop(1, '#94673a');
+    g.fillStyle = base; g.fillRect(0, 0, S, S);
 
-  const chair = new THREE.Group();
-  function part(w, h, d, x, y, z) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wood);
-    m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; chair.add(m); return m;
+    // broad tonal bands (growth rings seen side-on)
+    for (let i = 0; i < 26; i++) {
+      const y = Math.random() * S, h = 6 + Math.random() * 30;
+      g.fillStyle = Math.random() < 0.5 ? `rgba(70,35,10,${0.05 + Math.random() * 0.08})` : `rgba(235,190,130,${0.05 + Math.random() * 0.08})`;
+      g.beginPath(); g.moveTo(0, y);
+      const a = (Math.random() - 0.5) * 24, b = (Math.random() - 0.5) * 24;
+      g.bezierCurveTo(S * 0.3, y + a, S * 0.7, y + b, S, y + (a + b) / 2);
+      g.lineTo(S, y + h); g.lineTo(0, y + h); g.closePath(); g.fill();
+    }
+    // knots: grain lines bend around them
+    const knots = [];
+    for (let i = 0; i < 2; i++) knots.push({ x: 80 + Math.random() * 350, y: 60 + Math.random() * 390, r: 9 + Math.random() * 8 });
+    const warp = (x, y) => {
+      let dy = 0;
+      for (const k of knots) {
+        const dx = x - k.x, d = Math.hypot(dx, y - k.y);
+        const f = Math.exp(-(d * d) / (2 * (k.r * 3.2) ** 2));
+        dy += (y < k.y ? -1 : 1) * f * k.r * 1.6;
+      }
+      return dy;
+    };
+    // fine grain lines
+    for (let i = 0; i < 520; i++) {
+      const y0 = Math.random() * S, ph = Math.random() * 6.28, amp = 1 + Math.random() * 3.5;
+      const dark = Math.random() < 0.7, a = 0.05 + Math.random() * 0.18;
+      g.strokeStyle = dark ? `rgba(55,28,8,${a})` : `rgba(225,175,115,${a * 0.8})`;
+      g.lineWidth = 0.4 + Math.random() * 1.6;
+      g.beginPath();
+      for (let x = 0; x <= S; x += 8) {
+        const y = y0 + Math.sin(x * 0.012 + ph) * amp + warp(x, y0);
+        x ? g.lineTo(x, y) : g.moveTo(x, y);
+      }
+      g.stroke();
+    }
+    // knots themselves
+    knots.forEach((k) => {
+      for (let r = k.r; r > 1; r -= 2.2) {
+        g.strokeStyle = `rgba(45,22,6,${0.25 + (k.r - r) / k.r * 0.4})`;
+        g.lineWidth = 1.2;
+        g.beginPath(); g.ellipse(k.x, k.y, r * 1.5, r * 0.8, 0, 0, 6.283); g.stroke();
+      }
+      g.fillStyle = 'rgba(40,18,4,.55)';
+      g.beginPath(); g.ellipse(k.x, k.y, 3, 2, 0, 0, 6.283); g.fill();
+    });
+    // pores
+    for (let i = 0; i < 4500; i++) {
+      const x = Math.random() * S, y = Math.random() * S;
+      g.strokeStyle = `rgba(40,20,5,${0.12 + Math.random() * 0.22})`;
+      g.lineWidth = 0.6;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + 2 + Math.random() * 6, y + (Math.random() - 0.5)); g.stroke();
+    }
+    return c;
   }
-  const SEAT_Y = 0.46, S = 0.45;                    // seat height, half-size footprint
-  part(0.5, 0.05, 0.5, 0, SEAT_Y, 0);               // seat
-  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) =>
-    part(0.05, SEAT_Y - 0.025, 0.05, sx * 0.21, (SEAT_Y - 0.025) / 2, sz * 0.21));   // legs
-  part(0.46, 0.04, 0.04, 0, 0.18, -0.21);           // rungs
-  part(0.46, 0.04, 0.04, 0, 0.18, 0.21);
-  part(0.05, 0.05, 0.05, -0.21, 0.9, -0.21);        // back posts
-  part(0.05, 0.05, 0.05, 0.21, 0.9, -0.21);
-  part(0.05, 0.43 + 0.45, 0.05, -0.21, SEAT_Y + 0.025 + 0.22, -0.21).scale.y = 1;
-  part(0.05, 0.43 + 0.45, 0.05, 0.21, SEAT_Y + 0.025 + 0.22, -0.21);
-  part(0.42, 0.07, 0.04, 0, 0.86, -0.21);          // top rail
-  part(0.42, 0.05, 0.03, 0, 0.64, -0.21);          // middle slats
-  part(0.42, 0.05, 0.03, 0, 0.74, -0.21);
-  chair.position.set(0, 0, 0);
+  const woodCanvas = makeWoodCanvas();
+  const maxAniso = renderer.capabilities.getMaxAnisotropy();
+  function woodTexture(rotated, srgb) {
+    const t = new THREE.CanvasTexture(woodCanvas);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = maxAniso;
+    if (srgb) t.encoding = THREE.sRGBEncoding;
+    t.repeat.set(2, 2);                     // UVs are in metres; texture spans 0.5 m
+    if (rotated) { t.center.set(0.5, 0.5); t.rotation = Math.PI / 2; }
+    t.needsUpdate = true;
+    return t;
+  }
+  function woodMat(rotated, tint) {
+    return new THREE.MeshPhysicalMaterial({
+      map: woodTexture(rotated, true), bumpMap: woodTexture(rotated, false), bumpScale: 1.4,
+      roughness: 0.52, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.45,
+      color: tint || 0xffffff,
+    });
+  }
+  const woodFlat = woodMat(false);        // for boxes (UVs follow grain axis)
+  const woodTurned = woodMat(true);       // for lathe / cylinders (grain runs along their length)
+
+  // Box with softly rounded edges and metre-based UVs so the grain runs along `grain` ('x'|'y'|'z').
+  function roundedBox(w, h, d, r, grain) {
+    const g = new THREE.BoxGeometry(w, h, d, 3, 3, 3);
+    const pos = g.attributes.position, nor = g.attributes.normal, uv = g.attributes.uv;
+    const half = [w / 2, h / 2, d / 2], gi = { x: 0, y: 1, z: 2 }[grain];
+    const ox = Math.random(), oy = Math.random();
+    for (let i = 0; i < pos.count; i++) {
+      const p = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+      const n = [nor.getX(i), nor.getY(i), nor.getZ(i)];
+      for (let a = 0; a < 3; a++) if (Math.abs(p[a]) < half[a] - 1e-6) p[a] = Math.sign(p[a]) * (half[a] - r);
+      const ni = n.findIndex((v) => Math.abs(v) > 0.5);
+      const axes = [0, 1, 2].filter((a) => a !== ni);
+      const ua = axes.includes(gi) ? gi : axes[0], va = axes.find((a) => a !== ua);
+      uv.setXY(i, p[ua] + ox, p[va] + oy);
+      const inner = p.map((c, a) => Math.max(-(half[a] - r), Math.min(half[a] - r, c)));
+      const df = p.map((c, a) => c - inner[a]), len = Math.hypot(...df);
+      if (len > 1e-9) {
+        const m = df.map((v) => v / len);
+        pos.setXYZ(i, inner[0] + m[0] * r, inner[1] + m[1] * r, inner[2] + m[2] * r);
+        nor.setXYZ(i, m[0], m[1], m[2]);
+      } else pos.setXYZ(i, p[0], p[1], p[2]);
+    }
+    return g;
+  }
+
+  // ---------- the chair (front faces +z, backrest at -z) ----------
+  const chair = new THREE.Group();
+  function add(geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
+    m.castShadow = m.receiveShadow = true;
+    chair.add(m); return m;
+  }
+  const SEAT_TOP = 0.46, SEAT_T = 0.04;
+
+  // seat: four glued planks, each a slightly different tone
+  const tints = [0xffffff, 0xf3e4d2, 0xfff4e6, 0xecdcc8];
+  [-0.165, -0.055, 0.055, 0.165].forEach((x, i) =>
+    add(roundedBox(0.108, SEAT_T, 0.42, 0.007, 'z'), woodMat(false, tints[i]), x, SEAT_TOP - SEAT_T / 2, 0.02));
+
+  // aprons under the seat
+  add(roundedBox(0.36, 0.07, 0.022, 0.004, 'x'), woodFlat, 0, 0.385, 0.2);
+  add(roundedBox(0.36, 0.07, 0.022, 0.004, 'x'), woodFlat, 0, 0.385, -0.16);
+  [-0.19, 0.19].forEach((x) => add(roundedBox(0.022, 0.07, 0.36, 0.004, 'z'), woodFlat, x, 0.385, 0.02));
+
+  // turned front legs
+  const prof = [[0.013, 0], [0.016, 0.02], [0.014, 0.08], [0.017, 0.14], [0.021, 0.18], [0.016, 0.22], [0.015, 0.26],
+                [0.019, 0.30], [0.024, 0.34], [0.021, 0.36], [0.025, 0.385], [0.025, 0.42]].map(([r, y]) => new THREE.Vector2(r, y));
+  const legGeo = new THREE.LatheGeometry(prof, 24);
+  [-0.19, 0.19].forEach((x) => add(legGeo, woodTurned, x, 0, 0.19));
+
+  // rear legs sweep up into the backrest stiles with a slight rake
+  const rake = 0.05, stileLen = 0.97, stileGeo = roundedBox(0.04, stileLen, 0.036, 0.007, 'y');
+  const zAt = (y) => -0.17 - y * Math.tan(rake);
+  [-0.19, 0.19].forEach((x) =>
+    add(stileGeo, woodFlat, x, stileLen / 2 * Math.cos(rake), -0.17 - stileLen / 2 * Math.sin(rake), -rake));
+
+  // back rails and turned spindles
+  add(roundedBox(0.34, 0.085, 0.026, 0.008, 'x'), woodFlat, 0, 0.9, zAt(0.9), -rake);     // crest rail
+  add(roundedBox(0.34, 0.045, 0.024, 0.006, 'x'), woodFlat, 0, 0.6, zAt(0.6), -rake);     // lower rail
+  const spindle = new THREE.CylinderGeometry(0.009, 0.009, 0.34, 12);
+  [-0.12, -0.06, 0, 0.06, 0.12].forEach((x) =>
+    add(spindle, woodTurned, x, 0.74, zAt(0.74), -rake));
+
+  // round stretchers
+  const strSide = new THREE.CylinderGeometry(0.011, 0.011, 0.36, 12);
+  const strFront = new THREE.CylinderGeometry(0.011, 0.011, 0.38, 12);
+  [-0.19, 0.19].forEach((x) => add(strSide, woodTurned, x, 0.17, 0.01, Math.PI / 2));
+  add(strFront, woodTurned, 0, 0.2, 0.19, 0, 0, Math.PI / 2);
+  add(strFront, woodTurned, 0, 0.2, zAt(0.2), 0, 0, Math.PI / 2);
+
   scene.add(chair);
 
-  // rectangles (x, z half-extents) the player can't enter
-  const colliders = [{ x: 0, z: 0, hx: 0.3, hz: 0.3 }];
+  // soft contact shadow on the floor
+  {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 8, 64, 64, 64);
+    gr.addColorStop(0, 'rgba(0,0,0,.28)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2; m.position.y = 0.003; scene.add(m);
+  }
 
-  // ---------- controls ----------
+  const colliders = [{ x: 0, z: 0, hx: 0.27, hz: 0.27 }];
+
+  // ---------- input ----------
   const keys = {};
-  addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault(); });
+  addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+    if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
+    if (e.code === 'KeyE' && !e.repeat) toggleSeat();
+  });
   addEventListener('keyup', (e) => { keys[e.code] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 
@@ -111,13 +255,10 @@
   cv.addEventListener('pointerdown', () => { dragging = true; });
   addEventListener('pointerup', () => { dragging = false; });
   addEventListener('mousemove', (e) => {
-    // pointer-lock look, or click-and-drag fallback if lock is unavailable (e.g. sandboxed iframe)
     if (!locked() && !dragging) return;
     yaw -= (e.movementX || 0) * 0.0022;
     pitch = Math.max(-1.5, Math.min(1.5, pitch - (e.movementY || 0) * 0.0022));
   });
-
-  // touch: drag to look
   let tx = 0, ty = 0;
   cv.addEventListener('touchstart', (e) => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
   cv.addEventListener('touchmove', (e) => {
@@ -125,6 +266,7 @@
     yaw -= (t.clientX - tx) * 0.005; pitch = Math.max(-1.5, Math.min(1.5, pitch - (t.clientY - ty) * 0.005));
     tx = t.clientX; ty = t.clientY;
   }, { passive: true });
+  document.getElementById('sit').addEventListener('click', toggleSeat);
 
   function resize() {
     renderer.setSize(innerWidth, innerHeight);
@@ -133,7 +275,32 @@
   }
   addEventListener('resize', resize); resize();
 
-  // move with axis-separated collision so you slide along walls and the chair
+  // ---------- sitting ----------
+  const SEAT_POS = { x: 0, y: SEAT_TOP + 0.66, z: -0.02 };   // eye height when seated
+  const SEAT_YAW = Math.PI;                                  // facing out of the chair's front (+z)
+  const wrap = (a) => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+  let state = 'standing';       // standing | sitting | seated | rising
+  let anim = null;
+  const promptEl = document.getElementById('prompt'), hintEl = document.getElementById('hint');
+
+  function nearChair() { return Math.hypot(camera.position.x, camera.position.z) < 1.5; }
+
+  function startAnim(to, dur, next) {
+    anim = { t: 0, dur, next, from: { x: camera.position.x, y: camera.position.y, z: camera.position.z, yaw, pitch }, to };
+    to.yaw = yaw + wrap(to.yaw - yaw);   // shortest rotation
+  }
+  function toggleSeat() {
+    if (anim) return;
+    if (state === 'standing' && nearChair()) {
+      state = 'sitting';
+      startAnim({ ...SEAT_POS, yaw: SEAT_YAW, pitch: -0.05 }, 0.9, 'seated');
+    } else if (state === 'seated') {
+      state = 'rising';
+      startAnim({ x: 0, y: EYE, z: 0.9, yaw: SEAT_YAW, pitch: 0 }, 0.8, 'standing');
+    }
+  }
+
+  // ---------- movement ----------
   function blocked(x, z) {
     const lim = ROOM / 2 - RADIUS;
     if (Math.abs(x) > lim || Math.abs(z) > lim) return true;
@@ -149,32 +316,50 @@
     if (keys.ArrowUp) pitch = Math.min(1.5, pitch + 1.2 * dt);
     if (keys.ArrowDown) pitch = Math.max(-1.5, pitch - 1.2 * dt);
 
-    let f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-    let r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
-    const moving = f || r;
-    if (moving) {
-      const len = Math.hypot(f, r);
-      const speed = (keys.ShiftLeft || keys.ShiftRight ? 5 : 2.8) * dt;
-      const sin = Math.sin(yaw), cos = Math.cos(yaw);
-      // forward = (-sin, -cos), right = (cos, -sin)
-      const dx = (-sin * f + cos * r) / len * speed;
-      const dz = (-cos * f - sin * r) / len * speed;
-      const p = camera.position;
-      if (!blocked(p.x + dx, p.z)) p.x += dx;
-      if (!blocked(p.x, p.z + dz)) p.z += dz;
-      bob += dt * (keys.ShiftLeft || keys.ShiftRight ? 12 : 8);
+    let moving = false;
+    if (anim) {
+      anim.t += dt;
+      const k = Math.min(1, anim.t / anim.dur), e = k * k * (3 - 2 * k);
+      const { from, to } = anim, p = camera.position;
+      p.set(from.x + (to.x - from.x) * e, from.y + (to.y - from.y) * e, from.z + (to.z - from.z) * e);
+      // little arc so you lift out of / drop into the seat rather than sliding through it
+      p.y += Math.sin(k * Math.PI) * 0.08;
+      yaw = from.yaw + (to.yaw - from.yaw) * e;
+      pitch = from.pitch + (to.pitch - from.pitch) * e;
+      if (k >= 1) { state = anim.next; anim = null; }
+    } else if (state === 'standing') {
+      const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0), r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+      moving = !!(f || r);
+      if (moving) {
+        const len = Math.hypot(f, r), run = keys.ShiftLeft || keys.ShiftRight;
+        const speed = (run ? 5 : 2.8) * dt, sin = Math.sin(yaw), cos = Math.cos(yaw);
+        const dx = (-sin * f + cos * r) / len * speed, dz = (-cos * f - sin * r) / len * speed, p = camera.position;
+        if (!blocked(p.x + dx, p.z)) p.x += dx;
+        if (!blocked(p.x, p.z + dz)) p.z += dz;
+        bob += dt * (run ? 12 : 8);
+      }
+      camera.position.y = EYE + (moving ? Math.sin(bob) * 0.025 : 0);
+    } else if (state === 'seated') {
+      // look around freely, but don't twist your neck through the backrest
+      const d = Math.max(-1.9, Math.min(1.9, wrap(yaw - SEAT_YAW)));
+      yaw = SEAT_YAW + d;
+      pitch = Math.max(-1.2, Math.min(1.2, pitch));
+      camera.position.set(SEAT_POS.x, SEAT_POS.y, SEAT_POS.z);
     }
-    camera.position.y = EYE + (moving ? Math.sin(bob) * 0.025 : 0);
     camera.rotation.set(pitch, yaw, 0);
+
+    // prompts
+    let msg = '';
+    if (!anim && state === 'standing' && nearChair()) msg = 'Press E to sit';
+    else if (!anim && state === 'seated') msg = 'Press E to stand up';
+    promptEl.textContent = msg; promptEl.style.opacity = msg ? 1 : 0;
 
     renderer.render(scene, camera);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
-  document.addEventListener('pointerlockchange', () => {
-    document.getElementById('hint').style.opacity = locked() ? 0 : 1;
-  });
+  document.addEventListener('pointerlockchange', () => { hintEl.style.opacity = locked() ? 0 : 1; });
 })();
 </script>
 </body>
