@@ -749,7 +749,13 @@ const Phys = (() => {
     m.castShadow = true; spin.add(m); grp.add(spin); grp.matrixAutoUpdate = false; scene.add(grp);
     // the column runs from the firewall (low, at the front) up to the wheel, so this axis points at the driver
     const axis = new THREE.Vector3(0, ctr[1] - 0.39, ctr[2] - 0.96).normalize();
-    return { grp, spin, axis, bind: skinBind(...ctr) };
+    // where the driver's hands hold it: ten to two on the rim (+x is the driver's left)
+    let rim = 0;
+    for (let o = 0; o < pos.length; o += 3) { const v = new THREE.Vector3(pos[o], pos[o + 1], pos[o + 2]); rim = Math.max(rim, v.addScaledVector(axis, -v.dot(axis)).length()); }
+    const across = new THREE.Vector3(1, 0, 0), up = new THREE.Vector3().crossVectors(axis, across);
+    if (up.y < 0) up.negate();
+    const grips = [1, -1].map(s => across.clone().multiplyScalar(s * rim * 0.95 * Math.sin(1.05)).addScaledVector(up, rim * 0.95 * Math.cos(1.05)));
+    return { grp, spin, axis, grips, bind: skinBind(...ctr) };
   })();
 
   // ---- engine: a block, radiator and battery under the hood, so there is something to see when it is open
@@ -808,7 +814,9 @@ const Phys = (() => {
     d.root.matrixAutoUpdate = false;
     d.legs.forEach(l => { l.hip.rotation.x = -1.45; l.kn.rotation.x = 1.3; });
     d.rest = driver ? { sh: -1.12, el: -0.12, spread: 0.1 } : { sh: -0.35, el: -0.9, spread: 0.06 };
-    d.bind = skinBind(x, 0.47, -0.4);
+    // the driver sits further forward and more upright, close enough to hold the wheel with bent arms
+    d.lean = driver ? -0.04 : -0.18;
+    d.bind = skinBind(x, 0.47, driver ? -0.22 : -0.4);
     return d;
   }
   const driver = seated(0.48, true), passenger = seated(-0.48, false), riders = [driver, passenger];
@@ -825,9 +833,34 @@ const Phys = (() => {
       if (s[x] > hi) { s[x] = hi; if (s[v] > 0) s[v] *= -0.3; } else if (s[x] < lo) { s[x] = lo; if (s[v] < 0) s[v] *= -0.3; }
     };
     sp('p', 'pv', 55, 6, -0.3, 0.85); sp('r', 'rv', 45, 5, -0.45, 0.45); sp('hp', 'hpv', 35, 3.5, -0.7, 1.0); sp('hr', 'hrv', 35, 3.5, -0.6, 0.6); sp('a', 'av', 18, 2.5, -0.6, 1.4);
-    d.torso.rotation.set(-0.18 + s.p, 0, -s.r);
+    d.torso.rotation.set(d.lean + s.p, 0, -s.r);
     d.neck.rotation.set(s.hp, 0, -s.hr);
     d.arms.forEach((a, k) => { a.sh.rotation.set(d.rest.sh - s.a, 0, (k ? -1 : 1) * (d.rest.spread + Math.abs(s.r) * 0.4)); a.el.rotation.x = d.rest.el - s.a * 0.4; });
+  }
+
+  // The driver keeps both hands on the wheel: each arm is a two-bone chain (shoulder to elbow, elbow to hand) bent so
+  // the hand lands on its grip point on the rim, wherever the wheel has turned it and however the body is thrown about.
+  const ARM1 = 0.28, ARM2 = 0.27, ikT = new THREE.Vector3(), ikD = new THREE.Vector3(), ikP = new THREE.Vector3(), ikU = new THREE.Vector3();
+  const ikF = new THREE.Vector3(), ikX = new THREE.Vector3(), ikY = new THREE.Vector3(), ikZ = new THREE.Vector3(), ikM = new THREE.Matrix4();
+  function gripWheel(d) {
+    d.root.updateMatrixWorld(true); steeringWheel.grp.updateMatrixWorld(true);
+    d.arms.forEach((a, k) => {
+      ikT.copy(steeringWheel.grips[k]).applyMatrix4(steeringWheel.spin.matrixWorld);
+      d.torso.worldToLocal(ikT); // the hand's target, in the space the shoulder hangs in
+      ikD.subVectors(ikT, a.sh.position);
+      const dist = Math.max(0.05, Math.min(ikD.length(), ARM1 + ARM2 - 0.002));
+      ikD.normalize();
+      const cosA = Math.max(-1, Math.min(1, (ARM1 * ARM1 + dist * dist - ARM2 * ARM2) / (2 * ARM1 * dist)));
+      ikP.set(k ? -0.6 : 0.6, -1, -0.2); // elbows hang down and a little out to the side
+      ikP.addScaledVector(ikD, -ikP.dot(ikD)).normalize();
+      ikU.copy(ikD).multiplyScalar(cosA).addScaledVector(ikP, Math.sqrt(1 - cosA * cosA)); // upper arm
+      ikF.copy(ikD).multiplyScalar(dist).addScaledVector(ikU, -ARM1).normalize();          // forearm
+      ikZ.copy(ikF).addScaledVector(ikU, -ikF.dot(ikU));
+      if (ikZ.lengthSq() < 1e-8) ikZ.copy(ikP);
+      ikZ.normalize(); ikY.copy(ikU).negate(); ikX.crossVectors(ikY, ikZ);
+      a.sh.quaternion.setFromRotationMatrix(ikM.makeBasis(ikX, ikY, ikZ)); // the arm hangs along -y and bends towards +z
+      a.el.rotation.set(-Math.acos(Math.max(-1, Math.min(1, ikU.dot(ikF)))), 0, 0);
+    });
   }
 
   // ---- you, on foot: one more dummy, standing up
@@ -857,11 +890,12 @@ const Phys = (() => {
     vR.set(cr[0], cr[1], cr[2]); vU.set(cu[0], cu[1], cu[2]); vF.set(cf[0], cf[1], cf[2]);
     skinPoint(steeringWheel.bind, 0, tmp);
     steeringWheel.grp.matrix.makeBasis(vR, vU, vF).setPosition(tmp[0], tmp[1], tmp[2]);
-    steeringWheel.spin.quaternion.setFromAxisAngle(steeringWheel.axis, Phys.state.steer * 7.5);
+    steeringWheel.spin.quaternion.setFromAxisAngle(steeringWheel.axis, Phys.state.steer * 2.6); // turning left turns it anticlockwise, as you see it from the seat
     skinPoint(engineBay.bind, 0, tmp);
     engineBay.grp.matrix.makeBasis(vR, vU, vF).setPosition(tmp[0], tmp[1], tmp[2]);
     for (const d of riders) { skinPoint(d.bind, 0, tmp); d.root.matrix.makeBasis(vR, vU, vF).setPosition(tmp[0], tmp[1], tmp[2]); }
-    driver.root.visible = !onFoot && camMode !== 1; // in the driver cam you are the driver: do not look out through your own head
+    driver.root.visible = !onFoot;
+    driver.neck.visible = camMode !== 1; // in the driver cam you are the driver: see your arms, not the inside of your head
     Phys.wheels.forEach((w, k) => {
       const m = w.node, off = Phys.DROOP - w.comp - Phys.WR, st = w.front ? Phys.state.steer : 0, cs = Math.cos(st), sn = Math.sin(st);
       const side = k % 2 ? 1 : -1, out = side * -0.09;
@@ -1315,6 +1349,7 @@ const Phys = (() => {
       prevVel[0] = vel[0]; prevVel[1] = vel[1]; prevVel[2] = vel[2];
       const f = lim(dx * cf[0] + dy * cf[1] + dz * cf[2]), s = lim(dx * cr[0] + dy * cr[1] + dz * cr[2]), u = lim(dx * cu[0] + dy * cu[1] + dz * cu[2]);
       for (const d of riders) flop(d, f, s, u, Math.min(sdt, 0.05));
+      if (!onFoot) gripWheel(driver);
     }
     for (const p of panelList) { p.open += clamp(p.target - p.open, -sdt * 2.2, sdt * 2.2); if (p.loose) flyLoose(p, sdt); }
     emit(sdt); FX.update(sdt); updateChunks(sdt); updateWalker(dt); updatePrompt();
