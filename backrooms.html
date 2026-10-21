@@ -86,7 +86,7 @@
       <b>W A S D</b><span>walk</span>
       <b>Shift</b><span>sprint</span>
       <b>Mouse</b><span>look</span>
-      <b>F</b><span>flashlight on / off</span>
+      <b>F</b><span>take out the flashlight / put it away</span>
       <b>Esc / P</b><span>pause</span>
     </div>
     <button class="primary" id="bBack2">Back</button>
@@ -235,6 +235,12 @@
   const ceilMat = new THREE.MeshStandardMaterial({ map: ceilTex, roughness: 0.95, metalness: 0 });
   const panelMat = new THREE.MeshBasicMaterial({ map: panelTex, color: 0xffffff, toneMapped: true });
   const outletMat = new THREE.MeshStandardMaterial({ color: lin(0xcdc4a0), roughness: 0.6 });
+  function makeHaloTex() {
+    const c = mkCanvas(128, 128), x = c.getContext('2d'), g = x.createRadialGradient(64, 64, 4, 64, 64, 64);
+    g.addColorStop(0, 'rgba(255,244,205,0.85)'); g.addColorStop(0.35, 'rgba(255,236,180,0.32)'); g.addColorStop(1, 'rgba(255,230,170,0)');
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128); return canvasTex(c, true);
+  }
+  const haloMat = new THREE.MeshBasicMaterial({ map: makeHaloTex(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 
   /* ================= level generation ================= */
   const CELL = 3, N = 36, H = 2.7, T = 0.14, DOOR_W = 1.1, DOOR_H = 2.1;
@@ -294,8 +300,9 @@
 
     const sx = Math.floor(N / 2), sz = Math.floor(N / 2);                  // spawn cell
     const wg = GB(), outlets = GB(), buckets = Array.from({ length: N * N }, () => []);
+    const cols = [];
     const addCollider = (x0, x1, z0, z1) => {
-      const bx = { x0, x1, z0, z1 }, e = 0.5;
+      const bx = { x0, x1, z0, z1 }, e = 0.5; cols.push(bx);
       const c0 = clamp(Math.floor((x0 - e) / CELL), 0, N - 1), c1 = clamp(Math.floor((x1 + e) / CELL), 0, N - 1), r0 = clamp(Math.floor((z0 - e) / CELL), 0, N - 1), r1 = clamp(Math.floor((z1 + e) / CELL), 0, N - 1);
       for (let a = c0; a <= c1; a++) for (let b = r0; b <= r1; b++) buckets[b * N + a].push(bx);
     };
@@ -325,22 +332,33 @@
     }
     const outletMesh = toMesh(outlets, outletMat); outletMesh.castShadow = false; group.add(outletMesh);
 
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), floorMat); floor.rotation.x = -Math.PI / 2; floor.position.set(SIZE / 2, 0, SIZE / 2); floor.receiveShadow = true; group.add(floor);
-    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), ceilMat); ceil.rotation.x = Math.PI / 2; ceil.position.set(SIZE / 2, H, SIZE / 2); ceil.receiveShadow = true; group.add(ceil);
+    // baked contact shadow (ambient occlusion) where walls meet the floor and the ceiling
+    const PX = 8, AW = SIZE * PX, ac = mkCanvas(AW, AW), ax = ac.getContext('2d');
+    ax.fillStyle = '#fff'; ax.fillRect(0, 0, AW, AW);
+    for (let k = 7; k >= 1; k--) { ax.fillStyle = 'rgba(0,0,0,0.075)'; const e = k * 0.065 * PX; for (const b of cols) ax.fillRect(b.x0 * PX - e, b.z0 * PX - e, (b.x1 - b.x0) * PX + 2 * e, (b.z1 - b.z0) * PX + 2 * e); }
+    if (floorMat.aoMap) floorMat.aoMap.dispose(); if (ceilMat.aoMap) ceilMat.aoMap.dispose();
+    floorMat.aoMap = new THREE.CanvasTexture(ac); const cAO = new THREE.CanvasTexture(ac); cAO.flipY = false; ceilMat.aoMap = cAO;
+    floorMat.aoMapIntensity = 1; ceilMat.aoMapIntensity = 0.8; floorMat.needsUpdate = ceilMat.needsUpdate = true;
+    const fg = new THREE.PlaneGeometry(SIZE, SIZE); fg.setAttribute('uv2', fg.attributes.uv);
+    const floor = new THREE.Mesh(fg, floorMat); floor.rotation.x = -Math.PI / 2; floor.position.set(SIZE / 2, 0, SIZE / 2); floor.receiveShadow = true; group.add(floor);
+    const cg = new THREE.PlaneGeometry(SIZE, SIZE); cg.setAttribute('uv2', cg.attributes.uv);
+    const ceil = new THREE.Mesh(cg, ceilMat); ceil.rotation.x = Math.PI / 2; ceil.position.set(SIZE / 2, H, SIZE / 2); ceil.receiveShadow = true; group.add(ceil);
 
     // fluorescent panels, one per cell centre
     const pg = new THREE.PlaneGeometry(1.2, 0.6); pg.rotateX(Math.PI / 2);
     const inst = new THREE.InstancedMesh(pg, panelMat, N * N); inst.frustumCulled = false;
+    const hg = new THREE.PlaneGeometry(3.0, 2.2); hg.rotateX(Math.PI / 2);
+    const halos = new THREE.InstancedMesh(hg, haloMat, N * N); halos.frustumCulled = false; halos.renderOrder = 2;
     const panels = [], flick = [], col = new THREE.Color(), dm = new THREE.Matrix4();
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const id = j * N + i, r = rnd(), kind = r < 0.07 ? 'dead' : r < 0.14 ? 'flicker' : 'ok';
-      dm.makeTranslation(i * CELL + CELL / 2, H - 0.008, j * CELL + CELL / 2); inst.setMatrixAt(id, dm);
-      inst.setColorAt(id, col.setScalar(kind === 'dead' ? 0.1 : 1));
+      dm.makeTranslation(i * CELL + CELL / 2, H - 0.014, j * CELL + CELL / 2); inst.setMatrixAt(id, dm); dm.makeTranslation(i * CELL + CELL / 2, H - 0.006, j * CELL + CELL / 2); halos.setMatrixAt(id, dm);
+      inst.setColorAt(id, col.setScalar(kind === 'dead' ? 0.1 : 1)); halos.setColorAt(id, col.setScalar(kind === 'dead' ? 0 : 1));
       panels.push({ kind, x: i * CELL + CELL / 2, z: j * CELL + CELL / 2, b: kind === 'dead' ? 0 : 1 }); if (kind === 'flicker') flick.push(id);
     }
-    inst.instanceColor.needsUpdate = true; group.add(inst);
+    inst.instanceColor.needsUpdate = true; halos.instanceColor.needsUpdate = true; group.add(inst, halos);
     worldGroup.add(group);
-    world = { group, Vw, Hw, buckets, panels, flick, inst, seed, sx, sz, vi, hi, lastCell: -1, near: [] };
+    world = { group, Vw, Hw, buckets, panels, flick, inst, halos, seed, sx, sz, vi, hi, lastCell: -1, near: [] };
   }
 
   /* ----- collision helpers ----- */
@@ -365,7 +383,7 @@
   }
 
   /* ----- ceiling light pool: a few real lights follow the nearest working panels ----- */
-  const POOL = 6, pool = [];
+  const POOL = 8, pool = [];
   for (let k = 0; k < POOL; k++) { const l = new THREE.PointLight(lin(0xfff0bf), 0.9, 11, 1.7); l.position.set(0, H - 0.3, 0); scene.add(l); pool.push(l); }
   function openNeighbors(c) {
     const i = c % N, j = (c / N) | 0, w = world, out = [];
@@ -391,9 +409,9 @@
     const w = world;
     for (const id of w.flick) {
       const b = flickerValue(t, id); const p = w.panels[id];
-      if (b !== p.b) { p.b = b; w.inst.setColorAt(id, tmpC.setScalar(b)); }
+      if (b !== p.b) { p.b = b; w.inst.setColorAt(id, tmpC.setScalar(b)); w.halos.setColorAt(id, tmpC.setScalar(b)); }
     }
-    w.inst.instanceColor.needsUpdate = true;
+    w.inst.instanceColor.needsUpdate = true; w.halos.instanceColor.needsUpdate = true;
     const cell = clamp(Math.floor(pz / CELL), 0, N - 1) * N + clamp(Math.floor(px / CELL), 0, N - 1);
     if (cell !== w.lastCell) { w.lastCell = cell; w.near = nearbyCells(cell); }
     const cand = [];
@@ -402,7 +420,7 @@
     for (let k = 0; k < POOL; k++) {
       const l = pool[k], c = cand[k];
       if (!c) { l.intensity = 0; continue; }
-      const p = w.panels[c.id]; l.position.set(p.x, H - 0.3, p.z); l.intensity = 0.9 * p.b;
+      const p = w.panels[c.id], d = Math.sqrt(c.d); l.position.set(p.x, H - 0.3, p.z); l.intensity = 0.95 * p.b * smooth(9.5, 4.5, d);
       if (p.kind === 'flicker' && p.b < 0.2 && zapCool <= 0 && c.d < 36) { zapCool = 0.25; zap(); }
     }
   }
@@ -431,14 +449,28 @@
   function clickSound(on) { burst(on ? 2600 : 1900, 'highpass', 0.025, 0.2, 1); setTimeout(() => burst(on ? 900 : 600, 'bandpass', 0.04, 0.16, 3), 22); }
   const zap = () => burst(5200, 'highpass', 0.05, 0.05, 1);
 
-  /* ================= the player: arms, hands (5 fingers each), flashlight ================= */
+  /* ================= the player: body, hands (5 fingers each), flashlight ================= */
+  function makeDenim() {
+    const W = 128, c = mkCanvas(W, W), x = c.getContext('2d'), im = x.createImageData(W, W);
+    for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) {
+      const k = (j * W + i) * 4, tw = ((i + j) % 4 < 2) ? 1.06 : 0.94, n = hash(i, j, 71) - 0.5, f = fbm(i / W * 4, j / W * 4, 4, 4, 73, 3) - 0.5, sh = tw * (1 + n * 0.12 + f * 0.3);
+      im.data[k] = 52 * sh; im.data[k + 1] = 66 * sh; im.data[k + 2] = 92 * sh; im.data[k + 3] = 255;
+    }
+    x.putImageData(im, 0, 0); return canvasTex(c, true, 4, 4);
+  }
   const skinMat = new THREE.MeshStandardMaterial({ color: lin(0xd8a07c), emissive: lin(0x2a0f08), roughness: 0.58, metalness: 0 });
   const nailMat = new THREE.MeshStandardMaterial({ color: lin(0xe8b8a6), roughness: 0.3 });
   fabT.map.repeat.set(10, 10); fabT.bump.repeat.set(10, 10);
   const sleeveMat = new THREE.MeshStandardMaterial({ map: fabT.map, bumpMap: fabT.bump, bumpScale: 0.12, roughness: 0.95, side: THREE.DoubleSide });
+  const hoodMat = new THREE.MeshStandardMaterial({ map: fabT.map, roughness: 0.95 });
   const cuffMat = new THREE.MeshStandardMaterial({ color: lin(0x3c423a), roughness: 0.9 });
-  const sphG = new THREE.SphereGeometry(1, 16, 12);
+  const denimMat = new THREE.MeshStandardMaterial({ map: makeDenim(), roughness: 0.9 });
+  const shoeMat = new THREE.MeshStandardMaterial({ color: lin(0x2b2724), roughness: 0.7 });
+  const soleMat = new THREE.MeshStandardMaterial({ color: lin(0xd9d4c8), roughness: 0.8 });
+  const sphG = new THREE.SphereGeometry(1, 18, 14);
   function limbGeo(rBase, rTip, L) { const g = new THREE.CylinderGeometry(rBase, rTip, L, 14, 1); g.rotateX(Math.PI / 2); g.translate(0, 0, -L / 2); return g; }   // base at z=0, tip toward -z
+  function hangGeo(rTop, rBot, L) { const g = new THREE.CylinderGeometry(rTop, rBot, L, 16, 1); g.translate(0, -L / 2, 0); return g; }                       // top at y=0, hangs down
+  function blob(parent, mat, sx, sy, sz, x, y, z) { const m = new THREE.Mesh(sphG, mat); m.scale.set(sx, sy, sz); m.position.set(x, y, z); parent.add(m); return m; }
   function digit(len, rBase, rTip, seg, curl) {
     const root = new THREE.Group(), joints = []; let parent = root;
     const lens = seg.map((s) => len * s), rs = [rBase, rBase * 0.92, rBase * 0.84, rTip];
@@ -452,66 +484,105 @@
     const nail = new THREE.Mesh(sphG, nailMat); nail.scale.set(rTip * 0.62, rTip * 0.2, lens[2] * 0.34); nail.position.set(0, rTip * 0.86, -lens[2] * 0.58); parent.add(nail);
     root.userData = { digit: true, joints }; return root;
   }
-  const POSE_RELAX = { idx: [0.12, 0.2, 0.1], mid: [0.16, 0.24, 0.12], rng: [0.22, 0.28, 0.16], pnk: [0.28, 0.32, 0.2], thb: [0.05, 0.14, 0.12] };
-  const POSE_GRIP = { idx: [1.2, 1.35, 0.85], mid: [1.3, 1.45, 0.9], rng: [1.35, 1.45, 0.9], pnk: [1.3, 1.4, 0.8], thb: [0.1, 0.28, 0.22] };
+  // finger curls per joint [knuckle, middle, tip]
+  const POSE_RELAX = { idx: [0.3, 0.42, 0.2], mid: [0.36, 0.48, 0.24], rng: [0.42, 0.52, 0.26], pnk: [0.48, 0.55, 0.28], thb: [0.1, 0.22, 0.18], spread: 0.6, thumbYaw: 0.5, thumbRoll: 0.35 };
+  const POSE_TORCH = { idx: [1.22, 1.38, 0.86], mid: [1.3, 1.45, 0.9], rng: [1.34, 1.45, 0.88], pnk: [1.3, 1.38, 0.8], thb: [0, 0.8, 1.0], spread: 0.15, thumbYaw: 1.2, thumbRoll: 0.8 };
   function makeHand(side, pose) {                                            // side: -1 left, +1 right. wrist at origin, fingers toward -z, back of hand +y
-    const hand = new THREE.Group(), flat = (sx, sy, sz, x, y, z) => { const m = new THREE.Mesh(sphG, skinMat); m.scale.set(sx, sy, sz); m.position.set(x, y, z); hand.add(m); return m; };
-    flat(0.045, 0.0175, 0.052, 0, 0, -0.05); flat(0.04, 0.014, 0.03, 0, 0.002, -0.082);                 // palm and knuckle pad
-    const wrist = new THREE.Mesh(limbGeo(0.028, 0.03, 0.07), skinMat); wrist.position.z = 0.05; hand.add(wrist);
-    const spec = [['idx', -0.031, 0.074, 0.0098, 0.0076], ['mid', -0.0105, 0.083, 0.0102, 0.0078], ['rng', 0.0105, 0.077, 0.0098, 0.0074], ['pnk', 0.031, 0.062, 0.0086, 0.0066]];
-    for (const [key, x, len, r0, r1] of spec) {
-      const f = digit(len, r0, r1, [0.46, 0.29, 0.25], pose[key]); f.position.set(x * side, 0.001, -0.092); f.rotation.y = side * (key === 'idx' ? 0.16 : key === 'mid' ? 0.05 : key === 'rng' ? -0.08 : -0.22) * (pose === POSE_GRIP ? 0.2 : 1); hand.add(f); f.name = key;
+    const hand = new THREE.Group();
+    blob(hand, skinMat, 0.044, 0.0172, 0.05, 0, 0, -0.05);                                   // palm
+    blob(hand, skinMat, 0.041, 0.0148, 0.022, 0, 0.0015, -0.087);                          // knuckle line
+    blob(hand, skinMat, 0.02, 0.016, 0.03, -side * 0.026, -0.006, -0.036);                 // thumb muscle
+    blob(hand, skinMat, 0.016, 0.013, 0.03, side * 0.03, -0.004, -0.04);                   // heel on the pinky side
+    const wrist = new THREE.Mesh(limbGeo(0.027, 0.029, 0.05), skinMat); wrist.position.z = 0.03; hand.add(wrist);
+    const spec = [['idx', -0.031, 0.074, 0.0098, 0.0076, 0.16], ['mid', -0.0105, 0.083, 0.0102, 0.0078, 0.05], ['rng', 0.0105, 0.077, 0.0098, 0.0074, -0.08], ['pnk', 0.031, 0.062, 0.0086, 0.0066, -0.22]];
+    for (const [key, x, len, r0, r1, spr] of spec) {
+      const f = digit(len, r0, r1, [0.46, 0.29, 0.25], pose[key]); f.position.set(x * side, 0.001, -0.092); f.rotation.y = side * spr * pose.spread; f.name = key; hand.add(f);
     }
-    const th = digit(0.1, 0.0125, 0.0088, [0.42, 0.33, 0.25], pose.thb); th.position.set(-side * 0.035, -0.004, -0.032); const grip = pose === POSE_GRIP; th.rotation.y = side * (grip ? 1.25 : 0.5); th.rotation.z = grip ? 0 : side * 0.35; hand.add(th); th.name = 'thb';
+    const th = digit(0.1, 0.0125, 0.0088, [0.42, 0.33, 0.25], pose.thb); th.position.set(-side * 0.035, -0.004, -0.032); th.rotation.y = side * pose.thumbYaw; th.rotation.z = side * pose.thumbRoll; th.name = 'thb'; hand.add(th);
     hand.userData.digitCount = () => hand.children.filter((c) => c.userData.digit).length;
     return hand;
   }
-  function makeArm(side, pose) {
-    const arm = new THREE.Group(), hand = makeHand(side, pose); arm.add(hand);
-    const e = new V3(side * 0.16, -0.2, 0.46), len = e.length(), dir = e.clone().normalize();       // wrist -> elbow
-    const q = new THREE.Quaternion().setFromUnitVectors(new V3(0, 0, 1), dir);
-    const fore = new THREE.Mesh(limbGeo(0.027, 0.036, 0.12), skinMat); fore.quaternion.setFromUnitVectors(new V3(0, 0, -1), dir); arm.add(fore);                    // wrist toward the elbow
-    const g = new THREE.CylinderGeometry(0.041, 0.05, len * 1.5, 16, 1, true); g.rotateX(Math.PI / 2);                      // sleeve (open ended, runs out of view)
-    const sleeve = new THREE.Mesh(g, sleeveMat); sleeve.quaternion.copy(q); sleeve.position.copy(dir).multiplyScalar(0.07 + len * 0.75); arm.add(sleeve);
-    const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.044, 0.011, 8, 20), cuffMat); cuff.quaternion.copy(q); cuff.position.copy(dir).multiplyScalar(0.075); arm.add(cuff);
-    arm.userData.hand = hand; return arm;
-  }
-  const hands = new THREE.Group(); camera.add(hands);
-  const armL = makeArm(-1, POSE_RELAX), armR = makeArm(1, POSE_GRIP);
-  const handL = armL.userData.hand, handR = armR.userData.hand;
-  hands.add(armL, armR);
-  const BASE_L = new V3(-0.2, -0.24, -0.42), BASE_R = new V3(0.2, -0.2, -0.4);
-  armL.position.copy(BASE_L); armL.rotation.set(-0.12, 0.1, 0.12); handL.rotation.set(0.55, 0.05, 0.15);
-  handR.rotation.set(0.0, 0, 0);
 
-  // flashlight, gripped by the right hand: barrel crosses the fist, head out past the thumb side
-  const torch = new THREE.Group(); handR.add(torch);
-  const steel = new THREE.MeshStandardMaterial({ color: lin(0x2b2e33), roughness: 0.42, metalness: 0.8 }), rubber = new THREE.MeshStandardMaterial({ color: lin(0x121315), roughness: 0.9 });
+  // ----- the body you see when you look down: hoodie, jeans, shoes, arms hanging at the sides -----
+  const body = new THREE.Group(); scene.add(body); body.visible = false;
+  const torsoG = new THREE.CylinderGeometry(0.175, 0.16, 0.52, 22); torsoG.scale(1, 1, 0.62);
+  const torso = new THREE.Mesh(torsoG, hoodMat); torso.position.set(0, 1.19, 0.12); body.add(torso);
+  blob(body, hoodMat, 0.2, 0.07, 0.11, 0, 1.43, 0.12);                                    // shoulders
+  blob(body, hoodMat, 0.16, 0.12, 0.11, 0, 1.48, 0.25);                                   // hood bunched behind the neck
+  blob(body, hoodMat, 0.13, 0.05, 0.03, 0, 1.05, 0.04);                                   // front pocket
+  blob(body, denimMat, 0.17, 0.11, 0.11, 0, 0.93, 0.12);                                  // hips
+  const legs = [-1, 1].map((sd) => {
+    const hip = new THREE.Group(); hip.position.set(sd * 0.092, 0.9, 0.12); body.add(hip);
+    hip.add(new THREE.Mesh(hangGeo(0.078, 0.06, 0.45), denimMat));
+    const knee = new THREE.Group(); knee.position.y = -0.45; hip.add(knee); blob(knee, denimMat, 0.06, 0.06, 0.06, 0, 0, 0);
+    knee.add(new THREE.Mesh(hangGeo(0.058, 0.047, 0.42), denimMat));
+    const ankle = new THREE.Group(); ankle.position.y = -0.42; knee.add(ankle);
+    const shoe = blob(ankle, shoeMat, 0.052, 0.045, 0.135, 0, -0.03, -0.055); blob(ankle, soleMat, 0.055, 0.012, 0.138, 0, -0.068, -0.055);
+    return { hip, knee, ankle, shoe };
+  });
+  const bodyArms = [-1, 1].map((sd) => {
+    const sh = new THREE.Group(); sh.position.set(sd * 0.205, 1.4, 0.12); body.add(sh);
+    blob(sh, hoodMat, 0.06, 0.06, 0.06, 0, 0, 0); sh.add(new THREE.Mesh(hangGeo(0.055, 0.047, 0.29), hoodMat));
+    const el = new THREE.Group(); el.position.y = -0.29; sh.add(el); blob(el, hoodMat, 0.047, 0.047, 0.047, 0, 0, 0);
+    el.add(new THREE.Mesh(hangGeo(0.046, 0.04, 0.24), hoodMat));
+    const cf = new THREE.Mesh(new THREE.TorusGeometry(0.036, 0.009, 8, 18), cuffMat); cf.rotation.x = Math.PI / 2; cf.position.y = -0.24; el.add(cf);
+    const hand = makeHand(sd, POSE_RELAX); hand.position.y = -0.255; hand.rotation.order = 'YXZ'; hand.rotation.set(-Math.PI / 2 + 0.08, sd * Math.PI / 2, 0); el.add(hand);
+    return { sh, el, hand };
+  });
+  body.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; } });
+
+  // ----- the right arm that comes up when you take the flashlight out -----
+  // Tactical (reverse) grip: the barrel runs across the fist, the head comes out the little-finger side and points ahead,
+  // the thumb rests on the tail switch. Back of the hand faces up and out; the forearm drops away to the lower right.
+  const vm = new THREE.Group(); camera.add(vm); vm.visible = false;
+  const vmHand = makeHand(1, POSE_TORCH); vm.add(vmHand);
+  const FIST = new V3(0.19, -0.19, -0.43), AIM = new V3(0, 0, -7);
+  const AX = AIM.clone().sub(FIST).normalize(), B0 = new V3(0.75, 0.62, 0.1).normalize();
+  const AY = B0.clone().addScaledVector(AX, -B0.dot(AX)).normalize(), AZ = new V3().crossVectors(AX, AY);
+  vmHand.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(AX, AY, AZ));
+  const GRIP = new V3(0, -0.034, -0.083);                                                  // barrel centre, in hand space
+  const WRIST = FIST.clone().sub(GRIP.clone().applyQuaternion(vmHand.quaternion));
+  const FORE = AZ.clone().multiplyScalar(0.6).add(new V3(0.35, -0.55, 0.75).normalize().multiplyScalar(0.4)).normalize();
+  {
+    const fore = new THREE.Mesh(limbGeo(0.026, 0.034, 0.12), skinMat); fore.quaternion.setFromUnitVectors(new V3(0, 0, -1), FORE); vm.add(fore);
+    const g = new THREE.CylinderGeometry(0.04, 0.05, 0.7, 18, 1, true); g.rotateX(Math.PI / 2);
+    const q = new THREE.Quaternion().setFromUnitVectors(new V3(0, 0, 1), FORE);
+    const sleeve = new THREE.Mesh(g, sleeveMat); sleeve.quaternion.copy(q); sleeve.position.copy(FORE).multiplyScalar(0.055 + 0.35); vm.add(sleeve);
+    const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.041, 0.011, 8, 20), cuffMat); cuff.quaternion.copy(q); cuff.position.copy(FORE).multiplyScalar(0.058); vm.add(cuff);
+  }
+  // flashlight, built along +x (head at +x)
+  const torch = new THREE.Group(); vmHand.add(torch); torch.position.copy(GRIP).x += 0.016;               // tail cap sits under the thumb
+  const steel = new THREE.MeshStandardMaterial({ color: lin(0x2b2e33), roughness: 0.38, metalness: 0.85 }), rubber = new THREE.MeshStandardMaterial({ color: lin(0x141517), roughness: 0.85 });
   const lensMat = new THREE.MeshBasicMaterial({ color: lin(0x5b574c) });
-  function cylX(r0, r1, L, mat, x) { const g = new THREE.CylinderGeometry(r0, r1, L, 24); g.rotateZ(Math.PI / 2); const m = new THREE.Mesh(g, mat); m.position.x = x; torch.add(m); return m; }
-  cylX(0.0185, 0.0185, 0.15, rubber, 0.015); cylX(0.0195, 0.0195, 0.012, steel, -0.062); cylX(0.0195, 0.0195, 0.012, steel, 0.092);
-  cylX(0.0185, 0.0305, 0.05, steel, -0.108); cylX(0.0315, 0.0315, 0.012, steel, -0.138);
-  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.0275, 24), lensMat); lens.rotation.y = -Math.PI / 2; lens.position.x = -0.1446; torch.add(lens);
-  const btn = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.006, 12), steel); btn.position.set(0.03, 0.0215, 0); torch.add(btn);
-  torch.position.set(0.0, -0.034, -0.083); torch.rotation.set(0, 0, 0);
-  const beam = new THREE.SpotLight(lin(0xfff1d2), 2.4, 30, 0.44, 0.6, 1.5);
-  beam.castShadow = true; beam.shadow.mapSize.set(1024, 1024); beam.shadow.camera.near = 0.15; beam.shadow.camera.far = 28; beam.shadow.bias = -0.0006; beam.shadow.normalBias = 0.02;
-  const beamTarget = new THREE.Object3D(); armR.add(beam, beamTarget); beam.target = beamTarget;
-  beam.position.set(-0.07, -0.02, -0.12); beamTarget.position.set(-0.18, 0.12, -6); beam.visible = false;
-  let flashOn = false;
-  function setFlash(on, quiet) {
-    flashOn = on; beam.visible = on; lensMat.color.copy(on ? lin(0xfff6dc) : lin(0x5b574c));
-    $('hudSub').textContent = on ? 'flashlight on' : 'flashlight off';
-    if (!quiet) { clickSound(on); toast(on ? 'FLASHLIGHT ON' : 'FLASHLIGHT OFF'); }
-  }
-  let toastT = 0;
-  function toast(s) { const t = $('toast'); t.textContent = s; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 1200); }
+  function cylX(rNeg, rPos, x0, x1, mat) { const g = new THREE.CylinderGeometry(rPos, rNeg, x1 - x0, 28); g.rotateZ(-Math.PI / 2); const m = new THREE.Mesh(g, mat); m.position.x = (x0 + x1) / 2; torch.add(m); return m; }
+  cylX(0.0175, 0.0175, -0.062, 0.07, rubber);                                              // grip
+  for (let k = 0; k < 5; k++) cylX(0.0179, 0.0179, -0.05 + k * 0.022, -0.046 + k * 0.022, steel);   // knurl bands
+  cylX(0.0188, 0.0188, -0.076, -0.062, steel);                                             // tail cap
+  cylX(0.009, 0.009, -0.082, -0.076, rubber);                                              // tail switch, under the thumb
+  cylX(0.0178, 0.028, 0.07, 0.112, steel);                                                 // head flare
+  cylX(0.0295, 0.0295, 0.112, 0.126, steel);                                               // bezel
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.026, 28), lensMat); lens.rotation.y = Math.PI / 2; lens.position.x = 0.1263; torch.add(lens);
+  const glowTex = makeHaloTex(), glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffffff, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  glow.scale.setScalar(0.11); glow.position.x = 0.135; glow.visible = false; torch.add(glow);
+  const beam = new THREE.SpotLight(lin(0xfff1d2), 2.6, 30, 0.42, 0.6, 1.5);
+  beam.castShadow = true; beam.shadow.mapSize.set(1024, 1024); beam.shadow.camera.near = 0.1; beam.shadow.camera.far = 28; beam.shadow.bias = -0.0006; beam.shadow.normalBias = 0.02;
+  const beamTarget = new THREE.Object3D(); beam.position.x = 0.13; beamTarget.position.x = 6; torch.add(beam, beamTarget); beam.target = beamTarget; beam.visible = false;
+  vm.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
 
-  // Rig the right arm so the torch points forward: wrist turned toward the body.
-  torch.rotation.y = 0;
-  handR.rotation.set(0.1, -1.0, 0.0);
-  armR.position.copy(BASE_R); armR.rotation.set(-0.1, -0.08, -0.1);
-  hands.visible = false;
+  let flashOn = false, flashWanted = false, raise = 0;
+  function setFlash(on, quiet) {
+    flashOn = on; beam.visible = on; glow.visible = on; lensMat.color.copy(on ? lin(0xfff6dc) : lin(0x5b574c));
+    $('hudSub').textContent = on ? 'flashlight on' : flashWanted ? 'flashlight out' : 'flashlight away';
+    if (!quiet) clickSound(on);
+  }
+  function toggleFlash() {
+    flashWanted = !flashWanted;
+    if (!flashWanted && flashOn) setFlash(false);
+    toast(flashWanted ? 'FLASHLIGHT' : 'FLASHLIGHT AWAY');
+  }
+  function holster() { flashWanted = false; raise = 0; vm.visible = false; setFlash(false, true); }
+  let toastT = 0;
+  function toast(s) { const t = $('toast'); t.textContent = s; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 1100); }
 
   /* ================= player state & input ================= */
   const P = { x: 0, z: 0, yaw: 0, pitch: 0, vx: 0, vz: 0, speed: 0, phase: 0, amt: 0, step: 0, t: 0, lagX: 0, lagY: 0 };
@@ -548,7 +619,7 @@
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     if (e.code === 'Escape' || e.code === 'KeyP') { if (e.repeat) return; if (state === 'play') pauseGame(); else if (state === 'pause' && e.code === 'KeyP') resumeGame(); return; }
     keys[e.code] = true;
-    if (e.code === 'KeyF' && !e.repeat && state === 'play') setFlash(!flashOn);
+    if (e.code === 'KeyF' && !e.repeat && state === 'play') toggleFlash();
   });
   addEventListener('keyup', (e) => { keys[e.code] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (state === 'play') pauseGame(); });
@@ -559,8 +630,8 @@
   function showView(id) { $('overlay').classList.add('show'); views.forEach((v) => $(v).classList.toggle('show', v === id)); const b = $(id).querySelector('button.primary'); if (b) setTimeout(() => b.focus({ preventScroll: true }), 0); }
   function hideOverlay() { $('overlay').classList.remove('show'); }
   function startGame() {
-    buildWorld((Math.random() * 1e9) | 0); resetPlayer(); setFlash(false, true);
-    initAudio(); state = 'play'; hideOverlay(); hands.visible = true; $('hud').classList.add('on'); $('dot').style.display = 'block'; requestLock(); showClickHint();
+    buildWorld((Math.random() * 1e9) | 0); resetPlayer(); holster();
+    initAudio(); state = 'play'; hideOverlay(); body.visible = true; $('hud').classList.add('on'); $('dot').style.display = 'block'; requestLock(); showClickHint();
     setTimeout(() => $('hud').classList.remove('on'), 9000);
   }
   function resumeGame() { state = 'play'; hideOverlay(); if (AC && AC.state === 'suspended') AC.resume(); requestLock(); showClickHint(); }
@@ -570,7 +641,7 @@
     if (document.pointerLockElement) document.exitPointerLock();
     $('click').style.display = 'none'; showView('vPause'); backTo = 'vPause';
   }
-  function toMainMenu() { state = 'menu'; hands.visible = false; setFlash(false, true); $('dot').style.display = 'none'; $('hud').classList.remove('on'); showView('vMain'); backTo = 'vMain'; }
+  function toMainMenu() { state = 'menu'; body.visible = false; holster(); $('dot').style.display = 'none'; $('hud').classList.remove('on'); showView('vMain'); backTo = 'vMain'; }
   $('bStart').onclick = startGame; $('bResume').onclick = resumeGame; $('bNew').onclick = startGame; $('bMenu').onclick = toMainMenu;
   $('bSet1').onclick = () => { backTo = 'vMain'; showView('vSet'); }; $('bSet2').onclick = () => { backTo = 'vPause'; showView('vSet'); };
   $('bHow1').onclick = () => { backTo = 'vMain'; showView('vHow'); }; $('bHow2').onclick = () => { backTo = 'vPause'; showView('vHow'); };
@@ -610,14 +681,28 @@
     camera.position.set(P.x, EYE + bobY + breathe, P.z);
     camera.rotation.set(P.pitch + Math.sin(ph * 2) * 0.004 * bob, P.yaw, roll);
     camera.translateX(bobX);
-    // arms: swing left and right in opposition with each step, plus a little forward and back
-    const sw = Math.sin(ph) * S.bob, swz = Math.cos(ph) * S.bob, a = Math.min(P.amt, 1.4), run = P.amt > 1.25 ? 0.03 : 0;
+    // flashlight arm: comes up from the side when F is pressed, goes back down on the second press
+    const goal = flashWanted ? 1 : 0;
+    raise = goal > raise ? Math.min(1, raise + dt / 0.5) : Math.max(0, raise - dt / 0.38);
+    if (flashWanted && raise >= 0.97 && !flashOn) setFlash(true);
+    const e = flashWanted ? 1 - Math.pow(1 - raise, 3) : raise * raise * (3 - 2 * raise), u = 1 - e;
+    vm.visible = raise > 0.001;
+    const sw = Math.sin(ph) * S.bob, swz = Math.cos(ph) * S.bob, a = Math.min(P.amt, 1.4), run = P.amt > 1.25 ? 0.025 : 0;
     P.lagX *= Math.exp(-dt * 7); P.lagY *= Math.exp(-dt * 7);
-    const near = wallDist(P.x, P.z, -Math.sin(P.yaw), -Math.cos(P.yaw), 0.9), pull = clamp(0.62 - near, 0, 0.4);       // pull the hands in near a wall
-    armL.position.set(BASE_L.x + sw * 0.05 * a + P.lagX * 0.4, BASE_L.y + Math.abs(Math.sin(ph)) * -0.01 * a - run + breathe, BASE_L.z + swz * 0.035 * a + pull);
-    armR.position.set(BASE_R.x - sw * 0.05 * a + P.lagX * 0.4, BASE_R.y + Math.abs(Math.sin(ph)) * -0.01 * a - run + breathe, BASE_R.z - swz * 0.035 * a + pull);
-    armL.rotation.set(-0.12 - P.lagY * 0.5 - pull * 0.6, 0.1 + sw * 0.07 * a - P.lagX * 0.6, 0.12 + sw * 0.05 * a);
-    armR.rotation.set(-0.1 - P.lagY * 0.5 - pull * 0.6, -0.08 - sw * 0.07 * a - P.lagX * 0.6, -0.1 - sw * 0.05 * a);
+    const near = wallDist(P.x, P.z, -Math.sin(P.yaw), -Math.cos(P.yaw), 0.9), pull = clamp(0.62 - near, 0, 0.35);
+    vm.position.set(WRIST.x + u * 0.16 - sw * 0.032 * a + P.lagX * 0.35, WRIST.y - u * 0.5 - Math.abs(Math.sin(ph)) * 0.012 * a - run + breathe, WRIST.z + u * 0.22 + swz * 0.022 * a + pull);
+    vm.rotation.set(u * 1.2 - P.lagY * 0.45 - pull * 0.5 + Math.sin(ph * 2) * 0.012 * a, -P.lagX * 0.55 - sw * 0.045 * a, -u * 0.5 - sw * 0.035 * a);
+    // body: legs stride, arms hang at the sides and swing a little
+    body.position.set(P.x, 0, P.z); body.rotation.y = P.yaw;
+    legs.forEach((L, i) => {
+      const s = Math.sin(ph + i * Math.PI), c = Math.cos(ph + i * Math.PI);
+      L.hip.rotation.x = s * 0.42 * Math.min(a, 1.2); L.knee.rotation.x = -Math.max(0, c) * 0.75 * Math.min(a, 1.2) - 0.04; L.ankle.rotation.x = Math.max(0, -s) * 0.25 * a;
+    });
+    bodyArms.forEach((A, i) => {
+      const s = Math.sin(ph + i * Math.PI);
+      A.sh.rotation.x = -s * 0.28 * Math.min(a, 1.2); A.sh.rotation.z = (i ? 1 : -1) * 0.05; A.el.rotation.x = 0.18 + Math.max(0, -s) * 0.15 * a;
+    });
+    bodyArms[1].sh.visible = raise < 0.02;                                                  // the right arm is up holding the light
   }
   let menuT = 0;
   function menuCam(dt) {
@@ -636,7 +721,7 @@
   (function () { const c = $('grain'), x = c.getContext('2d'), id = x.createImageData(160, 160); for (let i = 0; i < id.data.length; i += 4) { const v = Math.random() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; } x.putImageData(id, 0, 0); c.style.width = '100%'; c.style.height = '100%'; c.style.imageRendering = 'pixelated'; })();
 
   buildWorld((Math.random() * 1e9) | 0); resetPlayer(); showView('vMain');
-  window.__br = { camera, renderer, scene, P, keys, armL, armR, handL, handR, beam, torch, pool, S, get world() { return world; }, get hands() { return hands; }, get state() { return state; }, get flashOn() { return flashOn; }, startGame, pauseGame, resumeGame, collide, wallDist, fingerCount: () => [handL.userData.digitCount(), handR.userData.digitCount()] };
+  window.__br = { camera, renderer, scene, P, keys, vm, vmHand, body, bodyArms, legs, beam, torch, pool, S, get raise() { return raise; }, get world() { return world; }, get state() { return state; }, get flashOn() { return flashOn; }, startGame, pauseGame, resumeGame, collide, wallDist, fingerCount: () => [bodyArms[0].hand.userData.digitCount(), vmHand.userData.digitCount(), bodyArms[1].hand.userData.digitCount()] };
   loop();
 })();
 </script>
