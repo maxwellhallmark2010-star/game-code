@@ -49,7 +49,7 @@
 <div id="dot"></div>
 <div id="hud"><span id="hudMain">F &mdash; flashlight</span><small id="hudSub">flashlight off</small></div>
 <div id="toast"></div>
-<div id="click">click to look around</div>
+<div id="click"></div>
 
 <div class="screen show" id="overlay">
   <div class="panel show" id="vMain">
@@ -529,7 +529,7 @@
     const cv = renderer.domElement; if (!cv.requestPointerLock) { dragMode = true; return; }
     try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(() => { dragMode = true; showClickHint(); }); } catch (e) { dragMode = true; }
   }
-  function showClickHint() { $('click').style.display = state === 'play' && !locked ? 'block' : 'none'; }
+  function showClickHint() { const c = $('click'); c.textContent = dragMode ? 'hold the mouse button and drag to look around' : 'click to capture the mouse'; c.style.display = state === 'play' && !locked ? 'block' : 'none'; }
   document.addEventListener('pointerlockchange', () => {
     locked = document.pointerLockElement === renderer.domElement;
     if (locked) { lockWas = true; dragMode = false; $('click').style.display = 'none'; }
