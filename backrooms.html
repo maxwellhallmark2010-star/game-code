@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>The Backrooms - Level 0</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,6 +16,22 @@
   #grain { position: fixed; inset: 0; pointer-events: none; opacity: .07; mix-blend-mode: overlay; }
   #hud { position: fixed; left: 18px; bottom: 14px; pointer-events: none; opacity: 0; transition: opacity .4s; text-shadow: 0 0 6px #000, 0 2px 2px #000; line-height: 1.1; }
   #hud.on { opacity: .9; }
+  #hud.top { bottom: auto; top: calc(12px + env(safe-area-inset-top, 0px)); left: calc(14px + env(safe-area-inset-left, 0px)); }
+  #touch { position: fixed; inset: 0; display: none; touch-action: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  #touch.on { display: block; }
+  #touch .zone { position: absolute; top: 0; bottom: 0; touch-action: none; }
+  #zLeft { left: 0; width: 45%; } #zRight { right: 0; width: 55%; }
+  #joyBase { position: absolute; left: calc(96px + env(safe-area-inset-left, 0px)); top: calc(100% - 112px - env(safe-area-inset-bottom, 0px)); width: 124px; height: 124px; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid rgba(227,207,106,.4); background: radial-gradient(circle, rgba(20,16,4,.15), rgba(20,16,4,.4)); pointer-events: none; opacity: .55; transition: opacity .15s; }
+  #joyBase.live { opacity: 1; }
+  #joyKnob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; transform: translate(-50%, -50%); border-radius: 50%; background: rgba(227,207,106,.55); box-shadow: 0 0 12px rgba(0,0,0,.5); }
+  .tb { position: absolute; width: 68px; height: 68px; border-radius: 50%; border: 2px solid rgba(227,207,106,.55); background: rgba(20,16,4,.42); color: var(--y); font: 20px var(--mono); letter-spacing: .08em; display: grid; place-items: center; touch-action: none; padding: 0; }
+  .tb.lit { background: rgba(227,207,106,.85); color: var(--ink); }
+  #tFlash { right: calc(26px + env(safe-area-inset-right, 0px)); bottom: calc(118px + env(safe-area-inset-bottom, 0px)); }
+  #tSprint { right: calc(108px + env(safe-area-inset-right, 0px)); bottom: calc(36px + env(safe-area-inset-bottom, 0px)); }
+  #tPause { right: calc(14px + env(safe-area-inset-right, 0px)); top: calc(12px + env(safe-area-inset-top, 0px)); width: 52px; height: 52px; border-radius: 10px; font-size: 26px; }
+  .chk { display: flex; justify-content: space-between; align-items: center; text-align: left; gap: 10px; }
+  .chk input { width: 22px; height: 22px; accent-color: var(--y); }
+  @media (max-width: 520px) { .set { grid-template-columns: 1fr 110px 40px; } }
   #hud small { display: block; opacity: .7; font-size: 18px; }
   #dot { position: fixed; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1.5px; border-radius: 50%; background: rgba(255,255,230,.55); pointer-events: none; display: none; }
   #toast { position: fixed; left: 50%; bottom: 14%; transform: translateX(-50%); padding: 4px 14px; background: rgba(0,0,0,.45); opacity: 0; transition: opacity .25s; pointer-events: none; letter-spacing: .08em; }
@@ -50,6 +66,13 @@
 <div id="dot"></div>
 <div id="hud"><span id="hudMain">F &mdash; flashlight</span><small id="hudSub">flashlight off</small></div>
 <div id="toast"></div>
+<div id="touch">
+  <div class="zone" id="zLeft"></div><div class="zone" id="zRight"></div>
+  <div id="joyBase"><div id="joyKnob"></div></div>
+  <button class="tb" id="tFlash" aria-label="Flashlight">LIGHT</button>
+  <button class="tb" id="tSprint" aria-label="Sprint">RUN</button>
+  <button class="tb" id="tPause" aria-label="Pause">II</button>
+</div>
 <div id="click"></div>
 
 <div class="screen show" id="overlay">
@@ -73,11 +96,12 @@
 
   <div class="panel" id="vSet">
     <h2>SETTINGS</h2>
-    <label class="set">Mouse sensitivity <input type="range" id="sSens" min="0.3" max="3" step="0.05"><output id="oSens"></output></label>
+    <label class="set">Look sensitivity <input type="range" id="sSens" min="0.3" max="3" step="0.05"><output id="oSens"></output></label>
     <label class="set">Field of view <input type="range" id="sFov" min="60" max="100" step="1"><output id="oFov"></output></label>
     <label class="set">Volume <input type="range" id="sVol" min="0" max="1" step="0.05"><output id="oVol"></output></label>
     <label class="set">Camera bob <input type="range" id="sBob" min="0" max="1.5" step="0.05"><output id="oBob"></output></label>
     <label class="set">Brightness <input type="range" id="sBri" min="0.6" max="1.8" step="0.05"><output id="oBri"></output></label>
+    <label class="chk">Mobile controls (joystick and buttons) <input type="checkbox" id="sTouch"></label>
     <label class="set">Graphics <select id="sQ"><option value="ultra">Ultra</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select><output id="oQ"></output></label>
     <button class="primary" id="bBack1">Back</button>
   </div>
@@ -90,6 +114,7 @@
       <b>Mouse</b><span>look</span>
       <b>F</b><span>take out the flashlight / put it away</span>
       <b>Esc / P</b><span>pause</span>
+      <b>Phone</b><span>left thumb: joystick &middot; right thumb: look &middot; LIGHT, RUN, II pause</span>
     </div>
     <button class="primary" id="bBack2">Back</button>
   </div>
@@ -118,7 +143,9 @@
 
   /* ================= settings ================= */
   const S = { sens: 1, fov: 75, vol: 0.7, bob: 1, bri: 1, q: 'high' };
-  try { Object.assign(S, JSON.parse(localStorage.getItem('backrooms.settings') || '{}')); } catch (e) {}
+  const IS_TOUCH = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0;
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem('backrooms.settings') || '{}') || {}; } catch (e) {}
+  Object.assign(S, { touch: IS_TOUCH, q: IS_TOUCH ? 'medium' : 'high' }, saved);
   const saveSettings = () => { try { localStorage.setItem('backrooms.settings', JSON.stringify(S)); } catch (e) {} };
 
   /* ================= renderer / scene ================= */
@@ -646,17 +673,18 @@
     P.yaw = by;
   }
   function requestLock() {
+    if (S.touch) return;
     const cv = renderer.domElement; if (!cv.requestPointerLock) { dragMode = true; return; }
     try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(() => { dragMode = true; showClickHint(); }); } catch (e) { dragMode = true; }
   }
-  function showClickHint() { const c = $('click'); c.textContent = dragMode ? 'hold the mouse button and drag to look around' : 'click to capture the mouse'; c.style.display = state === 'play' && !locked ? 'block' : 'none'; }
+  function showClickHint() { const c = $('click'); if (S.touch) { c.style.display = 'none'; return; } c.textContent = dragMode ? 'hold the mouse button and drag to look around' : 'click to capture the mouse'; c.style.display = state === 'play' && !locked ? 'block' : 'none'; }
   document.addEventListener('pointerlockchange', () => {
     locked = document.pointerLockElement === renderer.domElement;
     if (locked) { lockWas = true; dragMode = false; $('click').style.display = 'none'; }
     else if (state === 'play' && lockWas) { lockWas = false; pauseGame(); }
   });
   document.addEventListener('pointerlockerror', () => { dragMode = true; showClickHint(); });
-  renderer.domElement.addEventListener('mousedown', () => { if (state !== 'play') return; if (!locked) { dragging = true; requestLock(); } });
+  renderer.domElement.addEventListener('mousedown', () => { if (state !== 'play' || S.touch) return; if (!locked) { dragging = true; requestLock(); } });
   addEventListener('mouseup', () => { dragging = false; });
   addEventListener('mousemove', (e) => {
     if (state !== 'play') return;
@@ -668,11 +696,53 @@
     if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     if (e.code === 'Escape' || e.code === 'KeyP') { if (e.repeat) return; if (state === 'play') pauseGame(); else if (state === 'pause' && e.code === 'KeyP') resumeGame(); return; }
     keys[e.code] = true;
-    if (e.code === 'KeyF' && !e.repeat && state === 'play') toggleFlash();
+    if (e.code === 'KeyF' && !e.repeat && state === 'play') { toggleFlash(); updateTouchUI(); }
   });
   addEventListener('keyup', (e) => { keys[e.code] = false; });
   addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (state === 'play') pauseGame(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') pauseGame(); });
+
+  /* ================= mobile controls: floating joystick, drag to look, buttons ================= */
+  const joy = { id: null, x: 0, y: 0, cx: 0, cy: 0 }, look = { id: null, x: 0, y: 0 }, JR = 58;
+  let tSprint = false;
+  const touchOn = () => !!S.touch;
+  function joyRest() { const b = $('joyBase'); b.style.left = ''; b.style.top = ''; b.classList.remove('live'); $('joyKnob').style.transform = 'translate(-50%, -50%)'; }
+  function updateTouchUI() {
+    const on = touchOn() && state === 'play';
+    $('touch').classList.toggle('on', on); $('hud').classList.toggle('top', touchOn());
+    $('hudMain').textContent = touchOn() ? 'LIGHT button: flashlight' : 'F — flashlight';
+    $('tFlash').classList.toggle('lit', flashWanted); $('tSprint').classList.toggle('lit', tSprint);
+    if (!on) { joy.id = look.id = null; joy.x = joy.y = 0; joyRest(); }
+  }
+  function capture(el, e) { try { el.setPointerCapture(e.pointerId); } catch (err) {} }
+  const zL = $('zLeft'), zR = $('zRight');
+  zL.addEventListener('pointerdown', (e) => {
+    if (joy.id !== null) return; e.preventDefault(); capture(zL, e); joy.id = e.pointerId; joy.cx = e.clientX; joy.cy = e.clientY; joy.x = joy.y = 0;
+    const b = $('joyBase'); b.style.left = e.clientX + 'px'; b.style.top = e.clientY + 'px'; b.classList.add('live');
+  });
+  zL.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== joy.id) return; e.preventDefault();
+    let dx = e.clientX - joy.cx, dy = e.clientY - joy.cy; const l = Math.hypot(dx, dy); if (l > JR) { dx *= JR / l; dy *= JR / l; }
+    $('joyKnob').style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    const m = Math.min(1, l / JR), dead = 0.12, k = m < dead ? 0 : (m - dead) / (1 - dead) / Math.max(m, 1e-6);
+    joy.x = dx / JR * k; joy.y = dy / JR * k;
+  });
+  const joyEnd = (e) => { if (e.pointerId !== joy.id) return; joy.id = null; joy.x = joy.y = 0; joyRest(); };
+  zL.addEventListener('pointerup', joyEnd); zL.addEventListener('pointercancel', joyEnd);
+  zR.addEventListener('pointerdown', (e) => { if (look.id !== null) return; e.preventDefault(); capture(zR, e); look.id = e.pointerId; look.x = e.clientX; look.y = e.clientY; });
+  zR.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== look.id || state !== 'play') return; e.preventDefault();
+    const dx = e.clientX - look.x, dy = e.clientY - look.y; look.x = e.clientX; look.y = e.clientY;
+    const k = 0.0042 * S.sens; P.yaw -= dx * k; P.pitch = clamp(P.pitch - dy * k, -1.45, 1.45); P.lagX += dx * 0.0016; P.lagY += dy * 0.0016;
+  });
+  const lookEnd = (e) => { if (e.pointerId === look.id) look.id = null; };
+  zR.addEventListener('pointerup', lookEnd); zR.addEventListener('pointercancel', lookEnd);
+  const tap = (id, fn) => $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); fn(); updateTouchUI(); });
+  tap('tFlash', () => { if (state === 'play') toggleFlash(); });
+  tap('tSprint', () => { tSprint = !tSprint; });
+  tap('tPause', () => pauseGame());
+  $('touch').addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+  $('touch').addEventListener('contextmenu', (e) => e.preventDefault());
 
   /* ================= menus ================= */
   const views = ['vMain', 'vPause', 'vSet', 'vHow']; let backTo = 'vMain';
@@ -680,22 +750,22 @@
   function hideOverlay() { $('overlay').classList.remove('show'); }
   function startGame() {
     buildWorld((Math.random() * 1e9) | 0); resetPlayer(); holster();
-    initAudio(); state = 'play'; hideOverlay(); body.visible = true; $('hud').classList.add('on'); $('dot').style.display = 'block'; requestLock(); showClickHint();
+    initAudio(); state = 'play'; hideOverlay(); body.visible = true; $('hud').classList.add('on'); $('dot').style.display = 'block'; requestLock(); showClickHint(); updateTouchUI();
     setTimeout(() => $('hud').classList.remove('on'), 9000);
   }
-  function resumeGame() { state = 'play'; hideOverlay(); if (AC && AC.state === 'suspended') AC.resume(); requestLock(); showClickHint(); }
+  function resumeGame() { state = 'play'; hideOverlay(); if (AC && AC.state === 'suspended') AC.resume(); requestLock(); showClickHint(); updateTouchUI(); }
   function pauseGame() {
     if (state !== 'play') return;
     state = 'pause'; for (const k in keys) keys[k] = false; dragging = false;
     if (document.pointerLockElement) document.exitPointerLock();
-    $('click').style.display = 'none'; showView('vPause'); backTo = 'vPause';
+    $('click').style.display = 'none'; showView('vPause'); backTo = 'vPause'; updateTouchUI();
   }
-  function toMainMenu() { state = 'menu'; body.visible = false; holster(); $('dot').style.display = 'none'; $('hud').classList.remove('on'); showView('vMain'); backTo = 'vMain'; }
+  function toMainMenu() { state = 'menu'; body.visible = false; holster(); $('dot').style.display = 'none'; $('hud').classList.remove('on'); showView('vMain'); backTo = 'vMain'; updateTouchUI(); }
   $('bStart').onclick = startGame; $('bResume').onclick = resumeGame; $('bNew').onclick = startGame; $('bMenu').onclick = toMainMenu;
   $('bSet1').onclick = () => { backTo = 'vMain'; showView('vSet'); }; $('bSet2').onclick = () => { backTo = 'vPause'; showView('vSet'); };
   $('bHow1').onclick = () => { backTo = 'vMain'; showView('vHow'); }; $('bHow2').onclick = () => { backTo = 'vPause'; showView('vHow'); };
   $('bBack1').onclick = $('bBack2').onclick = () => showView(backTo);
-  renderer.domElement.addEventListener('click', () => { if (state === 'play' && !locked) { requestLock(); } });
+  renderer.domElement.addEventListener('click', () => { if (state === 'play' && !locked && !S.touch) { requestLock(); } });
 
   const sliders = [['sSens', 'oSens', 'sens', (v) => v.toFixed(2)], ['sFov', 'oFov', 'fov', (v) => Math.round(v) + '°'], ['sVol', 'oVol', 'vol', (v) => Math.round(v * 100) + '%'], ['sBob', 'oBob', 'bob', (v) => Math.round(v * 100) + '%'], ['sBri', 'oBri', 'bri', (v) => v.toFixed(2)]];
   function applySettings() {
@@ -703,6 +773,7 @@
     for (const [id, out, key, fmt] of sliders) { $(id).value = S[key]; $(out).textContent = fmt(+S[key]); }
   }
   for (const [id, out, key, fmt] of sliders) $(id).addEventListener('input', (e) => { S[key] = +e.target.value; applySettings(); saveSettings(); });
+  $('sTouch').checked = !!S.touch; $('sTouch').addEventListener('change', (e) => { S.touch = e.target.checked; saveSettings(); updateTouchUI(); });
   $('sQ').value = S.q; $('sQ').addEventListener('change', (e) => { S.q = e.target.value; saveSettings(); applyQuality(); });
   applySettings();
 
@@ -803,9 +874,10 @@
   const clock = new THREE.Clock(); let time = 0; const WALK = 2.2, SPRINT = 3.8;
   function update(dt) {
     P.t += dt;
-    const f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), r = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
-    const sprint = (keys.ShiftLeft || keys.ShiftRight) && f > 0, sp = sprint ? SPRINT : WALK, sn = Math.sin(P.yaw), cs = Math.cos(P.yaw);
-    let tx = -sn * f + cs * r, tz = -cs * f - sn * r; const l = Math.hypot(tx, tz) || 1; tx = tx / l * (f || r ? sp : 0); tz = tz / l * (f || r ? sp : 0);
+    let f = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), r = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+    if (S.touch) { f = clamp(f - joy.y, -1, 1); r = clamp(r + joy.x, -1, 1); }
+    const sprint = (keys.ShiftLeft || keys.ShiftRight || (S.touch && tSprint)) && f > 0.3, sp = sprint ? SPRINT : WALK, sn = Math.sin(P.yaw), cs = Math.cos(P.yaw);
+    let tx = -sn * f + cs * r, tz = -cs * f - sn * r; const l = Math.hypot(tx, tz), g = l > 1e-3 ? sp * Math.min(1, l) / l : 0; tx *= g; tz *= g;            // analog on the joystick
     const k = 1 - Math.exp(-dt * 11); P.vx += (tx - P.vx) * k; P.vz += (tz - P.vz) * k;
     const mvx = P.vx * dt, mvz = P.vz * dt, steps = Math.max(1, Math.ceil(Math.hypot(mvx, mvz) / 0.08));
     const ox = P.x, oz = P.z;
@@ -862,7 +934,7 @@
   (function () { const c = $('grain'), x = c.getContext('2d'), id = x.createImageData(160, 160); for (let i = 0; i < id.data.length; i += 4) { const v = Math.random() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; } x.putImageData(id, 0, 0); c.style.width = '100%'; c.style.height = '100%'; c.style.imageRendering = 'pixelated'; })();
 
   applyQuality(); buildWorld((Math.random() * 1e9) | 0); resetPlayer(); showView('vMain');
-  window.__br = { get usePost() { return usePost; }, get rscale() { return rscale; }, applyQuality, camera, renderer, scene, P, keys, vm, vmHand, body, bodyArms, legs, beam, torch, pool, S, get raise() { return raise; }, get world() { return world; }, get state() { return state; }, get flashOn() { return flashOn; }, startGame, pauseGame, resumeGame, collide, wallDist, fingerCount: () => [bodyArms[0].hand.userData.digitCount(), vmHand.userData.digitCount(), bodyArms[1].hand.userData.digitCount()] };
+  window.__br = { joy, get tSprint() { return tSprint; }, updateTouchUI, get usePost() { return usePost; }, get rscale() { return rscale; }, applyQuality, camera, renderer, scene, P, keys, vm, vmHand, body, bodyArms, legs, beam, torch, pool, S, get raise() { return raise; }, get world() { return world; }, get state() { return state; }, get flashOn() { return flashOn; }, startGame, pauseGame, resumeGame, collide, wallDist, fingerCount: () => [bodyArms[0].hand.userData.digitCount(), vmHand.userData.digitCount(), bodyArms[1].hand.userData.digitCount()] };
   loop();
 })();
 </script>
