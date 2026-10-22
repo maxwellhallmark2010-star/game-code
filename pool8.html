@@ -72,7 +72,7 @@
     <canvas id="cv"></canvas>
     <div id="power" aria-label="Shot power"><div id="powerFill"></div><div id="powerHandle"></div><div id="powerLbl">POWER</div></div>
     <div id="toast"></div>
-    <div id="hint">Aim with the mouse or your finger. Drag the power bar down and let go to shoot.</div>
+    <div id="hint">Click and drag on the table to aim. Drag the power bar down and let go to shoot.</div>
   </div>
   <button id="pauseBtn" aria-label="Menu">II</button>
 </div>
@@ -99,7 +99,7 @@
   <div class="panel" id="vRules">
     <h2>How to play</h2>
     <div class="rules">
-      <p><b>Aim and shoot.</b> Move the mouse (or drag your finger) on the table to aim. Pull the power bar down and release to shoot. Arrow keys fine-tune the aim, Up/Down set the power and Space shoots.</p>
+      <p><b>Aim and shoot.</b> Click and drag on the table (or drag your finger) to aim. The cue stays where you leave it. Pull the power bar down and release to shoot. Arrow keys fine-tune the aim, Up/Down set the power and Space shoots.</p>
       <p><b>The break.</b> The table starts open. Balls potted on the break do not give you a group, and if you pot one you keep shooting.</p>
       <p><b>Choosing your group.</b> On an open table, the first ball you legally pot after the break decides it: potting a solid (1-7) makes you <b>solids</b>, a stripe (9-15) makes you <b>stripes</b>. Your opponent gets the other group.</p>
       <p><b>Keep going.</b> If you legally pot a ball of your group, you shoot again. If not, it's your opponent's turn.</p>
@@ -475,19 +475,19 @@
 
   /* ================= input ================= */
   const pt = (e) => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * LW, y: (e.clientY - r.top) / r.height * LH }; };
-  let dragCue = false, canAim = () => G.phase === 'aim' && !me().isAI && !G.over;
+  let dragCue = false, dragAim = false, canAim = () => G.phase === 'aim' && !me().isAI && !G.over;
   cv.addEventListener('pointerdown', (e) => {
     if (!canAim()) return; const p = pt(e), c = G.balls[0]; try { cv.setPointerCapture(e.pointerId); } catch (er) {}
     if (G.call >= 0) { let bk = -1, bd = 60; POCKETS.forEach((q, k) => { const d = Math.hypot(p.x - q.x, p.y - q.y); if (d < bd) { bd = d; bk = k; } }); if (bk >= 0) { G.call = bk; return; } }
     if (G.inHand && Math.hypot(p.x - c.x, p.y - c.y) < 34) { dragCue = true; return; }
-    G.aim = Math.atan2(p.y - c.y, p.x - c.x);
+    dragAim = true; G.aim = Math.atan2(p.y - c.y, p.x - c.x);
   });
   cv.addEventListener('pointermove', (e) => {
     if (!canAim()) return; const p = pt(e), c = G.balls[0];
     if (dragCue) { const x = clamp(p.x, L + R, G.kitchen ? HEAD_X : Rr - R), y = clamp(p.y, T + R, B - R); if (validCuePos(x, y, G.kitchen)) { c.x = x; c.y = y; } return; }
-    if (e.pointerType === 'mouse' || e.buttons) G.aim = Math.atan2(p.y - c.y, p.x - c.x);
+    if (dragAim) G.aim = Math.atan2(p.y - c.y, p.x - c.x);                  // only while you hold the button: moving to the power bar never swings the cue
   });
-  const endDrag = () => { dragCue = false; }; cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+  const endDrag = () => { dragCue = false; dragAim = false; }; cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
   { const pw = $('power'); let drag = false; const set = (e) => { const r = pw.getBoundingClientRect(), h = r.height - 12 - 26; setPower(((e.clientY - r.top) - 6 - 13) / h); updatePowerUI(); };
     pw.addEventListener('pointerdown', (e) => { if (!canAim()) return; drag = true; try { pw.setPointerCapture(e.pointerId); } catch (er) {} set(e); });
     pw.addEventListener('pointermove', (e) => { if (drag) set(e); });
