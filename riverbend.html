@@ -80,6 +80,7 @@
 <body>
 <div id="vig"></div>
 <div id="dot"></div>
+<div id="shake"></div>
 <div id="obj"><small id="objDay"></small><span id="objText"></span></div>
 <div id="prompt"></div>
 <div id="sub"></div>
@@ -349,6 +350,8 @@
     seg(0, 0, 0, 0.2, 7.5, 0.1, 0.32, 0.1); seg(0.1, 3.6, 0, -1.7, 5.4, 0.3, 0.12, 0.03); seg(0.15, 4.6, 0, 1.6, 6.2, -0.2, 0.1, 0.03); seg(0.12, 5.8, 0, -1.0, 7.1, 0.1, 0.07, 0.02); seg(0.06, 1.8, 0, 1.4, 2.8, 0.4, 0.1, 0.03); seg(0.1, 2.6, 0, -1.2, 3.4, -0.5, 0.09, 0.02);
     g.position.set(DEAD.x, ground(DEAD.x, DEAD.z) - 0.1, DEAD.z); scene.add(g); addCollider(DEAD.x, DEAD.z, 0.4);
     rock(DEAD.x + 2.4, DEAD.z - 0.8, 1.3, true); }
+  // where Sam is found: sitting with his back against the rock, facing the way you come from
+  const BODY = (() => { const rx = DEAD.x + 2.4, rz = DEAD.z - 0.8, dx = -rx, dz = -rz, l = Math.hypot(dx, dz); return { x: rx + dx / l * 1.45, z: rz + dz / l * 1.45, yaw: Math.atan2(dx, dz) }; })();
 
   /* ================= camp: tent, fire pit, fire, truck ================= */
   const CAMP = { fire: new V3(0, 0, 0), tent: new V3(-6, 0, 3), truck: { x: 12, z: roadZ(12) } };
@@ -418,6 +421,8 @@
     const disp = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.035), new THREE.MeshBasicMaterial({ color: lin(0x1a2a1c) })); disp.position.set(-0.08, 1.125, 0.269); disp.rotation.y = Math.PI; g.add(disp);
     [0.07, 0.12].forEach((x) => { const k = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.03, 12), new THREE.MeshStandardMaterial({ color: lin(0xb8b2a6), metalness: 0.8, roughness: 0.3 })); k.rotation.x = Math.PI / 2; k.position.set(x, 1.12, 0.265); g.add(k); });
     const seat = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.18, 0.6), new THREE.MeshStandardMaterial({ color: lin(0x3b2f26), roughness: 0.9 })); seat.position.set(0, 0.95, -0.35); g.add(seat);
+    const liner = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.25), new THREE.MeshStandardMaterial({ color: lin(0x8f8576), roughness: 1 })); liner.rotation.x = Math.PI / 2; liner.position.set(0, 1.82, -0.05); g.add(liner);
+    const dome = new THREE.PointLight(lin(0xffe0bd), 0.55, 2.6, 2); dome.position.set(0, 1.7, -0.1); g.add(dome);
     g.userData = { wheel, disp }; parent.add(g); return g;
   }
   const cabin = makeCabin(truck);
@@ -460,9 +465,9 @@
   }
   function poseSamDead() {                                                      // slumped against the rock, not moving
     const U = sam.userData; U.face.material = U.faceMats.dead;
-    sam.rotation.set(0, 0, 0); U.hip.position.y = 0.2; U.hip.rotation.set(-1.05, 0, 0.12); U.headPivot.rotation.set(0.5, 0.3, 0.35);
-    U.limbs.L.hp.rotation.set(-1.45, 0, 0.18); U.limbs.R.hp.rotation.set(-1.3, 0, -0.25); U.limbs.L.kn.rotation.x = 0.3; U.limbs.R.kn.rotation.x = 0.6;
-    U.limbs.L.sh.rotation.set(0.2, 0, 0.35); U.limbs.R.sh.rotation.set(-0.3, 0, -0.5); U.limbs.L.el.rotation.x = 0.2; U.limbs.R.el.rotation.x = 0.6;
+    U.hip.position.y = 0.16; U.hip.rotation.set(-0.42, 0, 0.1); U.headPivot.rotation.set(0.12, 0.35, 0.55);
+    U.limbs.L.hp.rotation.set(-1.5, 0, 0.12); U.limbs.R.hp.rotation.set(-1.35, 0, -0.2); U.limbs.L.kn.rotation.x = 0.12; U.limbs.R.kn.rotation.x = 0.35;
+    U.limbs.L.sh.rotation.set(0.1, 0, 0.18); U.limbs.R.sh.rotation.set(0.15, 0, -0.22); U.limbs.L.el.rotation.x = 0.1; U.limbs.R.el.rotation.x = 0.2;
   }
   function resetSamPose() { const U = sam.userData; U.face.material = U.faceMats.alive; U.hip.rotation.set(0, 0, 0); U.headPivot.rotation.set(0, 0, 0); ['L', 'R'].forEach((k) => { const L = U.limbs[k]; L.hp.rotation.set(0, 0, 0); L.sh.rotation.set(0, 0, 0); }); }
   // The monster from the drawing: tall and thin, a round head that is mostly mouth, rows of teeth, small eyes, stringy hair, long arms held up and out with claws, ribs.
@@ -678,10 +683,10 @@
       interact.push({ x: CLAW.x, z: CLAW.z, r: 3, label: 'Look at the tree', when: () => step2 === 'logs' && !CLAW.seen, act: () => { CLAW.seen = true; say([['You', "Those aren't from a bear. They're too high up."]]); } });
     } else if (n === 3) {
       hasFlash = true; flashOn = false; fireTarget = 0.25; fireLevel = 0.25; firewood.getObjectByName('logs').visible = true; sam.visible = true; poseSamDead();
-      sam.position.set(DEAD.x + 1.0, ground(DEAD.x + 1, DEAD.z) , DEAD.z - 0.4); sam.rotation.y = -1.9;
+      sam.position.set(BODY.x, ground(BODY.x, BODY.z), BODY.z); sam.rotation.y = BODY.yaw;
       P.x = CAMP.tent.x + 2; P.z = CAMP.tent.z + 2.5; P.yaw = -0.6; setTOD('grey');
       titleCard('DAY THREE', 'I have to find him.', 3.6, () => startPlay(() => { setObjective('Search for Sam. Follow the torn shirt.', 'DAY THREE'); step2 = 'trail'; spawnTrail(); }));
-      interact.push({ x: DEAD.x + 1, z: DEAD.z - 0.4, r: 3, label: 'Sam?', when: () => step2 === 'body', act: () => foundBody() });
+      interact.push({ x: BODY.x, z: BODY.z, r: 3, label: 'Sam?', when: () => step2 === 'body', act: () => foundBody() });
       interact.push({ x: CAMP.truck.x, z: CAMP.truck.z, r: 3.6, label: 'Get in the truck', when: () => step2 === 'run', act: () => startDrive() });
     }
   }
@@ -818,7 +823,7 @@
   function rollCredits() {
     state = 'credits'; setObjective(''); fade(1, 2.5);
     after(2.6, () => {
-      if (!CR.scene) buildCreditsScene(); renderer.toneMappingExposure = 1.0; renderer.setClearColor(lin(0xc99a85));
+      if (!CR.scene) buildCreditsScene(); CR.on = true; renderer.toneMappingExposure = 1.0; renderer.setClearColor(lin(0xc99a85));
       truck.remove(camera); scene.add(camera); setEngine(true, 14);
       fade(0, 3); $('sub').classList.remove('on'); subQ = [];
       after(2.5, () => { say([['', '(you turn the radio on)', 2.5]]); radioOn(); $('radioTag').style.display = 'block'; CR.cab.children[0].userData.disp.material.color.copy(lin(0x7dffa0)); });
@@ -879,14 +884,14 @@
   function showView(id) { $('overlay').classList.add('show'); views.forEach((v) => $(v).classList.toggle('show', v === id)); const b = $(id).querySelector('button.primary'); if (b) setTimeout(() => b.focus({ preventScroll: true }), 0); }
   function hideOverlay() { $('overlay').classList.remove('show'); }
   function newGame(day) {
-    initAudio(); hideOverlay(); radioOff(); $('radioTag').style.display = 'none'; $('credits').style.display = 'none'; setEngine(false, 0);
+    CR.on = false; initAudio(); hideOverlay(); radioOff(); $('radioTag').style.display = 'none'; $('credits').style.display = 'none'; setEngine(false, 0);
     if (camera.parent !== scene) { camera.parent.remove(camera); scene.add(camera); }
     curDay = day || 1; beginDay(curDay);
   }
   const origBegin = beginDay;
   function pauseGame() { if (state !== 'play' && state !== 'drive') return; pausedFrom = state; state = 'paused'; for (const k in keys) keys[k] = false; if (document.pointerLockElement) document.exitPointerLock(); showView('vPause'); backTo = 'vPause'; updateTouchUI(); }
   function resumeGame() { state = pausedFrom; hideOverlay(); if (AC && AC.state === 'suspended') AC.resume(); requestLock(); updateTouchUI(); }
-  function toMenu() { state = 'menu'; radioOff(); setEngine(false, 0); $('radioTag').style.display = 'none'; $('credits').style.display = 'none'; setObjective(''); $('sub').classList.remove('on'); $('dot').style.display = 'none'; if (camera.parent !== scene) { camera.parent.remove(camera); scene.add(camera); } fade(0, 0.5); showView('vMain'); backTo = 'vMain'; updateTouchUI(); }
+  function toMenu() { state = 'menu'; CR.on = false; radioOff(); setEngine(false, 0); $('radioTag').style.display = 'none'; $('credits').style.display = 'none'; setObjective(''); $('sub').classList.remove('on'); $('dot').style.display = 'none'; if (camera.parent !== scene) { camera.parent.remove(camera); scene.add(camera); } fade(0, 0.5); showView('vMain'); backTo = 'vMain'; updateTouchUI(); }
   $('bStart').onclick = () => newGame(1); $('bResume').onclick = resumeGame; $('bMenu').onclick = toMenu; $('bMenu2').onclick = toMenu; $('bMenu3').onclick = toMenu; $('bAgain').onclick = () => newGame(1);
   $('bRestartDay').onclick = () => newGame(dayNow()); $('bRetry').onclick = retryChase;
   $('bSet1').onclick = () => { backTo = 'vMain'; showView('vSet'); }; $('bSet2').onclick = () => { backTo = 'vPause'; showView('vSet'); };
@@ -921,7 +926,7 @@
     const cx = camera.getWorldPosition(new V3());
     sun.position.set(cx.x + todCur.dir.x * 120, cx.y + todCur.dir.y * 120, cx.z + todCur.dir.z * 120); sun.target.position.set(cx.x, cx.y, cx.z); sky.position.copy(cx); stars.position.copy(cx);
     updateAmbience(dt, state === 'drive' ? truck.position.x : P.x, state === 'drive' ? truck.position.z : P.z);
-    if (state === 'credits' || (state === 'end' && CR.scene)) { updateCredits(dt); renderer.render(CR.scene, CR.cam); }
+    if ((state === 'credits' || state === 'end') && CR.scene && CR.on) { updateCredits(dt); renderer.render(CR.scene, CR.cam); }
     else renderer.render(scene, camera);
   }
   setTOD('dusk'); fireTarget = 1; fireLevel = 1; firewood.getObjectByName('logs').visible = true; samHome(); fade(0, 1.5);
