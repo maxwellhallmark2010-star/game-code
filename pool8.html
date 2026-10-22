@@ -150,7 +150,7 @@
   const saveS = () => { try { localStorage.setItem('pool8.settings', JSON.stringify(S)); } catch (e) {} };
 
   /* ================= game state ================= */
-  const G = { mode: 'cpu', diff: 'medium', turn: 0, players: [], open: true, balls: [], phase: 'menu', shot: null, inHand: false, kitchen: false, isBreak: true, call: -1, over: false, aim: 0, power: 0.5, ai: null, strike: null, msgT: 0, winner: -1, prev: null, time: 0, lastFoul: false };
+  const G = { mode: 'cpu', diff: 'medium', turn: 0, players: [], open: true, balls: [], phase: 'menu', shot: null, inHand: false, kitchen: false, isBreak: true, call: -1, over: false, aim: 0, power: 0, ai: null, strike: null, msgT: 0, winner: -1, prev: null, time: 0, lastFoul: false };
   function newBalls() {
     const balls = []; for (let i = 0; i < 16; i++) balls.push({ id: i, x: 0, y: 0, vx: 0, vy: 0, potted: false, pocket: -1, rot: 0, a: 0 });
     return balls;
@@ -238,7 +238,7 @@
     return true;
   }
   function launch() {
-    const c = G.balls[0], s = G.strike; c.vx = Math.cos(s.angle) * s.power * VMAX; c.vy = Math.sin(s.angle) * s.power * VMAX; sCue(s.power); G.phase = 'roll'; G.strike = null; G.inHand = false; setPower(0.5); updatePowerUI();
+    const c = G.balls[0], s = G.strike; c.vx = Math.cos(s.angle) * s.power * VMAX; c.vy = Math.sin(s.angle) * s.power * VMAX; sCue(s.power); G.phase = 'roll'; G.strike = null; G.inHand = false; setPower(0); updatePowerUI();
   }
   function resolveShot() {
     const sh = G.shot, p = me(), o = opp(), prev = G.prev, potted = sh.potted, ids = potted.map((x) => x.id);
@@ -286,7 +286,7 @@
     setTimeout(() => beginTurn(false), foul ? 900 : 350);
   }
   function beginTurn(fresh) {
-    G.phase = 'aim'; G.shot = null; G.ai = null; const p = me(), c = G.balls[0];
+    G.phase = 'aim'; G.shot = null; G.ai = null; setPower(0); const p = me(), c = G.balls[0];
     if (c.potted) { c.potted = false; c.pocket = -1; c.vx = c.vy = 0; }
     if (G.inHand) { placeCue(G.kitchen ? { x: HEAD_X, y: CY } : { x: c.x >= L && c.x <= Rr ? c.x : HEAD_X, y: CY }, G.kitchen); }
     if (!G.open && cleared(p)) G.call = defaultCall(); else G.call = -1;
@@ -471,7 +471,7 @@
   let toastT = 0;
   function toast(s, kind) { const t = $('toast'); t.textContent = s; t.className = 'on ' + (kind || ''); clearTimeout(toastT); toastT = setTimeout(() => (t.className = ''), 2400); }
   function setPower(v) { G.power = clamp(v, 0, 1); }
-  function updatePowerUI() { const h = $('power').clientHeight - 12 - 26, y = G.power * h; $('powerHandle').style.top = 6 + y + 'px'; $('powerFill').style.height = (y + 13) + 'px'; $('power').style.opacity = (G.phase === 'aim' && !(me() && me().isAI)) ? 1 : 0.55; }
+  function updatePowerUI() { const h = $('power').clientHeight - 12 - 26, y = G.power * h; $('powerHandle').style.top = 6 + y + 'px'; $('powerFill').style.height = (G.power <= 0.001 ? 0 : y + 13) + 'px'; $('power').style.opacity = (G.phase === 'aim' && !(me() && me().isAI)) ? 1 : 0.55; }
 
   /* ================= input ================= */
   const pt = (e) => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * LW, y: (e.clientY - r.top) / r.height * LH }; };
@@ -491,7 +491,7 @@
   { const pw = $('power'); let drag = false; const set = (e) => { const r = pw.getBoundingClientRect(), h = r.height - 12 - 26; setPower(((e.clientY - r.top) - 6 - 13) / h); updatePowerUI(); };
     pw.addEventListener('pointerdown', (e) => { if (!canAim()) return; drag = true; try { pw.setPointerCapture(e.pointerId); } catch (er) {} set(e); });
     pw.addEventListener('pointermove', (e) => { if (drag) set(e); });
-    const up = () => { if (!drag) return; drag = false; if (G.power > 0.04) shoot(G.aim, G.power); else { setPower(0.5); updatePowerUI(); } };
+    const up = () => { if (!drag) return; drag = false; if (G.power > 0.04) shoot(G.aim, G.power); else { setPower(0); updatePowerUI(); } };
     pw.addEventListener('pointerup', up); pw.addEventListener('pointercancel', () => { drag = false; }); }
   addEventListener('keydown', (e) => {
     if (e.code === 'Escape') { if (G.phase === 'menu') return; if ($('overlay').classList.contains('show')) { if (!$('vPause').classList.contains('show') && backTo === 'vPause') showView('vPause'); else resumeGame(); } else pauseGame(); return; }
@@ -499,7 +499,7 @@
     const fine = e.shiftKey ? 0.0015 : 0.006;
     if (e.code === 'ArrowLeft') { G.aim -= fine; e.preventDefault(); } else if (e.code === 'ArrowRight') { G.aim += fine; e.preventDefault(); }
     else if (e.code === 'ArrowUp') { setPower(G.power - 0.05); updatePowerUI(); e.preventDefault(); } else if (e.code === 'ArrowDown') { setPower(G.power + 0.05); updatePowerUI(); e.preventDefault(); }
-    else if (e.code === 'Space') { e.preventDefault(); shoot(G.aim, G.power < 0.05 ? 0.5 : G.power); }
+    else if (e.code === 'Space') { e.preventDefault(); shoot(G.aim, G.power < 0.05 ? 0.5 : G.power); }                // Space with the bar empty takes a medium shot
   });
 
   /* ================= menus and game flow ================= */
