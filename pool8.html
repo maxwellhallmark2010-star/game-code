@@ -28,12 +28,17 @@
   #turnTxt { font: 700 22px/1.1 var(--disp); letter-spacing: .08em; text-transform: uppercase; }
   #turnSub { font-size: 13px; color: var(--dim); }
   #pauseBtn { position: absolute; right: calc(10px + env(safe-area-inset-right, 0px)); top: calc(80px + env(safe-area-inset-top, 0px)); width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--line); background: rgba(20,33,27,.8); color: var(--fg); font: 700 18px var(--disp); z-index: 4; padding: 0; cursor: pointer; }
-  #stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  #stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 112px 0 72px; }
+  @media (max-height: 520px) { #stage { padding: 0 88px 0 64px; } }
   canvas#cv { display: block; touch-action: none; }
   #power { position: absolute; left: calc(12px + env(safe-area-inset-left, 0px)); top: 50%; transform: translateY(-50%); width: 46px; height: min(74%, 360px); border-radius: 23px; background: rgba(8,14,11,.78); border: 2px solid var(--line); touch-action: none; z-index: 3; }
   #powerFill { position: absolute; left: 6px; right: 6px; top: 6px; border-radius: 17px; background: linear-gradient(#59d16d, #f2c14e 60%, #d9544d); height: 0; pointer-events: none; opacity: .9; }
   #powerHandle { position: absolute; left: -6px; right: -6px; top: 6px; height: 26px; border-radius: 13px; background: #e8dcc0; border: 2px solid #5a4630; box-shadow: 0 2px 6px rgba(0,0,0,.5); pointer-events: none; }
   #powerLbl { position: absolute; left: 50%; bottom: -26px; transform: translateX(-50%); font: 700 14px var(--disp); letter-spacing: .1em; color: var(--dim); white-space: nowrap; }
+  #spin { position: absolute; right: calc(14px + env(safe-area-inset-right, 0px)); top: 50%; transform: translateY(-50%); width: 92px; z-index: 3; text-align: center; touch-action: none; }
+  #spinC { width: 92px; height: 92px; display: block; border-radius: 50%; cursor: crosshair; touch-action: none; }
+  #spin small { display: block; font: 700 13px var(--disp); letter-spacing: .1em; color: var(--dim); margin-top: 3px; }
+  @media (max-height: 520px) { #spin { width: 70px; } #spinC { width: 70px; height: 70px; } }
   #toast { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); background: rgba(10,16,13,.86); border: 1px solid var(--line); border-radius: 10px; padding: 7px 16px; font: 700 20px/1.2 var(--disp); letter-spacing: .06em; text-transform: uppercase; opacity: 0; transition: opacity .25s; pointer-events: none; text-align: center; max-width: 86%; z-index: 3; }
   #toast.on { opacity: 1; } #toast.bad { border-color: var(--red); color: #ffb3ae; } #toast.good { border-color: #59d16d; color: #bff3c8; }
   #hint { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); font-size: 13px; color: var(--dim); pointer-events: none; text-align: center; white-space: nowrap; }
@@ -71,6 +76,7 @@
   <div id="stage">
     <canvas id="cv"></canvas>
     <div id="power" aria-label="Shot power"><div id="powerFill"></div><div id="powerHandle"></div><div id="powerLbl">POWER</div></div>
+    <div id="spin" aria-label="Cue ball spin"><canvas id="spinC" width="184" height="184"></canvas><small>SPIN</small></div>
     <div id="toast"></div>
     <div id="hint">Click and drag on the table to aim. Drag the power bar down and let go to shoot.</div>
   </div>
@@ -99,7 +105,7 @@
   <div class="panel" id="vRules">
     <h2>How to play</h2>
     <div class="rules">
-      <p><b>Aim and shoot.</b> Click and drag on the table (or drag your finger) to aim. The cue stays where you leave it. Pull the power bar down and release to shoot. Arrow keys fine-tune the aim, Up/Down set the power and Space shoots.</p>
+      <p><b>Aim and shoot.</b> Click and drag on the table (or drag your finger) to aim. The cue stays where you leave it. After a scratch the cue is hidden: drag the cue ball where you want it, and the cue comes back when you let go. Pull the power bar down and release to shoot. Click on the <b>spin ball</b> (right side) for top spin, backspin or side spin; double-click it to reset. Arrow keys fine-tune the aim, Up/Down set the power and Space shoots.</p>
       <p><b>The break.</b> The table starts open. Balls potted on the break do not give you a group, and if you pot one you keep shooting.</p>
       <p><b>Choosing your group.</b> On an open table, the first ball you legally pot after the break decides it: potting a solid (1-7) makes you <b>solids</b>, a stripe (9-15) makes you <b>stripes</b>. Your opponent gets the other group.</p>
       <p><b>Keep going.</b> If you legally pot a ball of your group, you shoot again. If not, it's your opponent's turn.</p>
@@ -150,9 +156,9 @@
   const saveS = () => { try { localStorage.setItem('pool8.settings', JSON.stringify(S)); } catch (e) {} };
 
   /* ================= game state ================= */
-  const G = { mode: 'cpu', diff: 'medium', turn: 0, players: [], open: true, balls: [], phase: 'menu', shot: null, inHand: false, kitchen: false, isBreak: true, call: -1, over: false, aim: 0, power: 0, ai: null, strike: null, msgT: 0, winner: -1, prev: null, time: 0, lastFoul: false };
+  const G = { mode: 'cpu', diff: 'medium', turn: 0, players: [], open: true, balls: [], phase: 'menu', shot: null, inHand: false, kitchen: false, isBreak: true, call: -1, over: false, aim: 0, power: 0, spin: { x: 0, y: 0 }, placed: true, pull: 0, ai: null, strike: null, msgT: 0, winner: -1, prev: null, time: 0, lastFoul: false };
   function newBalls() {
-    const balls = []; for (let i = 0; i < 16; i++) balls.push({ id: i, x: 0, y: 0, vx: 0, vy: 0, potted: false, pocket: -1, rot: 0, a: 0 });
+    const balls = []; for (let i = 0; i < 16; i++) balls.push({ id: i, x: 0, y: 0, vx: 0, vy: 0, potted: false, pocket: -1, rot: 0, a: 0, sx: 0, sy: 0 });
     return balls;
   }
   function rack() {
@@ -185,10 +191,14 @@
 
   /* ================= physics ================= */
   function addEvent(type, a, b, v) { if (!G.shot) return; if (type === 'bb') { if (G.shot.first === null && (a === 0 || b === 0)) G.shot.first = a === 0 ? b : a; if (G.shot.first !== null) G.shot.contact = true; sHit(v); } else if (type === 'rail') { if (G.shot.first !== null) G.shot.rail = true; sRail(v); } }
+  function railSpin(b, vn, nx, ny) {                                         // side spin (English) bends the rebound off a cushion
+    if (b.id !== 0 || !b.sx) return; const k = b.sx * 0.42 * vn, tx = -ny, ty = nx; b.vx += tx * k; b.vy += ty * k; b.sx *= 0.55;
+  }
   function stepPhysics(dt) {
     const bs = G.balls;
     for (const b of bs) {
       if (b.potted) continue;
+      if (b.id === 0 && (b.sx || b.sy)) { const d = Math.exp(-dt * 0.45); b.sx *= d; b.sy *= d; }
       const sp = Math.hypot(b.vx, b.vy);
       if (sp > 0) { const ns = Math.max(0, sp - (A_FR + K_FR * sp) * dt); if (ns < STOP_V) { b.vx = b.vy = 0; } else { const f = ns / sp; b.vx *= f; b.vy *= f; } b.rot += sp * dt / R; b.a = Math.atan2(b.vy, b.vx); }
       b.x += b.vx * dt; b.y += b.vy * dt;
@@ -196,10 +206,11 @@
     for (const b of bs) {
       if (b.potted) continue;
       const inV = b.y > T + MC && b.y < B - MC, inH = (b.x > L + MC && b.x < CX - MS) || (b.x > CX + MS && b.x < Rr - MC);
-      if (b.x - R < L && inV) { b.x = L + R; if (b.vx < 0) { addEvent('rail', b.id, -1, -b.vx); b.vx = -b.vx * REST_W; b.vy *= 0.985; } }
-      if (b.x + R > Rr && inV) { b.x = Rr - R; if (b.vx > 0) { addEvent('rail', b.id, -1, b.vx); b.vx = -b.vx * REST_W; b.vy *= 0.985; } }
-      if (b.y - R < T && inH) { b.y = T + R; if (b.vy < 0) { addEvent('rail', b.id, -1, -b.vy); b.vy = -b.vy * REST_W; b.vx *= 0.985; } }
-      if (b.y + R > B && inH) { b.y = B - R; if (b.vy > 0) { addEvent('rail', b.id, -1, b.vy); b.vy = -b.vy * REST_W; b.vx *= 0.985; } }
+      if (b.x - R < L && inV) { b.x = L + R; if (b.vx < 0) { addEvent('rail', b.id, -1, -b.vx); railSpin(b, -b.vx, -1, 0); b.vx = -b.vx * REST_W; b.vy *= 0.985; } }
+      if (b.x + R > Rr && inV) { b.x = Rr - R; if (b.vx > 0) { addEvent('rail', b.id, -1, b.vx); railSpin(b, b.vx, 1, 0); b.vx = -b.vx * REST_W; b.vy *= 0.985; } }
+      if (b.y - R < T && inH) { b.y = T + R; if (b.vy < 0) { addEvent('rail', b.id, -1, -b.vy); railSpin(b, -b.vy, 0, -1); b.vy = -b.vy * REST_W; b.vx *= 0.985; } }
+      if (b.y + R > B && inH) { b.y = B - R; if (b.vy > 0) { addEvent('rail', b.id, -1, b.vy); railSpin(b, b.vy, 0, 1); b.vy = -b.vy * REST_W; b.vx *= 0.985; } }
+      if (b.id === 0 && b.sx && b.railed) { b.railed = false; }
       for (const [tx, ty] of TIPS) {                                           // cushion tips at the pocket mouths
         const dx = b.x - tx, dy = b.y - ty, d = Math.hypot(dx, dy), m = R + 3;
         if (d < m && d > 1e-6) { const nx = dx / d, ny = dy / d; b.x = tx + nx * m; b.y = ty + ny * m; const vn = b.vx * nx + b.vy * ny; if (vn < 0) { b.vx -= 1.6 * vn * nx; b.vy -= 1.6 * vn * ny; b.vx *= 0.9; b.vy *= 0.9; } }
@@ -213,7 +224,11 @@
         if (d2 < m * m && d2 > 1e-9) {
           const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, ov = m - d; a.x -= nx * ov / 2; a.y -= ny * ov / 2; c.x += nx * ov / 2; c.y += ny * ov / 2;
           const rv = (a.vx - c.vx) * nx + (a.vy - c.vy) * ny;
-          if (rv > 0) { const imp = rv * (1 + REST_B) / 2; a.vx -= imp * nx; a.vy -= imp * ny; c.vx += imp * nx; c.vy += imp * ny; addEvent('bb', a.id, c.id, rv); }
+          if (rv > 0) {
+            const cue = a.id === 0 ? a : c.id === 0 ? c : null; let pdx = 0, pdy = 0; if (cue) { const sp0 = Math.hypot(cue.vx, cue.vy) || 1; pdx = cue.vx / sp0; pdy = cue.vy / sp0; }
+            const imp = rv * (1 + REST_B) / 2; a.vx -= imp * nx; a.vy -= imp * ny; c.vx += imp * nx; c.vy += imp * ny;
+            if (cue && (cue.sy || cue.sx)) { const k = rv * cue.sy * 0.62; cue.vx += pdx * k; cue.vy += pdy * k; cue.sy *= 0.2; cue.sx *= 0.65; }       // follow pushes the cue ball on, draw pulls it back
+            addEvent('bb', a.id, c.id, rv); }
         }
       }
     }
@@ -238,7 +253,7 @@
     return true;
   }
   function launch() {
-    const c = G.balls[0], s = G.strike; c.vx = Math.cos(s.angle) * s.power * VMAX; c.vy = Math.sin(s.angle) * s.power * VMAX; sCue(s.power); G.phase = 'roll'; G.strike = null; G.inHand = false; setPower(0); updatePowerUI();
+    const c = G.balls[0], s = G.strike; c.vx = Math.cos(s.angle) * s.power * VMAX; c.vy = Math.sin(s.angle) * s.power * VMAX; c.sx = G.spin.x; c.sy = G.spin.y; c.vx *= 1 - Math.abs(c.sy) * 0.06; c.vy *= 1 - Math.abs(c.sy) * 0.06; G.spin.x = 0; G.spin.y = 0; drawSpin(); sCue(s.power); G.phase = 'roll'; G.strike = null; G.inHand = false; setPower(0); updatePowerUI();
   }
   function resolveShot() {
     const sh = G.shot, p = me(), o = opp(), prev = G.prev, potted = sh.potted, ids = potted.map((x) => x.id);
@@ -286,7 +301,7 @@
     setTimeout(() => beginTurn(false), foul ? 900 : 350);
   }
   function beginTurn(fresh) {
-    G.phase = 'aim'; G.shot = null; G.ai = null; setPower(0); const p = me(), c = G.balls[0];
+    G.phase = 'aim'; G.shot = null; G.ai = null; setPower(0); const p = me(), c = G.balls[0]; G.placed = !G.inHand || p.isAI;
     if (c.potted) { c.potted = false; c.pocket = -1; c.vx = c.vy = 0; }
     if (G.inHand) { placeCue(G.kitchen ? { x: HEAD_X, y: CY } : { x: c.x >= L && c.x <= Rr ? c.x : HEAD_X, y: CY }, G.kitchen); }
     if (!G.open && cleared(p)) G.call = defaultCall(); else G.call = -1;
@@ -368,7 +383,7 @@
   /* ================= rendering ================= */
   const cv = $('cv'), ctx = cv.getContext('2d'); let SC = 1, tableCv = null, sprites = {};
   function resize() {
-    const st = $('stage').getBoundingClientRect(), s = Math.min(st.width / LW, st.height / LH) * 0.995, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const st = $('stage').getBoundingClientRect(), cs = getComputedStyle($('stage')), sw = st.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), sh = st.height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom), s = Math.min(sw / LW, sh / LH) * 0.995, dpr = Math.min(window.devicePixelRatio || 1, 2);
     SC = s; cv.style.width = Math.floor(LW * s) + 'px'; cv.style.height = Math.floor(LH * s) + 'px'; cv.width = Math.floor(LW * s * dpr); cv.height = Math.floor(LH * s * dpr); cv.k = cv.width / LW;
     tableCv = null; sprites = {};
   }
@@ -422,8 +437,7 @@
   }
   function drawAim() {
     const c = G.balls[0]; if (c.potted) return; const dx = Math.cos(G.aim), dy = Math.sin(G.aim), strike = G.strike;
-    const pull = strike ? (1 - clamp(strike.t / 0.1, 0, 1)) * strike.power * 90 : G.power * 90;
-    if (S.guide && !strike) {
+    const pull = G.pull;    if (S.guide && !strike) {
       const h = cast(c.x, c.y, dx, dy), ex = c.x + dx * h.t, ey = c.y + dy * h.t;
       ctx.save(); ctx.setLineDash([7, 7]); ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(c.x + dx * R, c.y + dy * R); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
       ctx.beginPath(); ctx.arc(ex, ey, R, 0, 6.283); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.stroke();
@@ -450,9 +464,25 @@
       if (G.inHand && (G.phase === 'aim' || G.phase === 'ai')) { ctx.save(); ctx.globalAlpha = 0.9; ctx.strokeStyle = '#f2c14e'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.beginPath(); ctx.arc(c.x, c.y, R + 8 + Math.sin(G.time * 5) * 1.5, 0, 6.283); ctx.stroke(); ctx.restore(); if (G.kitchen) { ctx.fillStyle = 'rgba(242,193,78,0.07)'; ctx.fillRect(L, T, HEAD_X - L, TH); } }
       drawBall(c);
     }
-    if ((G.phase === 'aim' || G.phase === 'strike') && c && !c.potted) drawAim();
+    if ((G.phase === 'aim' || G.phase === 'strike') && c && !c.potted && G.placed && !dragCue) drawAim();
     drawCall();
   }
+
+  /* ================= spin selector ================= */
+  const spC = $('spinC'), spX = spC.getContext('2d');
+  function drawSpin() {
+    const w = spC.width, c = w / 2, r = c - 4; spX.clearRect(0, 0, w, w);
+    const g = spX.createRadialGradient(c - r * 0.3, c - r * 0.35, r * 0.1, c, c, r); g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#cfcfc6'); spX.fillStyle = g; spX.beginPath(); spX.arc(c, c, r, 0, 6.283); spX.fill();
+    spX.strokeStyle = 'rgba(0,0,0,0.35)'; spX.lineWidth = 3; spX.stroke(); spX.strokeStyle = 'rgba(0,0,0,0.18)'; spX.lineWidth = 2;
+    spX.beginPath(); spX.moveTo(c, 10); spX.lineTo(c, w - 10); spX.moveTo(10, c); spX.lineTo(w - 10, c); spX.stroke(); spX.beginPath(); spX.arc(c, c, r * 0.5, 0, 6.283); spX.stroke();
+    spX.fillStyle = 'rgba(0,0,0,0.35)'; spX.font = '700 20px Barlow Condensed, sans-serif'; spX.textAlign = 'center'; spX.fillText('TOP', c, 26); spX.fillText('BACK', c, w - 14);
+    const x = c + G.spin.x * r * 0.88, y = c - G.spin.y * r * 0.88; spX.fillStyle = '#d23a32'; spX.strokeStyle = '#6d120e'; spX.lineWidth = 3; spX.beginPath(); spX.arc(x, y, 13, 0, 6.283); spX.fill(); spX.stroke();
+    spC.style.opacity = (G.phase === 'aim' && me() && !me().isAI) ? 1 : 0.5;
+  }
+  { let drag = false; const set = (e) => { const r = spC.getBoundingClientRect(); let x = ((e.clientX - r.left) / r.width - 0.5) * 2 / 0.88, y = -((e.clientY - r.top) / r.height - 0.5) * 2 / 0.88; const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; } if (l < 0.08) { x = 0; y = 0; } G.spin.x = x; G.spin.y = y; drawSpin(); };
+    spC.addEventListener('pointerdown', (e) => { if (!(G.phase === 'aim' && !me().isAI)) return; drag = true; try { spC.setPointerCapture(e.pointerId); } catch (er) {} set(e); e.stopPropagation(); });
+    spC.addEventListener('pointermove', (e) => { if (drag) set(e); }); const up = () => { drag = false; }; spC.addEventListener('pointerup', up); spC.addEventListener('pointercancel', up);
+    spC.addEventListener('dblclick', () => { G.spin.x = G.spin.y = 0; drawSpin(); }); }
 
   /* ================= HUD ================= */
   function miniBall(id, gone) { const d = document.createElement('div'); d.className = 'mb' + (gone ? ' gone' : ''); const col = COLORS[id > 8 ? id - 8 : id]; d.style.background = id > 8 ? 'linear-gradient(transparent 22%, ' + col + ' 22% 78%, transparent 78%), #f4f4ee' : col; d.style.color = id === 8 || id === 2 || id === 4 || id === 7 ? '#fff' : '#111'; if (id > 8) d.style.color = '#111'; d.textContent = id; return d; }
@@ -466,12 +496,12 @@
     const p = me(); if (!p) return;
     $('turnTxt').textContent = G.phase === 'over' ? 'Game over' : (p.isAI ? p.name + ' is playing' : (p.name === 'You' ? 'Your turn' : p.name + "'s turn"));
     $('turnSub').textContent = G.phase === 'over' ? '' : G.isBreak ? 'Break shot' : (!G.open && cleared(p)) ? 'Shoot the 8 ball' : G.inHand ? 'Ball in hand' : '';
-    updatePowerUI();
+    updatePowerUI(); drawSpin();
   }
   let toastT = 0;
   function toast(s, kind) { const t = $('toast'); t.textContent = s; t.className = 'on ' + (kind || ''); clearTimeout(toastT); toastT = setTimeout(() => (t.className = ''), 2400); }
   function setPower(v) { G.power = clamp(v, 0, 1); }
-  function updatePowerUI() { const h = $('power').clientHeight - 12 - 26, y = G.power * h; $('powerHandle').style.top = 6 + y + 'px'; $('powerFill').style.height = (G.power <= 0.001 ? 0 : y + 13) + 'px'; $('power').style.opacity = (G.phase === 'aim' && !(me() && me().isAI)) ? 1 : 0.55; }
+  function updatePowerUI() { drawSpin(); const h = $('power').clientHeight - 12 - 26, y = G.power * h; $('powerHandle').style.top = 6 + y + 'px'; $('powerFill').style.height = (G.power <= 0.001 ? 0 : y + 13) + 'px'; $('power').style.opacity = (G.phase === 'aim' && !(me() && me().isAI)) ? 1 : 0.55; }
 
   /* ================= input ================= */
   const pt = (e) => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * LW, y: (e.clientY - r.top) / r.height * LH }; };
@@ -479,7 +509,8 @@
   cv.addEventListener('pointerdown', (e) => {
     if (!canAim()) return; const p = pt(e), c = G.balls[0]; try { cv.setPointerCapture(e.pointerId); } catch (er) {}
     if (G.call >= 0) { let bk = -1, bd = 60; POCKETS.forEach((q, k) => { const d = Math.hypot(p.x - q.x, p.y - q.y); if (d < bd) { bd = d; bk = k; } }); if (bk >= 0) { G.call = bk; return; } }
-    if (G.inHand && Math.hypot(p.x - c.x, p.y - c.y) < 34) { dragCue = true; return; }
+    if (G.inHand && Math.hypot(p.x - c.x, p.y - c.y) < 34) { dragCue = true; G.placed = false; return; }
+    if (!G.placed) G.placed = true;                                          // clicking elsewhere accepts the current spot
     dragAim = true; G.aim = Math.atan2(p.y - c.y, p.x - c.x);
   });
   cv.addEventListener('pointermove', (e) => {
@@ -487,16 +518,16 @@
     if (dragCue) { const x = clamp(p.x, L + R, G.kitchen ? HEAD_X : Rr - R), y = clamp(p.y, T + R, B - R); if (validCuePos(x, y, G.kitchen)) { c.x = x; c.y = y; } return; }
     if (dragAim) G.aim = Math.atan2(p.y - c.y, p.x - c.x);                  // only while you hold the button: moving to the power bar never swings the cue
   });
-  const endDrag = () => { dragCue = false; dragAim = false; }; cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
+  const endDrag = () => { if (dragCue) G.placed = true; dragCue = false; dragAim = false; }; cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
   { const pw = $('power'); let drag = false; const set = (e) => { const r = pw.getBoundingClientRect(), h = r.height - 12 - 26; setPower(((e.clientY - r.top) - 6 - 13) / h); updatePowerUI(); };
-    pw.addEventListener('pointerdown', (e) => { if (!canAim()) return; drag = true; try { pw.setPointerCapture(e.pointerId); } catch (er) {} set(e); });
+    pw.addEventListener('pointerdown', (e) => { if (!canAim()) return; G.placed = true; drag = true; try { pw.setPointerCapture(e.pointerId); } catch (er) {} set(e); });
     pw.addEventListener('pointermove', (e) => { if (drag) set(e); });
     const up = () => { if (!drag) return; drag = false; if (G.power > 0.04) shoot(G.aim, G.power); else { setPower(0); updatePowerUI(); } };
     pw.addEventListener('pointerup', up); pw.addEventListener('pointercancel', () => { drag = false; }); }
   addEventListener('keydown', (e) => {
     if (e.code === 'Escape') { if (G.phase === 'menu') return; if ($('overlay').classList.contains('show')) { if (!$('vPause').classList.contains('show') && backTo === 'vPause') showView('vPause'); else resumeGame(); } else pauseGame(); return; }
     if (!canAim() || $('overlay').classList.contains('show')) return;
-    const fine = e.shiftKey ? 0.0015 : 0.006;
+    G.placed = true; const fine = e.shiftKey ? 0.0015 : 0.006;
     if (e.code === 'ArrowLeft') { G.aim -= fine; e.preventDefault(); } else if (e.code === 'ArrowRight') { G.aim += fine; e.preventDefault(); }
     else if (e.code === 'ArrowUp') { setPower(G.power - 0.05); updatePowerUI(); e.preventDefault(); } else if (e.code === 'ArrowDown') { setPower(G.power + 0.05); updatePowerUI(); e.preventDefault(); }
     else if (e.code === 'Space') { e.preventDefault(); shoot(G.aim, G.power < 0.05 ? 0.5 : G.power); }                // Space with the bar empty takes a medium shot
@@ -527,7 +558,8 @@
   function frame(dt) {
     G.time += dt;
     if (G.paused || G.phase === 'menu') return;
-    if (G.phase === 'strike') { G.strike.t += dt; G.power = G.strike.power * (1 - clamp(G.strike.t / 0.1, 0, 1)); updatePowerUI(); if (G.strike.t >= 0.1) launch(); }
+    if (G.phase !== 'strike') G.pull += (G.power * 150 - G.pull) * (1 - Math.exp(-dt * 24));   // the stick eases back as you drag the slider
+    if (G.phase === 'strike') { G.strike.t += dt; const k = clamp(G.strike.t / 0.12, 0, 1); G.power = G.strike.power * (1 - k * k); G.pull = G.strike.power * 150 * (1 - k * k * k); updatePowerUI(); if (G.strike.t >= 0.12) { G.pull = 0; launch(); } }
     else if (G.phase === 'roll') {
       const sub = 6, h = dt / sub; for (let i = 0; i < sub; i++) stepPhysics(h);
       if (!moving()) { G.phase = 'resolve'; setTimeout(() => { if (G.phase === 'resolve') resolveShot(); }, 250); }
