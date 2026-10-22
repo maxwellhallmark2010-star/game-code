@@ -887,26 +887,76 @@
 
   // ----- Monster 3: the Crawler. Very rare. On all fours, ribs showing, antler-like growths on its head. Slower than you; one touch kills. -----
   function makeCrawler() {
-    const g = new THREE.Group(), skin = new THREE.MeshStandardMaterial({ color: lin(0xa89c8c), roughness: 0.75 }), dark = new THREE.MeshStandardMaterial({ color: lin(0x0e0c0b), roughness: 0.6 });
-    const body = new THREE.Group(); body.position.y = 0.62; g.add(body);
-    const tg = new THREE.CylinderGeometry(0.15, 0.11, 0.85, 14); tg.rotateX(Math.PI / 2); const torso = new THREE.Mesh(tg, skin); torso.rotation.x = 0.18; body.add(torso);
-    for (let k = 0; k < 7; k++) { const r = new THREE.Mesh(new THREE.TorusGeometry(0.15 - k * 0.006, 0.012, 6, 20, Math.PI * 1.15), dark); r.position.set(0, -0.02, 0.28 - k * 0.07); r.rotation.z = Math.PI * 0.93; body.add(r); }
-    const head = new THREE.Group(); head.position.set(0, 0.02, 0.5); body.add(head); blob(head, skin, 0.1, 0.09, 0.12, 0, 0, 0); blob(head, dark, 0.035, 0.02, 0.01, -0.035, 0.0, 0.115); blob(head, dark, 0.035, 0.02, 0.01, 0.035, 0.0, 0.115);
-    const branch = (parent, len, r, depth) => {                              // antler-like spikes
-      const m = new THREE.Mesh(hangGeo(r, r * 0.55, len), dark); m.rotation.x = Math.PI; parent.add(m);
+    // A starved human on hands and knees: back arched with the hips high, head hanging low with branching spikes growing out of it,
+    // ribs showing through the chest, arms reaching down to the floor, shins lying back with the feet raised.
+    const g = new THREE.Group(), skin = new THREE.MeshStandardMaterial({ color: lin(0x9d9387), roughness: 0.78 }), dark = new THREE.MeshStandardMaterial({ color: lin(0x0d0b0a), roughness: 0.55 });
+    const bones = [], joints = [];
+    const bone = (a, b, ra, rb, mat) => { const geo = new THREE.CylinderGeometry(rb, ra, 1, 12, 1); geo.translate(0, 0.5, 0); const m = new THREE.Mesh(geo, mat || skin); g.add(m); bones.push({ m, a, b }); return m; };
+    const joint = (k, sx, sy, sz, mat) => { const m = new THREE.Mesh(sphG, mat || skin); m.scale.set(sx, sy === undefined ? sx : sy, sz === undefined ? sx : sz); g.add(m); joints.push({ m, k }); return m; };
+    bone('hip', 'mid', 0.1, 0.105); bone('mid', 'sh', 0.105, 0.115); bone('sh', 'neck', 0.055, 0.042); bone('neck', 'head', 0.042, 0.04);
+    joint('hip', 0.12, 0.1, 0.11); joint('mid', 0.1, 0.09, 0.1); joint('sh', 0.15, 0.08, 0.1);
+    for (const s of ['L', 'R']) {
+      bone('sh' + s, 'el' + s, 0.038, 0.03); bone('el' + s, 'ha' + s, 0.03, 0.022); joint('sh' + s, 0.045); joint('el' + s, 0.032);
+      bone('hp' + s, 'kn' + s, 0.062, 0.045); bone('kn' + s, 'an' + s, 0.042, 0.028); bone('an' + s, 'to' + s, 0.03, 0.02); joint('hp' + s, 0.065); joint('kn' + s, 0.047); joint('an' + s, 0.03);
+    }
+    // hands: flat palms with long fingers splayed on the carpet
+    const hands = ['L', 'R'].map(() => {
+      const h = new THREE.Group(); g.add(h); blob(h, skin, 0.035, 0.012, 0.045, 0, 0, 0.02);
+      for (let k = 0; k < 5; k++) { const f = new THREE.Mesh(limbGeo(0.007, 0.004, k === 0 ? 0.05 : 0.085), skin); f.rotation.y = Math.PI + (k - 2) * 0.28; f.position.set((k - 2) * 0.013, -0.004, 0.05); h.add(f); }
+      return h;
+    });
+    // ribs: dark bars wrapping the underside of the chest
+    const ribs = new THREE.Group(); g.add(ribs);
+    for (let k = 0; k < 7; k++) { const r = new THREE.Mesh(new THREE.TorusGeometry(0.118 - Math.abs(k - 2) * 0.006, 0.011, 6, 18, Math.PI * 1.25), dark); r.rotation.set(Math.PI / 2, 0, Math.PI * 1.62); r.position.y = 0.04 + k * 0.045; ribs.add(r); }
+    blob(ribs, dark, 0.07, 0.13, 0.05, 0, 0.17, 0.07);                     // the hollow between the ribs
+    // spine knuckles along the back
+    const spine = []; for (let k = 0; k < 9; k++) spine.push(joint('sp' + k, 0.022, 0.018, 0.022));
+    // head: skull hanging low, empty eyes, open jaw, and the branching growths
+    const head = new THREE.Group(); g.add(head);
+    blob(head, skin, 0.085, 0.095, 0.105, 0, 0, 0); blob(head, skin, 0.06, 0.03, 0.07, 0, -0.07, 0.03);
+    blob(head, dark, 0.024, 0.02, 0.012, -0.033, 0.01, 0.098); blob(head, dark, 0.024, 0.02, 0.012, 0.033, 0.01, 0.098); blob(head, dark, 0.03, 0.012, 0.02, 0, -0.06, 0.085);
+    const branch = (parent, len, r, depth) => {
+      const m = new THREE.Mesh(hangGeo(r, r * 0.5, len), dark); m.rotation.x = Math.PI; parent.add(m);
       if (depth >= 2) return;
-      for (let k = 0; k < 2; k++) { const s = new THREE.Group(); s.position.y = len * (0.55 + k * 0.35); s.rotation.set((Math.random() - 0.5) * 1.2, 0, (k ? 1 : -1) * (0.5 + Math.random() * 0.5)); parent.add(s); branch(s, len * 0.6, r * 0.6, depth + 1); }
+      const n = 2 + (Math.random() < 0.4 ? 1 : 0);
+      for (let k = 0; k < n; k++) { const s = new THREE.Group(); s.position.y = len * (0.4 + k * 0.25); s.rotation.set((Math.random() - 0.5) * 1.1, Math.random() * 6.28, (Math.random() < 0.5 ? -1 : 1) * (0.45 + Math.random() * 0.5)); parent.add(s); branch(s, len * 0.55, r * 0.62, depth + 1); }
     };
-    for (let k = 0; k < 6; k++) { const s = new THREE.Group(); s.position.set((k - 2.5) * 0.03, 0.06, -0.02); s.rotation.set(-0.5 - Math.random() * 0.4, 0, (k - 2.5) * 0.28); head.add(s); branch(s, 0.24 + Math.random() * 0.12, 0.012, 0); }
-    const limb = (x, z, l1, l2, out) => {
-      const a = new THREE.Group(); a.position.set(x, 0, z); body.add(a); a.rotation.z = out; a.add(new THREE.Mesh(hangGeo(0.04, 0.03, l1), skin));
-      const b = new THREE.Group(); b.position.y = -l1; a.add(b); b.add(new THREE.Mesh(hangGeo(0.03, 0.022, l2), skin)); return { a, b };
-    };
-    const limbs = [limb(-0.15, 0.32, 0.42, 0.45, -0.5), limb(0.15, 0.32, 0.42, 0.45, 0.5), limb(-0.12, -0.32, 0.45, 0.5, -0.65), limb(0.12, -0.32, 0.45, 0.5, 0.65)];
+    for (let k = 0; k < 10; k++) {
+      const s = new THREE.Group(), a = (k / 10) * Math.PI - Math.PI / 2;
+      s.position.set(Math.sin(a) * 0.06, 0.07, -0.02 + Math.cos(a) * 0.02); s.rotation.set(-0.35 + Math.random() * 0.5, 0, Math.sin(a) * 0.75 + (Math.random() - 0.5) * 0.3); head.add(s);
+      branch(s, 0.3 + Math.random() * 0.2, 0.011, 0);
+    }
     g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    g.userData = { limbs, body, head }; g.visible = false; scene.add(g); return g;
+    g.userData = { bones, joints, hands, ribs, spine, head }; g.visible = false; scene.add(g); return g;
+  }
+  const _a = new V3(), _b = new V3(), _q = new THREE.Quaternion(), _Y = new V3(0, 1, 0);
+  function crawlerPose(U, ph) {
+    const pt = {}, set = (k, x, y, z) => (pt[k] = new V3(x, y, z)), bob = Math.abs(Math.sin(ph)) * 0.02;
+    set('hip', 0, 0.68 + bob, -0.36); set('mid', 0, 0.66 + bob, -0.04); set('sh', 0, 0.5 + bob, 0.27);
+    set('neck', 0, 0.44 + bob, 0.38); set('head', Math.sin(ph * 0.5) * 0.03, 0.33 + bob, 0.5);
+    [['L', -1, 0], ['R', 1, Math.PI]].forEach(([s, x, off]) => {
+      const fa = ph + off, ba = ph + off + Math.PI;                          // diagonal gait: front left with back right
+      set('sh' + s, x * 0.17, 0.5 + bob, 0.27);
+      set('ha' + s, x * 0.21, 0.025 + Math.max(0, Math.cos(fa)) * 0.07, 0.52 + Math.sin(fa) * 0.14);
+      set('el' + s, x * 0.28, 0.3 + bob, 0.36 + Math.sin(fa) * 0.06);   // elbows bent out like a spider
+      set('hp' + s, x * 0.1, 0.66 + bob, -0.38);
+      set('kn' + s, x * 0.15, 0.06 + Math.max(0, Math.cos(ba)) * 0.05, -0.14 + Math.sin(ba) * 0.1);
+      set('an' + s, x * 0.14, 0.12, -0.6 + Math.sin(ba) * 0.08);
+      set('to' + s, x * 0.14, 0.26, -0.66 + Math.sin(ba) * 0.08);          // feet up
+    });
+    for (let k = 0; k < 9; k++) { const t = k / 8, a = pt.hip.clone().lerp(pt.mid, Math.min(1, t * 2)).lerp(pt.sh, Math.max(0, t * 2 - 1)); pt['sp' + k] = a.add(new V3(0, 0.1 - t * 0.02, 0)); }
+    for (const b of U.bones) {
+      _a.copy(pt[b.a]); _b.copy(pt[b.b]).sub(_a); const len = Math.max(1e-4, _b.length());
+      b.m.position.copy(_a); b.m.quaternion.setFromUnitVectors(_Y, _b.divideScalar(len)); b.m.scale.set(1, len, 1);
+    }
+    for (const j of U.joints) j.m.position.copy(pt[j.k]);
+    U.hands.forEach((h, i) => { const s = i ? 'R' : 'L'; h.position.copy(pt['ha' + s]); h.rotation.y = (i ? -1 : 1) * 0.25; });
+    // ribcage follows the chest
+    _b.copy(pt.sh).sub(pt.mid).normalize(); U.ribs.position.copy(pt.mid); U.ribs.quaternion.setFromUnitVectors(_Y, _b);
+    U.head.position.copy(pt.head); U.head.rotation.set(0.55 + Math.sin(ph * 0.7) * 0.08, 0, Math.sin(ph * 0.5) * 0.15);
   }
   const CR = { mesh: makeCrawler(), on: false, x: 0, z: 0, life: 0, phase: 0, click: 0, yaw: 0 };
+  crawlerPose(CR.mesh.userData, 0);
   function spawnCrawler() {
     updateField(); const cands = [];
     for (let c = 0; c < N * N; c++) { if (field[c] < 8 || field[c] > 15) continue; const [x, z] = cellCenter(c); if (!blocked(P.x, P.z, x, z)) continue; cands.push([x, z]); }
@@ -925,8 +975,7 @@
     const cc = collide(CR.x, CR.z, 0.32); CR.x = cc[0]; CR.z = cc[1];
     CR.yaw += wrapAngle(Math.atan2(dx, dz) - CR.yaw) * Math.min(1, dt * 6); CR.phase += dt * 7.5;
     CR.mesh.position.set(CR.x, 0, CR.z); CR.mesh.rotation.y = CR.yaw;
-    const U = CR.mesh.userData; U.body.position.y = 0.6 + Math.abs(Math.sin(CR.phase)) * 0.04; U.head.rotation.z = Math.sin(CR.phase * 0.5) * 0.25;
-    U.limbs.forEach((L, i) => { const s = Math.sin(CR.phase + (i === 0 || i === 3 ? 0 : Math.PI)); L.a.rotation.x = s * 0.55 + (i < 2 ? 0.35 : -0.25); L.b.rotation.x = (i < 2 ? -0.9 : 0.9) + Math.max(0, s) * 0.4 * (i < 2 ? -1 : 1); });
+    crawlerPose(CR.mesh.userData, CR.phase);
     CR.click -= dt; if (CR.click <= 0) { CR.click = 0.16 + Math.random() * 0.2; crawlClick(CR.x - P.x, CR.z - P.z); }
     if (d < 0.85) die('The Crawler');
   }
@@ -1189,7 +1238,7 @@
   (function () { const c = $('grain'), x = c.getContext('2d'), id = x.createImageData(160, 160); for (let i = 0; i < id.data.length; i += 4) { const v = Math.random() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; } x.putImageData(id, 0, 0); c.style.width = '100%'; c.style.height = '100%'; c.style.imageRendering = 'pixelated'; })();
 
   applyQuality(); buildWorld((Math.random() * 1e9) | 0); resetPlayer(); showView('vMain');
-  window.__br = { ST, CR, orgs, damage, get stress() { return stress; }, placeStalker, spawnCrawler, addOrganism, joy, get tSprint() { return tSprint; }, updateTouchUI, get usePost() { return usePost; }, get rscale() { return rscale; }, applyQuality, camera, renderer, scene, P, keys, vm, vmHand, body, bodyArms, legs, beam, torch, pool, S, get raise() { return raise; }, get world() { return world; }, get state() { return state; }, get flashOn() { return flashOn; }, startGame, pauseGame, resumeGame, collide, wallDist, fingerCount: () => [bodyArms[0].hand.userData.digitCount(), vmHand.userData.digitCount(), bodyArms[1].hand.userData.digitCount()] };
+  window.__br = { crawlerPose, ST, CR, orgs, damage, get stress() { return stress; }, placeStalker, spawnCrawler, addOrganism, joy, get tSprint() { return tSprint; }, updateTouchUI, get usePost() { return usePost; }, get rscale() { return rscale; }, applyQuality, camera, renderer, scene, P, keys, vm, vmHand, body, bodyArms, legs, beam, torch, pool, S, get raise() { return raise; }, get world() { return world; }, get state() { return state; }, get flashOn() { return flashOn; }, startGame, pauseGame, resumeGame, collide, wallDist, fingerCount: () => [bodyArms[0].hand.userData.digitCount(), vmHand.userData.digitCount(), bodyArms[1].hand.userData.digitCount()] };
   loop();
 })();
 </script>
