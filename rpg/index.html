@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- page:start -->
+<title>Greywater Hollow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:wght@400;500;700&family=IM+Fell+English+SC&display=swap">
+<style>
+/* Layout: full-bleed canvas world; HUD pinned to corners; one centred "ledger" sheet for menus. */
+:root {
+  --ink: #101215;          /* night ground behind the world */
+  --iron: #1b1e22;         /* panel surface */
+  --iron-2: #252a2f;       /* raised rows */
+  --rivet: #3c434a;        /* hairlines */
+  --bone: #e8e1d1;         /* main text */
+  --ash: #a39c8c;          /* secondary text */
+  --brass: #c99b4d;        /* accent: gold, quest marks, focus */
+  --blood: #b8443a;        /* health */
+  --moss: #6a9a55;         /* stamina */
+  --grain: #c7883a;        /* hunger */
+  --font-display: "IM Fell English SC", "Iowan Old Style", Georgia, serif;
+  --font-body: "Alegreya Sans", "Gill Sans", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; overflow: hidden; background: var(--ink); color: var(--bone);
+  font: 15px/1.45 var(--font-body); -webkit-user-select: none; user-select: none;
+  touch-action: none;
+}
+#game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; background: var(--ink); }
+
+#hud { position: fixed; inset: 0; pointer-events: none; }
+.hud-tl { position: absolute; left: 14px; top: calc(12px + env(safe-area-inset-top, 0px)); display: grid; gap: 6px; width: min(230px, 46vw); }
+.bar { position: relative; height: 16px; background: rgba(0,0,0,.55); border: 1px solid var(--rivet); border-radius: 3px; overflow: hidden; }
+.bar .fill { position: absolute; inset: 0 auto 0 0; width: 100%; }
+.bar.hp .fill { background: var(--blood); }
+.bar.st .fill { background: var(--moss); }
+.bar.hu .fill { background: var(--grain); }
+.bar label { position: relative; display: flex; justify-content: space-between; padding: 0 6px; font-size: 11px; line-height: 16px; letter-spacing: .06em; text-transform: uppercase; color: var(--bone); text-shadow: 0 1px 2px #000; }
+.lvl { font-size: 12px; color: var(--ash); letter-spacing: .04em; text-shadow: 0 1px 2px #000; }
+.lvl b { color: var(--brass); font-weight: 700; }
+.xp { height: 3px; background: rgba(0,0,0,.5); border-radius: 2px; overflow: hidden; }
+.xp span { display: block; height: 100%; background: var(--brass); width: 0; }
+
+.hud-tr { position: absolute; right: 14px; top: calc(12px + env(safe-area-inset-top, 0px)); display: grid; justify-items: end; gap: 6px; }
+#clock { font: 18px/1 var(--font-display); text-shadow: 0 1px 3px #000; }
+#coins { font-size: 13px; color: var(--brass); text-shadow: 0 1px 2px #000; font-variant-numeric: tabular-nums; }
+#minimap { width: 128px; height: 128px; border: 1px solid var(--rivet); border-radius: 3px; background: #000; image-rendering: pixelated; }
+
+#quest-track { position: absolute; left: 14px; top: calc(120px + env(safe-area-inset-top, 0px)); max-width: min(260px, 60vw); font-size: 13px; color: var(--bone); text-shadow: 0 1px 2px #000; }
+#quest-track .qt { font-family: var(--font-display); color: var(--brass); font-size: 14px; }
+
+#log { position: absolute; left: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 2px; max-width: min(460px, 70vw); font-size: 13px; text-shadow: 0 1px 2px #000, 0 0 6px #000; }
+#log div { transition: opacity .6s; }
+#prompt { position: absolute; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: rgba(16,18,21,.8); border: 1px solid var(--rivet); border-radius: 3px; padding: 4px 10px; font-size: 13px; white-space: nowrap; }
+#prompt kbd, .sheet kbd { font: 700 11px/1 var(--font-body); color: var(--ink); background: var(--brass); padding: 2px 5px; border-radius: 2px; }
+
+.toolbar { position: absolute; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 6px; pointer-events: auto; }
+button { font: 500 14px var(--font-body); color: var(--bone); background: var(--iron-2); border: 1px solid var(--rivet); border-radius: 3px; padding: 6px 10px; cursor: pointer; }
+button:hover { border-color: var(--brass); }
+button:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
+button:disabled { opacity: .45; cursor: default; border-color: var(--rivet); }
+button.primary { background: var(--brass); color: var(--ink); border-color: var(--brass); font-weight: 700; }
+
+#panel { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(6,7,9,.6); padding: 16px; }
+.sheet { width: min(560px, 100%); max-height: min(82vh, 100%); overflow: auto; background: var(--iron); border: 1px solid var(--rivet); border-radius: 4px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(0,0,0,.6); -webkit-user-select: text; user-select: text; }
+.sheet h2 { font: 28px/1.1 var(--font-display); margin: 0 0 4px; color: var(--bone); text-wrap: balance; }
+.sheet h3 { font: 13px/1.2 var(--font-body); text-transform: uppercase; letter-spacing: .1em; color: var(--ash); margin: 18px 0 8px; }
+.sheet p { margin: 0 0 10px; max-width: 62ch; }
+.sheet .sub { color: var(--ash); margin-bottom: 14px; }
+.speech { font-size: 17px; line-height: 1.5; border-left: 2px solid var(--brass); padding-left: 12px; }
+.opts { display: grid; gap: 6px; margin-top: 14px; }
+.opts button { text-align: left; }
+.rows { display: grid; gap: 4px; }
+.row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; background: var(--iron-2); border-radius: 3px; padding: 7px 10px; }
+.row .nm { font-weight: 700; }
+.row .ds { color: var(--ash); font-size: 13px; }
+.row .acts { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.row .acts button { padding: 4px 8px; font-size: 13px; }
+.row > div { min-width: 0; }
+.tag { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--brass); margin-left: 6px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px; font-variant-numeric: tabular-nums; }
+.stats div { background: var(--iron-2); padding: 6px 10px; border-radius: 3px; }
+.stats b { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ash); font-weight: 500; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 14px; }
+.foot { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 560px) { .cols { grid-template-columns: 1fr; } }
+
+#touch { position: fixed; inset: 0; pointer-events: none; display: none; }
+@media (pointer: coarse) {
+  #touch { display: block; }
+  .toolbar { bottom: auto; top: calc(178px + env(safe-area-inset-top, 0px)); flex-direction: column; }
+  #log { bottom: calc(170px + env(safe-area-inset-bottom, 0px)); }
+  #prompt { bottom: calc(180px + env(safe-area-inset-bottom, 0px)); }
+  #minimap { width: 96px; height: 96px; }
+}
+#stick { position: absolute; left: 22px; bottom: calc(26px + env(safe-area-inset-bottom, 0px)); width: 128px; height: 128px; border-radius: 50%; border: 1px solid var(--rivet); background: rgba(20,22,25,.45); pointer-events: auto; }
+#nub { position: absolute; left: 44px; top: 44px; width: 40px; height: 40px; border-radius: 50%; background: rgba(201,155,77,.7); }
+.tbtns { position: absolute; right: 18px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(3, 58px); gap: 8px; pointer-events: auto; }
+.tbtns button { height: 58px; border-radius: 50%; padding: 0; font-size: 12px; background: rgba(37,42,47,.8); }
+.tbtns button.on { background: var(--brass); color: var(--ink); }
+.tbtns .big { grid-column: 3; grid-row: 1 / span 2; height: 124px; border-radius: 29px; background: rgba(184,68,58,.85); font-weight: 700; }
+
+@media (prefers-reduced-motion: reduce) { #log div { transition: none; } }
+</style>
+<!-- page:head-end -->
+</head>
+<body>
+<canvas id="game" aria-label="Game world"></canvas>
+
+<div id="hud">
+  <div class="hud-tl">
+    <div class="bar hp"><span class="fill" id="hpFill"></span><label><span>Health</span><span id="hpTxt"></span></label></div>
+    <div class="bar st"><span class="fill" id="stFill"></span><label><span>Stamina</span><span id="stTxt"></span></label></div>
+    <div class="bar hu"><span class="fill" id="huFill"></span><label><span>Hunger</span><span id="huTxt"></span></label></div>
+    <div class="lvl" id="lvlTxt"></div>
+    <div class="xp"><span id="xpFill"></span></div>
+  </div>
+  <div class="hud-tr">
+    <div id="clock"></div>
+    <div id="coins"></div>
+    <canvas id="minimap" width="160" height="160"></canvas>
+  </div>
+  <div id="quest-track"></div>
+  <div id="log"></div>
+  <div id="prompt" hidden></div>
+  <div class="toolbar">
+    <button id="btnInv" type="button">Pack <kbd>I</kbd></button>
+    <button id="btnChar" type="button">Hero <kbd>C</kbd></button>
+    <button id="btnQuest" type="button">Quests <kbd>Q</kbd></button>
+  </div>
+</div>
+
+<div id="touch">
+  <div id="stick"><div id="nub"></div></div>
+  <div class="tbtns">
+    <button id="tUse" type="button">Use</button>
+    <button id="tTorch" type="button">Torch</button>
+    <button id="tAtk" class="big" type="button">Strike</button>
+    <button id="tRun" type="button">Run</button>
+    <button id="tBlock" type="button">Block</button>
+  </div>
+</div>
+
+<div id="panel" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true"></div></div>
+
+<script src="game.js"></script>
+<!-- page:end -->
+</body>
+</html>

@@ -1,0 +1,856 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- page:start -->
+<title>Rio Bravo Run</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rye&family=Zilla+Slab:wght@400;600;700&display=swap">
+<style>
+/* Layout: full-screen 3D chase; vitals top-left, wanted poster stats top-right, cylinder bottom-right, one poster card for menus. */
+:root {
+  --dust: #e7b98a;         /* sky / fog, also the page ground */
+  --saddle: #2b1d14;       /* card + bar wells */
+  --paper: #efe2c4;        /* wanted-poster paper */
+  --ink: #2a1a10;          /* poster ink */
+  --brass: #d9a441;        /* accent: badges, dead eye */
+  --blood: #b33a2b;        /* health */
+  --sage: #8fa36b;         /* stamina */
+  --font-display: "Rye", "Rockwell", Georgia, serif;
+  --font-body: "Zilla Slab", "Rockwell", Georgia, serif;
+  color-scheme: light;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; overflow: hidden; background: var(--dust); color: var(--paper); font: 15px/1.4 var(--font-body);
+       -webkit-user-select: none; user-select: none; touch-action: none; }
+#gl, #hud2d { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+#gl { background: var(--dust); }
+#hud2d { pointer-events: none; }
+#hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(150, 20, 10, .75) 100%); }
+#deadeye { position: fixed; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, rgba(255, 200, 120, .05) 35%, rgba(120, 60, 10, .55) 100%); mix-blend-mode: multiply; transition: opacity .25s; }
+
+.vitals { position: fixed; left: 14px; top: calc(12px + env(safe-area-inset-top, 0px)); display: grid; gap: 6px; width: min(220px, 44vw); pointer-events: none; }
+.bar { position: relative; height: 14px; background: rgba(43, 29, 20, .7); border: 1px solid rgba(0,0,0,.5); overflow: hidden; }
+.bar i { position: absolute; inset: 0 auto 0 0; width: 100%; }
+.bar.hp i { background: var(--blood); } .bar.st i { background: var(--sage); } .bar.de i { background: var(--brass); }
+.bar b { position: relative; display: block; padding: 0 6px; font: 700 10px/14px var(--font-body); letter-spacing: .12em; text-transform: uppercase; color: var(--paper); text-shadow: 0 1px 1px #000; }
+
+.poster { position: fixed; right: 14px; top: calc(12px + env(safe-area-inset-top, 0px)); background: var(--paper); color: var(--ink); padding: 6px 12px 8px; text-align: center;
+          box-shadow: 3px 3px 0 rgba(0,0,0,.35); transform: rotate(1.5deg); pointer-events: none; font-variant-numeric: tabular-nums; }
+.poster .w { font: 15px/1 var(--font-display); letter-spacing: .06em; }
+.poster .b { font: 22px/1.1 var(--font-display); }
+.poster .k { font: 600 12px/1.3 var(--font-body); }
+
+#river { position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); text-align: center; pointer-events: none;
+         font: 700 14px/1.2 var(--font-body); text-shadow: 0 1px 2px #000, 0 0 8px rgba(0,0,0,.5); letter-spacing: .04em; }
+#river .arrow { display: inline-block; width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid var(--brass); margin-bottom: 2px; }
+#msg { position: fixed; left: 50%; top: 26%; transform: translateX(-50%); font: 26px/1.1 var(--font-display); color: var(--paper); text-shadow: 0 2px 0 #000, 0 0 12px rgba(0,0,0,.6);
+       pointer-events: none; text-align: center; width: min(90vw, 700px); transition: opacity .5s; }
+
+.gun { position: fixed; right: 18px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); display: grid; justify-items: end; gap: 4px; pointer-events: none; }
+#ammo { display: flex; gap: 5px; }
+#ammo span { width: 9px; height: 22px; border-radius: 4px 4px 1px 1px; background: linear-gradient(#e8c26a 0 40%, #a0702a 40%); box-shadow: 0 1px 2px #000; }
+#ammo span.spent { background: rgba(43, 29, 20, .55); box-shadow: none; }
+#reloadTxt { font: 700 12px var(--font-body); letter-spacing: .14em; text-transform: uppercase; text-shadow: 0 1px 2px #000; }
+
+#menu { position: fixed; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(43, 29, 20, .45); overflow: auto; }
+.card { width: min(480px, 100%); background: var(--paper); color: var(--ink); padding: 22px 24px 20px; box-shadow: 6px 8px 0 rgba(0,0,0,.35); text-align: center; position: relative; }
+.card::before { content: ""; position: absolute; inset: 7px; border: 2px solid rgba(42, 26, 16, .55); pointer-events: none; }
+.card .eyebrow { font: 700 12px var(--font-body); letter-spacing: .3em; text-transform: uppercase; }
+.card h1 { font: 44px/1 var(--font-display); margin: 6px 0 4px; text-wrap: balance; }
+.card .lede { margin: 8px auto 14px; max-width: 40ch; }
+.card .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0 14px; font-variant-numeric: tabular-nums; }
+.card .stats div { border-top: 2px solid var(--ink); padding-top: 4px; font: 22px/1.1 var(--font-display); }
+.card .stats small { display: block; font: 600 11px var(--font-body); letter-spacing: .1em; text-transform: uppercase; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; text-align: left; font-size: 14px; margin: 0 auto 16px; max-width: 360px; }
+.keys b { font-weight: 700; white-space: nowrap; }
+button.go { position: relative; font: 18px var(--font-display); color: var(--paper); background: var(--ink); border: 0; padding: 10px 26px; cursor: pointer; box-shadow: 3px 3px 0 var(--blood); }
+button.go:hover { background: #4a2e1c; }
+button:focus-visible { outline: 3px solid var(--brass); outline-offset: 2px; }
+.touch-only { display: none; }
+
+#touch { position: fixed; inset: 0; pointer-events: none; display: none; }
+@media (pointer: coarse) {
+  #touch { display: block; }
+  .mouse-only { display: none; }
+  .touch-only { display: contents; }
+  .gun { bottom: auto; top: calc(96px + env(safe-area-inset-top, 0px)); }
+  #msg { font-size: 20px; }
+}
+#stick { position: absolute; left: 22px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); width: 124px; height: 124px; border-radius: 50%;
+         background: rgba(43,29,20,.3); border: 2px solid rgba(239,226,196,.45); pointer-events: auto; }
+#nub { position: absolute; left: 42px; top: 42px; width: 40px; height: 40px; border-radius: 50%; background: rgba(239,226,196,.7); }
+.tb { position: absolute; right: 16px; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: repeat(2, 66px); gap: 10px; pointer-events: auto; }
+.tb button { height: 66px; border-radius: 50%; font: 700 12px var(--font-body); color: var(--paper); background: rgba(43,29,20,.55); border: 2px solid rgba(239,226,196,.45); }
+.tb button.fire { grid-column: 2; grid-row: 1 / span 2; height: 142px; border-radius: 33px; background: rgba(179,58,43,.8); font-size: 14px; }
+.tb button.on { background: var(--brass); color: var(--ink); }
+@media (prefers-reduced-motion: reduce) { #msg, #deadeye { transition: none; } }
+</style>
+<!-- page:head-end -->
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="hud2d"></canvas>
+<div id="deadeye"></div>
+<div id="hurt"></div>
+
+<div class="vitals">
+  <div class="bar hp"><i id="hpBar"></i><b>Health</b></div>
+  <div class="bar st"><i id="stBar"></i><b>Horse stamina</b></div>
+  <div class="bar de"><i id="deBar"></i><b>Dead Eye</b></div>
+</div>
+<div id="river"><div class="arrow" id="arrow"></div><div id="riverTxt"></div></div>
+<div class="poster"><div class="w">Wanted</div><div class="b" id="bounty">$500</div><div class="k" id="kills">0 lawmen down</div></div>
+<div id="msg"></div>
+<div class="gun"><div id="ammo"></div><div id="reloadTxt"></div></div>
+
+<div id="touch">
+  <div id="stick"><div id="nub"></div></div>
+  <div class="tb">
+    <button id="tGallop" type="button">Gallop</button>
+    <button id="tFire" class="fire" type="button">Fire</button>
+    <button id="tReload" type="button">Reload</button>
+    <button id="tDead" type="button">Dead Eye</button>
+  </div>
+</div>
+
+<div id="menu"><div class="card" id="card"></div></div>
+
+<script>
+'use strict';
+(() => {
+const $ = id => document.getElementById(id);
+const canvas = $('gl'), hud = $('hud2d'), hx = hud.getContext('2d');
+const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+
+// ===================== math =====================
+function hash2(x, y, s) { let h = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 1442695041) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+function vnoise(x, y, s) { const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi, u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const a = hash2(xi, yi, s), b = hash2(xi + 1, yi, s), c = hash2(xi, yi + 1, s), d = hash2(xi + 1, yi + 1, s); return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v; }
+function fbm(x, y, s, o = 4) { let t = 0, a = .5, f = 1, n = 0; for (let i = 0; i < o; i++) { t += vnoise(x * f, y * f, s + i * 17) * a; n += a; a *= .5; f *= 2; } return t / n; }
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const rand = (a, b) => a + Math.random() * (b - a);
+const angWrap = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+
+function mul(a, b) { const o = new Float32Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) { let s = 0; for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]; o[c * 4 + r] = s; } return o; }
+const chain = (...m) => m.reduce((a, b) => mul(a, b));
+function persp(fov, asp, n, f) { const t = 1 / Math.tan(fov / 2); return new Float32Array([t / asp, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, 2 * f * n / (n - f), 0]); }
+function rotX(a) { const c = Math.cos(a), s = Math.sin(a); return new Float32Array([1, 0, 0, 0, 0, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1]); }
+function rotY(a) { const c = Math.cos(a), s = Math.sin(a); return new Float32Array([c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1]); }
+function rotZ(a) { const c = Math.cos(a), s = Math.sin(a); return new Float32Array([c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]); }
+function T(x, y, z) { return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, z, 1]); }
+function S(x, y, z) { return new Float32Array([x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1]); }
+function xf(m, x, y, z, w) { return [m[0] * x + m[4] * y + m[8] * z + m[12] * w, m[1] * x + m[5] * y + m[9] * z + m[13] * w, m[2] * x + m[6] * y + m[10] * z + m[14] * w, m[3] * x + m[7] * y + m[11] * z + m[15] * w]; }
+
+// ===================== terrain =====================
+const RIVER_Z = -1000, WATER_Y = -1.2, X_MIN = -600, X_MAX = 600, Z_MIN = -1080, Z_MAX = 160;
+function H(x, z) {
+  let h = (fbm(x / 190, z / 190, 3) - .5) * 18 + (fbm(x / 38, z / 38, 9) - .5) * 2.6;
+  const dr = Math.abs(z - RIVER_Z);
+  if (dr < 70) { const k = dr / 70; h = h * k - 3 * (1 - k) * (1 - k); }
+  const dt = Math.hypot(x, z - 10);
+  if (dt < 90) h *= Math.max(0, (dt - 30) / 60);
+  return h;
+}
+
+// ===================== GL setup =====================
+function shader(type, src) { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+const prog = gl.createProgram();
+gl.attachShader(prog, shader(gl.VERTEX_SHADER, `
+attribute vec3 aPos; attribute vec3 aNor; attribute vec3 aCol;
+uniform mat4 uVP; uniform mat4 uM; uniform vec3 uSun; uniform vec3 uCam; uniform float uLit;
+varying vec3 vCol; varying float vDist;
+void main() {
+  vec4 w = uM * vec4(aPos, 1.0);
+  vec3 n = normalize((uM * vec4(aNor, 0.0)).xyz);
+  float l = mix(1.0, 0.5 + 0.62 * max(dot(n, uSun), 0.0) + 0.08 * n.y, uLit);
+  vCol = aCol * l; vDist = length(w.xyz - uCam);
+  gl_Position = uVP * w;
+}`));
+gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, `
+precision mediump float;
+uniform vec3 uFog; uniform float uAlpha; uniform float uFogFar;
+varying vec3 vCol; varying float vDist;
+void main() {
+  float f = clamp((vDist - uFogFar * 0.3) / (uFogFar * 0.7), 0.0, 1.0);
+  gl_FragColor = vec4(mix(vCol, uFog, f * f), uAlpha);
+}`));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+const L = {}; ['aPos', 'aNor', 'aCol'].forEach(n => L[n] = gl.getAttribLocation(prog, n));
+['uVP', 'uM', 'uSun', 'uCam', 'uLit', 'uFog', 'uAlpha', 'uFogFar'].forEach(n => L[n] = gl.getUniformLocation(prog, n));
+const IDENT = T(0, 0, 0);
+
+// unit cube, 36 verts, pos + normal
+const CUBE_FACES = [
+  [[1, 0, 0], [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]]], [[-1, 0, 0], [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]]],
+  [[0, 1, 0], [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]]], [[0, -1, 0], [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]]],
+  [[0, 0, 1], [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]]], [[0, 0, -1], [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]]],
+];
+const CUBE = [];
+for (const [n, c] of CUBE_FACES) for (const q of [0, 1, 2, 0, 2, 3]) CUBE.push(c[q][0] - .5, c[q][1] - .5, c[q][2] - .5, ...n);
+const cubeBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, cubeBuf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(CUBE), gl.STATIC_DRAW);
+
+// static scenery mesh (pos, nor, col)
+const stat = [];
+function addBox(m, col) {
+  for (let i = 0; i < 36; i++) {
+    const o = i * 6, p = xf(m, CUBE[o], CUBE[o + 1], CUBE[o + 2], 1), n = xf(m, CUBE[o + 3], CUBE[o + 4], CUBE[o + 5], 0);
+    const nl = Math.hypot(n[0], n[1], n[2]) || 1;
+    stat.push(p[0], p[1], p[2], n[0] / nl, n[1] / nl, n[2] / nl, col[0], col[1], col[2]);
+  }
+}
+
+// ===================== world =====================
+const obstacles = []; // {c:1,x,z,r,h,hard} circles or {c:0,x0,x1,z0,z1}
+const rng = mulberry(1877);
+const shadeCol = (c, k) => [c[0] * k, c[1] * k, c[2] * k];
+
+function buildWorld() {
+  // mesas
+  const mesaCols = [[.66, .34, .21], [.74, .42, .26], [.58, .29, .18], [.7, .46, .3]];
+  let tries = 0, made = 0;
+  while (made < 46 && tries++ < 2000) {
+    const x = rand_(X_MIN + 30, X_MAX - 30), z = rand_(-950, -90), r = rand_(12, 34);
+    if (Math.abs(x) < 50 && z > -160) continue;
+    if (obstacles.some(o => o.c && o.r > 5 && Math.hypot(o.x - x, o.z - z) < o.r + r + 22)) continue;
+    const h = rand_(14, 46), yaw = rand_(0, 3), base = H(x, z) - 2;
+    const tiers = [[2, .5], [1.6, .32], [1.25, .18]];
+    let y = base;
+    tiers.forEach(([w, f], i) => {
+      const th = h * f;
+      addBox(chain(T(x, y + th / 2, z), rotY(yaw + i * .25), S(r * w, th, r * w * rand_(.8, 1.1))), shadeCol(mesaCols[(made + i) % 4], rand_(.92, 1.05)));
+      y += th;
+    });
+    obstacles.push({ c: 1, x, z, r: r * 1.15, hard: true, mesa: true, top: y });
+    made++;
+  }
+  // town of Dry Gulch
+  const woods = [[.55, .38, .25], [.48, .33, .22], [.62, .45, .3], [.42, .3, .2], [.66, .55, .42]];
+  for (const side of [-1, 1]) for (let i = 0; i < 5; i++) {
+    const zc = 42 - i * 17, h = rand_(5, 8), x0 = side * 15, x1 = side * 27, xc = (x0 + x1) / 2, col = woods[(i + (side > 0 ? 2 : 0)) % 5];
+    addBox(chain(T(xc, h / 2 - .5, zc), S(12, h + 1, 13)), col);
+    addBox(chain(T(x0 + side * .2, (h + 3) / 2 - .5, zc), S(.4, h + 4, 13.4)), shadeCol(col, 1.1));        // false front
+    addBox(chain(T(x0 - side * 1.6, 3.3, zc), S(3.4, .2, 13)), shadeCol(col, .8));                           // porch roof
+    for (const dz of [-6, 6]) addBox(chain(T(x0 - side * 3.1, 1.6, zc + dz), S(.25, 3.4, .25)), [.35, .24, .16]);
+    for (const dz of [-3.5, 3.5]) addBox(chain(T(x0 - side * .05, 4.6, zc + dz), S(.3, 1.4, 1.6)), [.12, .1, .1]); // windows
+    addBox(chain(T(x0 - side * .05, 1.3, zc), S(.3, 2.6, 1.8)), [.22, .14, .09]);                                 // door
+    obstacles.push({ c: 0, x0: Math.min(x0, x1) - (side < 0 ? 0 : 0), x1: Math.max(x0, x1), z0: zc - 6.5, z1: zc + 6.5 });
+  }
+  addBox(chain(T(-34, 7, -10), S(.6, 14, .6)), [.4, .3, .2]); addBox(chain(T(-34, 14, -10), S(6, 4, 6)), [.5, .36, .24]); // water tower
+  // far bank border posts
+  for (let x = -560; x <= 560; x += 40) {
+    const y = H(x, RIVER_Z - 60);
+    addBox(chain(T(x, y + 2.5, RIVER_Z - 60), S(.4, 5, .4)), [.36, .25, .16]);
+    addBox(chain(T(x + .8, y + 4.4, RIVER_Z - 60), S(1.4, .8, .08)), [.72, .18, .12]);
+  }
+  // cacti
+  for (let i = 0; i < 520; i++) {
+    const x = rand_(X_MIN, X_MAX), z = rand_(Z_MIN + 20, Z_MAX);
+    if (Math.abs(z - RIVER_Z) < 75 || (Math.abs(x) < 40 && z > -60 && z < 70) || inMesa(x, z, 4)) continue;
+    const y = H(x, z), h = rand_(3.5, 6.5), g = [.3 + rand_(-.04, .04), .48, .26];
+    addBox(chain(T(x, y + h / 2, z), S(.6, h, .6)), g);
+    const arms = Math.floor(rand_(0, 3));
+    for (let a = 0; a < arms; a++) {
+      const sd = a ? -1 : 1, ay = y + h * rand_(.4, .6), ah = rand_(1.2, 2.2), yaw = rand_(0, 3);
+      addBox(chain(T(x, ay, z), rotY(yaw), T(sd * .65, 0, 0), S(.9, .45, .45)), g);
+      addBox(chain(T(x, ay, z), rotY(yaw), T(sd * 1.0, ah / 2, 0), S(.45, ah, .45)), g);
+    }
+    obstacles.push({ c: 1, x, z, r: .7, hard: false });
+  }
+  // rocks and scrub
+  for (let i = 0; i < 380; i++) {
+    const x = rand_(X_MIN, X_MAX), z = rand_(Z_MIN, Z_MAX);
+    if (Math.abs(x) < 30 && z > -50 && z < 70) continue;
+    const y = H(x, z), s = rand_(.4, 2.6), scrub = i % 2;
+    if (scrub) addBox(chain(T(x, y + .3, z), rotY(rand_(0, 3)), S(1.4, .6, 1.2)), [.55, .52, .3]);
+    else addBox(chain(T(x, y + s * .3, z), rotY(rand_(0, 3)), rotZ(rand_(-.3, .3)), S(s * 1.3, s, s)), [.56, .45, .36]);
+    if (!scrub && s > 1.6) obstacles.push({ c: 1, x, z, r: s * .7, hard: true });
+  }
+}
+function rand_(a, b) { return a + rng() * (b - a); }
+function inMesa(x, z, pad) { return obstacles.some(o => o.mesa && Math.hypot(o.x - x, o.z - z) < o.r + pad); }
+
+// terrain mesh (indexed)
+let terrain = null;
+function buildTerrain() {
+  const step = 10, x0 = -720, z0 = -1200, nx = 145, nz = 146;
+  const v = new Float32Array(nx * nz * 9);
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    const x = x0 + i * step, z = z0 + j * step, y = H(x, z), o = (j * nx + i) * 9;
+    const dx = H(x + 1, z) - H(x - 1, z), dz = H(x, z + 1) - H(x, z - 1), nl = Math.hypot(dx, 2, dz);
+    const k = .9 + fbm(x / 25, z / 25, 31) * .2, wet = clamp(1 - (Math.abs(z - RIVER_Z) - 20) / 60, 0, 1);
+    const town = Math.hypot(x, z - 10) < 40 ? .9 : 1;
+    const sand = [.86 * k * town, .64 * k * town, .43 * k * town], mud = [.48, .4, .27];
+    v.set([x, y, z, -dx / nl, 2 / nl, -dz / nl,
+      sand[0] + (mud[0] - sand[0]) * wet, sand[1] + (mud[1] - sand[1]) * wet, sand[2] + (mud[2] - sand[2]) * wet], o);
+  }
+  const idx = new Uint16Array((nx - 1) * (nz - 1) * 6); let p = 0;
+  for (let j = 0; j < nz - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+    idx.set([a, c, b, b, c, d], p); p += 6;
+  }
+  terrain = { vb: gl.createBuffer(), ib: gl.createBuffer(), n: idx.length };
+  gl.bindBuffer(gl.ARRAY_BUFFER, terrain.vb); gl.bufferData(gl.ARRAY_BUFFER, v, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, terrain.ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+}
+let statMesh = null;
+function uploadStatic() { statMesh = { b: gl.createBuffer(), n: stat.length / 9 }; gl.bindBuffer(gl.ARRAY_BUFFER, statMesh.b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(stat), gl.STATIC_DRAW); }
+
+// ===================== game state =====================
+let G = null;
+const HORSE_COLS = [[.5, .28, .15], [.36, .21, .12], [.62, .6, .57], [.78, .6, .34]];
+function newGame() {
+  G = {
+    state: 'play', t: 0, bounty: 500, kills: 0, shots: 0, hits: 0, spawnT: 3, msgT: 0, timeScale: 1, hurt: 0, shake: 0, hitMark: 0,
+    p: { x: 0, z: 14, yaw: 0, speed: 0, phase: 0, hp: 100, stam: 100, ammo: 6, reload: 0, cd: 0, dead: 70, deadOn: false, lastHit: 99 },
+    sheriffs: [], corpses: [], tracers: [], parts: [], flashes: [],
+  };
+  cam.yaw = 0; cam.pitch = -.12;
+  say('The bank job went loud. Ride north to the Rio Bravo!');
+}
+function say(t, dur = 3.2) { $('msg').textContent = t; $('msg').style.opacity = 1; if (G) G.msgT = dur; }
+
+function collide(e, r) {
+  for (const o of obstacles) {
+    if (o.c) {
+      const dx = e.x - o.x, dz = e.z - o.z, d = Math.hypot(dx, dz), m = o.r + r;
+      if (d < m && d > 0) {
+        e.x = o.x + dx / d * m; e.z = o.z + dz / d * m;
+        if (o.hard) e.speed *= .9; else { e.speed *= .96; if (e === G.p && Math.random() < .02) say('Cactus! Watch the horse.', 1.2); }
+      }
+    } else {
+      const cx = clamp(e.x, o.x0, o.x1), cz = clamp(e.z, o.z0, o.z1), dx = e.x - cx, dz = e.z - cz, d = Math.hypot(dx, dz);
+      if (d < r) {
+        if (d > 0) { e.x = cx + dx / d * r; e.z = cz + dz / d * r; }
+        else { const l = e.x - o.x0, rr = o.x1 - e.x; e.x = l < rr ? o.x0 - r : o.x1 + r; }
+        e.speed *= .9;
+      }
+    }
+  }
+  e.x = clamp(e.x, X_MIN, X_MAX); e.z = clamp(e.z, Z_MIN, Z_MAX);
+}
+
+// ===================== player =====================
+const keys = new Set(), stickIn = { x: 0, y: 0 }, touchFlags = { gallop: false };
+const cam = { yaw: 0, pitch: -.12, x: 0, y: 0, z: 0, fx: 0, fy: 0, fz: -1 };
+function updatePlayer(dt, rdt) {
+  const p = G.p;
+  const f = (keys.has('w') || keys.has('arrowup') ? 1 : 0) - (keys.has('s') || keys.has('arrowdown') ? 1 : 0) - stickIn.y;
+  const s = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0) + stickIn.x;
+  const sy = Math.sin(cam.yaw), cy = Math.cos(cam.yaw);
+  const wx = -sy * f + cy * s, wz = -cy * f - sy * s, wl = Math.hypot(wx, wz);
+  const gallop = (keys.has('shift') || touchFlags.gallop) && wl > .2 && p.stam > 1;
+  const inWater = H(p.x, p.z) < WATER_Y - .3;
+  let target = 0;
+  if (wl > .2) {
+    const want = Math.atan2(-wx, -wz);
+    const turn = angWrap(want - p.yaw), rate = 2.4 - Math.min(1.2, p.speed / 20);
+    p.yaw += clamp(turn, -rate * dt, rate * dt);
+    target = (gallop ? 22 : 12) * Math.min(1, wl) * (Math.abs(turn) > 1.8 ? .4 : 1);
+  }
+  if (inWater) target *= .55;
+  p.speed += (target - p.speed) * Math.min(1, dt * (target > p.speed ? 1.3 : 2.2));
+  p.stam = clamp(p.stam + (gallop ? -13 : 9) * dt, 0, 100);
+  p.x += -Math.sin(p.yaw) * p.speed * dt; p.z += -Math.cos(p.yaw) * p.speed * dt;
+  collide(p, 1.2);
+  p.phase += dt * (2 + p.speed * .55);
+  if (p.speed > 6) dust(p, dt);
+  // gun
+  p.cd -= rdt; p.lastHit += dt;
+  if (p.reload > 0) { p.reload -= rdt; if (p.reload <= 0) { p.ammo = 6; } }
+  if (p.lastHit > 5 && p.hp < 100) p.hp = Math.min(100, p.hp + 4 * dt);
+  // dead eye
+  if (p.deadOn) { p.dead -= 22 * rdt; if (p.dead <= 0) { p.dead = 0; toggleDeadEye(false); } }
+  else p.dead = Math.min(100, p.dead + 1.2 * dt);
+  if (p.z < RIVER_Z - 40) win();
+}
+function toggleDeadEye(on) {
+  const p = G.p;
+  if (on === undefined) on = !p.deadOn;
+  if (on && p.dead < 15) return say('Dead Eye is empty. Gun down lawmen to refill it.', 1.6);
+  p.deadOn = on; G.timeScale = on ? .3 : 1;
+  $('deadeye').style.opacity = on ? 1 : 0;
+  $('tDead').classList.toggle('on', on);
+}
+function gunTip(e, ay, ap) {
+  // right hand position for a rider on a horse at e
+  const base = chain(T(e.x, H(e.x, e.z) + bob(e), e.z), rotY(e.yaw));
+  const sh = xf(base, .38, 2.62, 0, 1);
+  const dx = -Math.sin(ay) * Math.cos(ap), dy = Math.sin(ap), dz = -Math.cos(ay) * Math.cos(ap);
+  return [sh[0] + dx * .75, sh[1] + dy * .75, sh[2] + dz * .75];
+}
+function fire() {
+  const p = G.p;
+  if (G.state !== 'play' || p.cd > 0 || p.reload > 0) return;
+  if (p.ammo <= 0) { reload(); return; }
+  p.ammo--; p.cd = .32; G.shots++;
+  sfx(1, 0);
+  const o = [cam.x, cam.y, cam.z], d = [cam.fx, cam.fy, cam.fz];
+  let best = null;
+  const coarse = matchMedia('(pointer: coarse)').matches ? 1.45 : 1;
+  for (const e of G.sheriffs) {
+    if (!e.alive) continue;
+    const y = H(e.x, e.z) + bob(e);
+    for (const [part, cy, r] of [['head', 2.98, .32], ['body', 2.38, .55], ['horse', 1.5, 1.05]]) {
+      const c = [e.x, y + cy, e.z];
+      const oc = [c[0] - o[0], c[1] - o[1], c[2] - o[2]], t = oc[0] * d[0] + oc[1] * d[1] + oc[2] * d[2];
+      if (t < 0 || t > 170) continue;
+      const d2 = oc[0] ** 2 + oc[1] ** 2 + oc[2] ** 2 - t * t, rr = r * coarse;
+      if (d2 < rr * rr && (!best || t < best.t - .2 || (Math.abs(t - best.t) < .6 && part !== 'horse' && best.part === 'horse'))) best = { e, part, t };
+    }
+  }
+  // mesas stop bullets
+  let range = best ? best.t : 170;
+  for (const m of obstacles) {
+    if (!m.mesa) continue;
+    const ox = m.x - o[0], oz = m.z - o[2], hl = Math.hypot(d[0], d[2]) || 1e-6;
+    const t = (ox * d[0] + oz * d[2]) / (hl * hl);
+    if (t < 0 || t > range) continue;
+    const px = o[0] + d[0] * t - m.x, pz = o[2] + d[2] * t - m.z;
+    if (Math.hypot(px, pz) < m.r * .85 && o[1] + d[1] * t < m.top) { range = t; best = null; }
+  }
+  const tip = gunTip(p, cam.yaw, cam.pitch + .03);
+  const end = [o[0] + d[0] * range, o[1] + d[1] * range, o[2] + d[2] * range];
+  G.tracers.push({ a: tip, b: end, t: 0, life: .09, col: [1, .9, .55] });
+  G.flashes.push({ p: tip, t: 0 });
+  if (!best) { if (range < 170) puff(end, [.7, .5, .35], 6); return; }
+  G.hits++; G.hitMark = .25;
+  const e = best.e;
+  puff(end, best.part === 'horse' ? [.55, .1, .08] : [.6, .08, .06], 10);
+  if (best.part === 'horse') { e.slow = 3; e.speed *= .5; return; }
+  e.hp -= best.part === 'head' ? 3 : 1;
+  if (e.hp <= 0) killSheriff(e, best.part === 'head');
+}
+function reload() { const p = G.p; if (p.reload > 0 || p.ammo === 6) return; p.reload = 2.1; sfx(.25, 2); }
+function killSheriff(e, head) {
+  e.alive = false; e.deadT = 0;
+  G.kills++; G.bounty += head ? 120 : 75;
+  G.p.dead = Math.min(100, G.p.dead + 22);
+  G.corpses.push({ x: e.x, z: e.z, yaw: e.yaw, t: 0, vx: -Math.sin(e.yaw) * e.speed * .4, vz: -Math.cos(e.yaw) * e.speed * .4 });
+  say(head ? 'Headshot!' : 'Lawman down.', 1.4);
+}
+
+// ===================== sheriffs =====================
+function spawnSheriff() {
+  const p = G.p;
+  for (let i = 0; i < 12; i++) {
+    const behind = p.yaw + Math.PI + rand(-1.3, 1.3);
+    const d = rand(150, 220);
+    const x = p.x - Math.sin(behind) * d, z = p.z - Math.cos(behind) * d;
+    if (x < X_MIN || x > X_MAX || z > Z_MAX || z < Z_MIN || inMesa(x, z, 6)) continue;
+    G.sheriffs.push({ x, z, yaw: Math.atan2(-(p.x - x), -(p.z - z)), speed: 14, phase: rand(0, 6), hp: 2, ammo: 6, reload: 0, cd: rand(1.5, 3),
+      flank: rand(-1, 1) * 1.2, alive: true, slow: 0, horse: HORSE_COLS[Math.floor(rand(0, 4))], deputy: Math.random() < .6, aimY: 0, aimP: 0, flash: 0 });
+    return;
+  }
+}
+function updateSheriff(e, dt) {
+  const p = G.p;
+  if (!e.alive) {
+    e.deadT += dt; e.speed = Math.min(e.speed + dt * 4, 16);
+    e.x += -Math.sin(e.yaw) * e.speed * dt; e.z += -Math.cos(e.yaw) * e.speed * dt; e.phase += dt * (2 + e.speed * .55);
+    collide(e, 1.2);
+    return;
+  }
+  const dx = p.x - e.x, dz = p.z - e.z, d = Math.hypot(dx, dz);
+  // aim for a spot beside and behind the outlaw, or cut him off when far away
+  let tx, tz;
+  if (d > 45) { tx = p.x - Math.sin(p.yaw) * p.speed * 1.2; tz = p.z - Math.cos(p.yaw) * p.speed * 1.2; }
+  else { const a = p.yaw + Math.PI + e.flank; tx = p.x - Math.sin(a) * 18; tz = p.z - Math.cos(a) * 18; }
+  let want = Math.atan2(-(tx - e.x), -(tz - e.z));
+  // steer around mesas
+  for (const o of obstacles) {
+    if (!o.mesa) continue;
+    const ox = o.x - e.x, oz = o.z - e.z, od = Math.hypot(ox, oz);
+    if (od < o.r + 22) {
+      const ang = angWrap(Math.atan2(-ox, -oz) - e.yaw);
+      if (Math.abs(ang) < 1.2) want = e.yaw - Math.sign(ang || 1) * 1.4;
+    }
+  }
+  e.yaw += clamp(angWrap(want - e.yaw), -1.9 * dt, 1.9 * dt);
+  const ts = (d > 120 ? 21 : d > 45 ? 19.5 : clamp(p.speed + (d - 18) * .4, 6, 19)) * (e.slow > 0 ? .55 : 1) * (H(e.x, e.z) < WATER_Y - .3 ? .55 : 1);
+  e.slow -= dt;
+  e.speed += (ts - e.speed) * Math.min(1, dt * 1.5);
+  e.x += -Math.sin(e.yaw) * e.speed * dt; e.z += -Math.cos(e.yaw) * e.speed * dt;
+  collide(e, 1.2);
+  e.phase += dt * (2 + e.speed * .55);
+  if (e.speed > 6 && d < 160) dust(e, dt);
+  // aim and shoot
+  const gy = H(e.x, e.z) + 2.62, py = H(p.x, p.z) + 2.4;
+  e.aimY = Math.atan2(-dx, -dz); e.aimP = Math.atan2(py - gy, d);
+  e.cd -= dt; e.flash -= dt;
+  if (e.reload > 0) { e.reload -= dt; if (e.reload <= 0) e.ammo = 6; }
+  else if (e.cd <= 0 && d < 80 && G.state === 'play') {
+    e.cd = rand(1.1, 2.1); e.ammo--; if (e.ammo <= 0) e.reload = 3;
+    const chance = clamp(.62 - d / 140 - p.speed / 55 - (e.slow > 0 ? .15 : 0), .06, .6);
+    const hit = Math.random() < chance;
+    const tip = gunTip(e, e.aimY, e.aimP);
+    const tgt = [p.x + (hit ? 0 : rand(-3, 3)), py + (hit ? rand(-.3, .3) : rand(-1, 2)), p.z + (hit ? 0 : rand(-3, 3))];
+    G.tracers.push({ a: tip, b: tgt, t: 0, life: .1, col: [1, .75, .4] });
+    G.flashes.push({ p: tip, t: 0 });
+    sfx(clamp(1 - d / 110, .15, .8), 1);
+    if (hit) hurtPlayer(rand(8, 14), e);
+    else if (d < 50) sfx(.3, 3);
+  }
+}
+function hurtPlayer(dmg, src) {
+  const p = G.p; if (G.state !== 'play') return;
+  p.hp -= dmg; p.lastHit = 0; G.hurt = 1; G.shake = .35;
+  G.hurtFrom = Math.atan2(-(src.x - p.x), -(src.z - p.z));
+  if (p.hp <= 0) { p.hp = 0; lose(); }
+}
+
+// ===================== particles =====================
+function dust(e, dt) {
+  if (Math.random() > dt * 18) return;
+  const y = H(e.x, e.z);
+  G.parts.push({ x: e.x + rand(-.6, .6), y: y + .2, z: e.z + rand(-.6, .6), vx: rand(-.6, .6), vy: rand(.6, 1.6), vz: rand(-.6, .6), t: 0, life: rand(.7, 1.2), s: rand(.25, .5), col: [.86, .7, .52], a: .3 });
+}
+function puff(at, col, n) {
+  for (let i = 0; i < n; i++) G.parts.push({ x: at[0], y: at[1], z: at[2], vx: rand(-2, 2), vy: rand(-.5, 2.5), vz: rand(-2, 2), t: 0, life: rand(.3, .6), s: rand(.12, .25), col, a: .9 });
+}
+
+// ===================== audio =====================
+let AC = null, noiseBuf = null;
+function audioOn() {
+  if (AC) { if (AC.state === 'suspended') AC.resume(); return; }
+  try {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    noiseBuf = AC.createBuffer(1, AC.sampleRate * .6, AC.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  } catch (e) { AC = null; }
+}
+function sfx(vol, kind) {
+  if (!AC) return;
+  const t = AC.currentTime, g = AC.createGain(); g.connect(AC.destination);
+  if (kind === 3) { // bullet whizz
+    const o = AC.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(1800, t); o.frequency.exponentialRampToValueAtTime(500, t + .18);
+    g.gain.setValueAtTime(vol * .12, t); g.gain.exponentialRampToValueAtTime(.001, t + .2); o.connect(g); o.start(t); o.stop(t + .2); return;
+  }
+  const src = AC.createBufferSource(); src.buffer = noiseBuf;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass';
+  if (kind === 2) { f.frequency.value = 2500; g.gain.setValueAtTime(vol * .3, t); g.gain.exponentialRampToValueAtTime(.001, t + .06); }
+  else {
+    f.frequency.setValueAtTime(kind ? 1800 : 4200, t); f.frequency.exponentialRampToValueAtTime(220, t + .35);
+    g.gain.setValueAtTime(vol * .7, t); g.gain.exponentialRampToValueAtTime(.001, t + (kind ? .45 : .5));
+  }
+  src.connect(f); f.connect(g); src.start(t); src.stop(t + .55);
+}
+
+// ===================== drawing =====================
+function useCube() {
+  gl.bindBuffer(gl.ARRAY_BUFFER, cubeBuf);
+  gl.vertexAttribPointer(L.aPos, 3, gl.FLOAT, false, 24, 0);
+  gl.vertexAttribPointer(L.aNor, 3, gl.FLOAT, false, 24, 12);
+  gl.disableVertexAttribArray(L.aCol);
+}
+function box(m, col) { gl.vertexAttrib3f(L.aCol, col[0], col[1], col[2]); gl.uniformMatrix4fv(L.uM, false, m); gl.drawArrays(gl.TRIANGLES, 0, 36); }
+const bob = e => Math.abs(Math.sin(e.phase)) * .12 * Math.min(1, e.speed / 12);
+
+function drawHorse(e, col, riderless) {
+  const y = H(e.x, e.z), b = bob(e), base = chain(T(e.x, y + b, e.z), rotY(e.yaw));
+  const dark = [col[0] * .45, col[1] * .45, col[2] * .45];
+  const amp = Math.min(.95, .2 + e.speed / 22);
+  box(chain(base, T(0, 1.55, 0), S(.85, .85, 2.2)), col);
+  box(chain(base, T(0, 2.05, -1.2), rotX(.75), S(.42, 1.0, .5)), col);
+  box(chain(base, T(0, 2.48, -1.62), rotX(-.35), S(.36, .42, .82)), col);
+  box(chain(base, T(0, 2.25, -1.08), rotX(.75), S(.1, .95, .45)), dark);                        // mane
+  box(chain(base, T(0, 1.7, 1.15), rotX(.5 + Math.sin(e.phase) * .2), T(0, -.4, 0), S(.14, .85, .14)), dark);
+  [[-.28, -.78, 0], [.28, -.78, .5], [-.28, .82, Math.PI], [.28, .82, Math.PI + .5]].forEach(([lx, lz, off]) => {
+    const a = Math.sin(e.phase + off) * amp;
+    box(chain(base, T(lx, 1.25, lz), rotX(a), T(0, -.55, 0), S(.18, 1.15, .2)), col);
+    box(chain(base, T(lx, 1.25, lz), rotX(a), T(0, -1.1, 0), S(.2, .12, .22)), dark);              // hoof
+  });
+  if (!riderless) box(chain(base, T(0, 2.0, .05), S(.9, .12, .8)), [.3, .18, .1]);                 // saddle
+  return base;
+}
+function drawRider(base, look, ay, ap, e, flash) {
+  const rel = angWrap(ay - e.yaw);
+  box(chain(base, T(-.45, 1.75, -.05), rotX(-.3), S(.2, .75, .24)), look.pants);
+  box(chain(base, T(.45, 1.75, -.05), rotX(-.3), S(.2, .75, .24)), look.pants);
+  box(chain(base, T(0, 2.4, 0), rotY(rel * .4), S(.56, .75, .34)), look.shirt);
+  if (look.vest) box(chain(base, T(0, 2.42, 0), rotY(rel * .4), S(.6, .6, .38)), look.vest);
+  if (look.badge) box(chain(base, rotY(rel * .4), T(-.15, 2.55, -.2), S(.12, .12, .04)), [1, .82, .3]);
+  if (look.bandana) box(chain(base, T(0, 2.82, -.02), S(.36, .14, .36)), look.bandana);
+  box(chain(base, T(0, 3.0, 0), rotY(rel * .6), S(.32, .34, .32)), [.84, .62, .48]);
+  box(chain(base, T(0, 3.2, 0), rotY(rel * .6), S(.78, .06, .78)), look.hat);
+  box(chain(base, T(0, 3.33, 0), rotY(rel * .6), S(.4, .24, .4)), look.hat);
+  box(chain(base, T(-.36, 2.4, 0), rotX(-.4), T(0, -.25, 0), S(.15, .55, .15)), look.shirt);       // rein arm
+  const arm = chain(base, T(.38, 2.62, 0), rotY(rel), rotX(ap));
+  box(chain(arm, T(0, 0, -.32), S(.15, .15, .62)), look.shirt);
+  box(chain(arm, T(0, .04, -.72), S(.08, .14, .34)), [.15, .14, .14]);                          // revolver
+  if (flash > 0) box(chain(arm, T(0, .05, -1.0), S(.3, .3, .3)), [1, .85, .4]);
+}
+const PLAYER_LOOK = { pants: [.25, .2, .17], shirt: [.17, .15, .14], hat: [.08, .07, .07], bandana: [.62, .12, .1] };
+const SHERIFF_LOOK = { pants: [.3, .3, .38], shirt: [.78, .68, .48], vest: [.33, .23, .15], hat: [.56, .43, .3], badge: true };
+const DEPUTY_LOOK = { pants: [.34, .27, .2], shirt: [.52, .55, .6], hat: [.3, .26, .22], badge: true };
+
+function drawCorpse(c) {
+  const y = H(c.x, c.z), base = chain(T(c.x, y, c.z), rotY(c.yaw));
+  const fall = Math.min(1, c.t * 2.2), lift = (1 - fall) * 2;
+  const m = chain(base, T(0, .25 + lift, 0), rotX(fall * 1.45));
+  box(chain(m, T(0, .4, 0), S(.56, .75, .34)), SHERIFF_LOOK.shirt);
+  box(chain(m, T(0, 1.0, 0), S(.32, .34, .32)), [.84, .62, .48]);
+  box(chain(m, T(-.15, -.4, 0), S(.2, .8, .24)), SHERIFF_LOOK.pants);
+  box(chain(m, T(.15, -.4, 0), S(.2, .8, .24)), SHERIFF_LOOK.pants);
+  box(chain(base, T(.9, .05, .6), rotY(.7), S(.75, .07, .75)), SHERIFF_LOOK.hat);
+}
+function beam(a, b, w) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], len = Math.hypot(dx, dy, dz);
+  return chain(T((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2), rotY(Math.atan2(-dx, -dz)), rotX(Math.atan2(dy, Math.hypot(dx, dz))), S(w, w, len));
+}
+
+const FOG = [.91, .73, .55], SUN = (() => { const v = [-.5, .62, -.6], l = Math.hypot(...v); return v.map(c => c / l); })();
+let VP = IDENT;
+function render() {
+  const p = G.p;
+  // camera behind and to the right of the rider
+  const cpd = Math.cos(cam.pitch);
+  cam.fx = -Math.sin(cam.yaw) * cpd; cam.fy = Math.sin(cam.pitch); cam.fz = -Math.cos(cam.yaw) * cpd;
+  const tx = p.x, ty = H(p.x, p.z) + 3.1, tz = p.z, rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw), dist = 7.5;
+  cam.x = tx - cam.fx * dist + rx * 1.1; cam.y = ty - cam.fy * dist; cam.z = tz - cam.fz * dist + rz * 1.1;
+  cam.y = Math.max(cam.y, H(cam.x, cam.z) + .7);
+  const sk = G.shake > 0 ? G.shake * .4 : 0;
+  const view = chain(rotX(-cam.pitch + rand(-sk, sk) * .05), rotY(-cam.yaw + rand(-sk, sk) * .05), T(-cam.x, -cam.y, -cam.z));
+  VP = mul(persp(1.05, canvas.width / canvas.height, .2, 900), view);
+
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(FOG[0], FOG[1], FOG[2], 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.depthMask(true);
+  gl.uniformMatrix4fv(L.uVP, false, VP);
+  gl.uniform3fv(L.uSun, SUN); gl.uniform3f(L.uCam, cam.x, cam.y, cam.z); gl.uniform3fv(L.uFog, FOG);
+  gl.uniform1f(L.uFogFar, 620); gl.uniform1f(L.uAlpha, 1); gl.uniform1f(L.uLit, 1);
+  gl.enableVertexAttribArray(L.aPos); gl.enableVertexAttribArray(L.aNor);
+
+  // terrain + scenery
+  gl.uniformMatrix4fv(L.uM, false, IDENT);
+  gl.enableVertexAttribArray(L.aCol);
+  for (const [buf, n, idx] of [[terrain.vb, terrain.n, true], [statMesh.b, statMesh.n, false]]) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.vertexAttribPointer(L.aPos, 3, gl.FLOAT, false, 36, 0);
+    gl.vertexAttribPointer(L.aNor, 3, gl.FLOAT, false, 36, 12);
+    gl.vertexAttribPointer(L.aCol, 3, gl.FLOAT, false, 36, 24);
+    if (idx) { gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, terrain.ib); gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_SHORT, 0); }
+    else gl.drawArrays(gl.TRIANGLES, 0, n);
+  }
+
+  // riders
+  useCube();
+  const pb = drawHorse(p, [.13, .11, .1]);
+  drawRider(pb, PLAYER_LOOK, cam.yaw, cam.pitch + .03, p, p.cd > .24 ? 1 : 0);
+  box(chain(pb, T(0, 2.5, -1.62), rotX(-.35), T(0, 0, -.2), S(.38, .2, .3)), [.9, .88, .85]);   // white blaze
+  for (const e of G.sheriffs) {
+    if (Math.hypot(e.x - p.x, e.z - p.z) > 520) continue;
+    const b = drawHorse(e, e.horse, !e.alive);
+    if (e.alive) drawRider(b, e.deputy ? DEPUTY_LOOK : SHERIFF_LOOK, e.aimY, e.aimP, e, e.cd > 0 && e.cd > (e.cdMax || 9) - .06 ? 1 : 0);
+  }
+  for (const c of G.corpses) drawCorpse(c);
+
+  // see-through things
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+  gl.uniform1f(L.uAlpha, .82);
+  box(chain(T(0, WATER_Y, RIVER_Z), S(1500, .1, 120)), [.27, .45, .52]);
+  gl.uniform1f(L.uAlpha, .32); gl.uniform1f(L.uLit, 0);
+  for (const e of [p, ...G.sheriffs]) box(chain(T(e.x, H(e.x, e.z) + .06, e.z), rotY(e.yaw), S(1.3, .04, 2.6)), [.2, .12, .06]);
+  for (const q of G.parts) { gl.uniform1f(L.uAlpha, q.a * (1 - q.t / q.life)); box(chain(T(q.x, q.y, q.z), S(q.s, q.s, q.s)), q.col); }
+  for (const t of G.tracers) { gl.uniform1f(L.uAlpha, 1 - t.t / t.life); box(beam(t.a, t.b, .05), t.col); }
+  for (const f of G.flashes) { gl.uniform1f(L.uAlpha, 1 - f.t / .06); box(chain(T(...f.p), S(.35, .35, .35)), [1, .85, .45]); }
+  gl.depthMask(true); gl.disable(gl.BLEND); gl.uniform1f(L.uLit, 1); gl.uniform1f(L.uAlpha, 1);
+}
+
+// ===================== HUD =====================
+const ammoEl = $('ammo');
+for (let i = 0; i < 6; i++) ammoEl.append(document.createElement('span'));
+function project(x, y, z) { const c = xf(VP, x, y, z, 1); return c[3] > 0 ? [(c[0] / c[3] * .5 + .5) * innerWidth, (1 - (c[1] / c[3] * .5 + .5)) * innerHeight, c[3]] : null; }
+function drawHud() {
+  const p = G.p, w = innerWidth, h = innerHeight, cx = w / 2, cy = h / 2;
+  hx.setTransform(hudDpr, 0, 0, hudDpr, 0, 0);
+  hx.clearRect(0, 0, w, h);
+  // crosshair
+  hx.strokeStyle = 'rgba(255,245,225,.9)'; hx.lineWidth = 2;
+  const g = 6 + (p.cd > 0 ? 6 : 0) + p.speed * .25;
+  hx.beginPath(); [[g, 0, g + 7, 0], [-g, 0, -g - 7, 0], [0, g, 0, g + 7], [0, -g, 0, -g - 7]].forEach(([a, b, c, d]) => { hx.moveTo(cx + a, cy + b); hx.lineTo(cx + c, cy + d); }); hx.stroke();
+  hx.fillStyle = 'rgba(255,245,225,.9)'; hx.fillRect(cx - 1, cy - 1, 2, 2);
+  if (G.hitMark > 0) {
+    hx.strokeStyle = `rgba(230,60,40,${G.hitMark * 4})`; hx.lineWidth = 3; hx.beginPath();
+    [[1, 1], [-1, 1], [1, -1], [-1, -1]].forEach(([a, b]) => { hx.moveTo(cx + a * 6, cy + b * 6); hx.lineTo(cx + a * 13, cy + b * 13); }); hx.stroke();
+  }
+  // lawmen markers
+  for (const e of G.sheriffs) {
+    if (!e.alive) continue;
+    const y = H(e.x, e.z) + 3.8, s = project(e.x, y, e.z), d = Math.hypot(e.x - p.x, e.z - p.z);
+    if (d > 260) continue;
+    const near = d < 80;
+    if (s && s[0] > 20 && s[0] < w - 20 && s[1] > 20 && s[1] < h - 20) {
+      hx.fillStyle = near ? 'rgba(220,60,40,.95)' : 'rgba(240,220,190,.75)';
+      hx.beginPath(); hx.moveTo(s[0], s[1]); hx.lineTo(s[0] - 6, s[1] - 9); hx.lineTo(s[0] + 6, s[1] - 9); hx.closePath(); hx.fill();
+    } else {
+      const a = angWrap(Math.atan2(-(e.x - p.x), -(e.z - p.z)) - cam.yaw), r = Math.min(w, h) * .32;
+      const ax = cx - Math.sin(a) * r, ay = cy - Math.cos(a) * r;
+      hx.save(); hx.translate(ax, ay); hx.rotate(-a);
+      hx.fillStyle = near ? 'rgba(220,60,40,.9)' : 'rgba(240,220,190,.6)';
+      hx.beginPath(); hx.moveTo(0, -12); hx.lineTo(-8, 4); hx.lineTo(8, 4); hx.closePath(); hx.fill(); hx.restore();
+    }
+  }
+  if (G.hurt > .05) {
+    const a = angWrap(G.hurtFrom - cam.yaw), r = Math.min(w, h) * .22;
+    hx.strokeStyle = `rgba(200,30,20,${G.hurt})`; hx.lineWidth = 6;
+    hx.beginPath(); hx.arc(cx, cy, r, -Math.PI / 2 - a - .35, -Math.PI / 2 - a + .35); hx.stroke();
+  }
+  // DOM bars
+  $('hpBar').style.width = p.hp + '%'; $('stBar').style.width = p.stam + '%'; $('deBar').style.width = p.dead + '%';
+  [...ammoEl.children].forEach((s, i) => s.classList.toggle('spent', i >= p.ammo));
+  $('reloadTxt').textContent = p.reload > 0 ? 'Reloading…' : p.ammo === 0 ? 'Press R' : '';
+  const toRiver = Math.max(0, Math.round(p.z - (RIVER_Z - 40)));
+  $('riverTxt').textContent = `Rio Bravo · ${toRiver} m`;
+  $('arrow').style.transform = `rotate(${angWrap(cam.yaw)}rad)`;
+  $('bounty').textContent = '$' + G.bounty.toLocaleString();
+  $('kills').textContent = `${G.kills} lawm${G.kills === 1 ? 'an' : 'en'} down`;
+  $('hurt').style.opacity = G.hurt * .9 + (p.hp < 30 ? .35 + Math.sin(G.t * 6) * .1 : 0);
+}
+
+// ===================== menus =====================
+const menu = $('menu'), card = $('card');
+const coarse = matchMedia('(pointer: coarse)').matches;
+function showMenu(kind) {
+  menu.hidden = false;
+  const s = G ? `<div class="stats"><div>${G.kills}<small>lawmen down</small></div><div>${G.shots ? Math.round(G.hits / G.shots * 100) : 0}%<small>accuracy</small></div><div>${Math.floor(G.t / 60)}:${String(Math.floor(G.t % 60)).padStart(2, '0')}<small>time riding</small></div></div>` : '';
+  const controls = `<div class="keys">
+      <span class="mouse-only"><b>WASD</b></span><span class="mouse-only">Ride (the horse heads where you point it)</span>
+      <span class="mouse-only"><b>Shift</b></span><span class="mouse-only">Gallop. Tires the horse</span>
+      <span class="mouse-only"><b>Mouse · click</b></span><span class="mouse-only">Aim · shoot your revolver</span>
+      <span class="mouse-only"><b>R</b></span><span class="mouse-only">Reload six rounds</span>
+      <span class="mouse-only"><b>Q</b></span><span class="mouse-only">Dead Eye: slow time to line up shots</span>
+      <span class="touch-only"><b>Left stick</b></span><span class="touch-only">Ride</span>
+      <span class="touch-only"><b>Drag right side</b></span><span class="touch-only">Aim</span>
+      <span class="touch-only"><b>Buttons</b></span><span class="touch-only">Fire, reload, gallop, Dead Eye</span>
+    </div>`;
+  if (kind === 'start') card.innerHTML = `<div class="eyebrow">Wanted · dead or alive</div><h1>Rio Bravo Run</h1>
+    <p class="lede">You robbed the Dry Gulch bank. Now the sheriff and his deputies are riding you down. Cross the Rio Bravo, 1,000 metres north, and you are free.</p>
+    ${controls}<button class="go" id="go" type="button">Ride out</button>`;
+  else if (kind === 'pause') card.innerHTML = `<div class="eyebrow">Paused</div><h1>Catch your breath</h1>${controls}<button class="go" id="go" type="button">Back in the saddle</button>`;
+  else if (kind === 'win') card.innerHTML = `<div class="eyebrow">Across the border</div><h1>Free and clear</h1>
+    <p class="lede">Your horse splashes out of the Rio Bravo. The posse reins up on the far bank. The bounty on your head stands at $${G.bounty.toLocaleString()}.</p>${s}<button class="go" id="go" type="button">Rob another bank</button>`;
+  else card.innerHTML = `<div class="eyebrow">Brought to justice</div><h1>Shot off your horse</h1>
+    <p class="lede">You made it ${Math.max(0, Math.round(14 - G.p.z))} metres before the law caught up. The bounty was $${G.bounty.toLocaleString()}.</p>${s}<button class="go" id="go" type="button">Try again</button>`;
+  $('go').addEventListener('click', () => { audioOn(); if (kind !== 'pause') newGame(); resume(); });
+  $('go').focus({ preventScroll: true });
+}
+let running = false, locked = false, dragLook = false;
+function resume() {
+  menu.hidden = true; running = true;
+  if (!coarse && canvas.requestPointerLock) {
+    try { const r = canvas.requestPointerLock(); if (r && r.catch) r.catch(() => { dragLook = true; }); } catch (e) { dragLook = true; }
+  } else dragLook = true;
+}
+function pauseGame() { if (!running || G.state !== 'play') return; running = false; keys.clear(); if (G.p.deadOn) toggleDeadEye(false); showMenu('pause'); }
+function win() { if (G.state !== 'play') return; G.state = 'win'; G.endT = 1.5; say('You crossed the Rio Bravo!', 2); }
+function lose() { if (G.state !== 'play') return; G.state = 'lost'; G.endT = 1.5; if (G.p.deadOn) toggleDeadEye(false); say('You’re hit bad…', 2); }
+
+// ===================== input =====================
+document.addEventListener('pointerlockchange', () => { locked = document.pointerLockElement === canvas; if (locked) dragLook = false; else if (running && !dragLook) pauseGame(); });
+document.addEventListener('pointerlockerror', () => { dragLook = true; });
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (!running) { if (k === 'enter') $('go')?.click(); return; }
+  if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
+  if (k === 'r') reload();
+  if (k === 'q' && !e.repeat) toggleDeadEye();
+  if (k === ' ' && !e.repeat) fire();
+  if (k === 'escape' && dragLook) pauseGame();
+  keys.add(k);
+});
+window.addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+window.addEventListener('blur', () => keys.clear());
+const look = (dx, dy, k) => { cam.yaw -= dx * k; cam.pitch = clamp(cam.pitch - dy * k, -.65, .45); };
+let mdown = false, mx = 0, my = 0, mdist = 0;
+document.addEventListener('mousemove', e => {
+  if (!running) return;
+  if (locked) look(e.movementX, e.movementY, .0022);
+  else if (dragLook && mdown) { look(e.clientX - mx, e.clientY - my, .0045); mdist += Math.abs(e.clientX - mx) + Math.abs(e.clientY - my); mx = e.clientX; my = e.clientY; }
+});
+canvas.addEventListener('mousedown', e => {
+  if (!running || coarse) return;
+  audioOn();
+  if (locked) { if (e.button === 0) fire(); else if (e.button === 2) toggleDeadEye(); }
+  else if (dragLook) { if (e.button === 0) { mdown = true; mdist = 0; mx = e.clientX; my = e.clientY; } else if (e.button === 2) fire(); }
+});
+window.addEventListener('mouseup', e => { if (dragLook && mdown && e.button === 0) { mdown = false; if (mdist < 6) fire(); } });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+// touch
+const stick = $('stick'), nub = $('nub');
+let stickId = null, lookId = null, lx = 0, ly = 0;
+function stickMove(t) {
+  const r = stick.getBoundingClientRect(), max = r.width / 2 - 12;
+  let dx = t.clientX - (r.left + r.width / 2), dy = t.clientY - (r.top + r.height / 2);
+  const d = Math.hypot(dx, dy); if (d > max) { dx *= max / d; dy *= max / d; }
+  nub.style.transform = `translate(${dx}px, ${dy}px)`; stickIn.x = dx / max; stickIn.y = dy / max;
+}
+stick.addEventListener('touchstart', e => { e.preventDefault(); const t = e.changedTouches[0]; stickId = t.identifier; stickMove(t); }, { passive: false });
+stick.addEventListener('touchmove', e => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === stickId) stickMove(t); }, { passive: false });
+const stickEnd = e => { for (const t of e.changedTouches) if (t.identifier === stickId) { stickId = null; stickIn.x = stickIn.y = 0; nub.style.transform = ''; } };
+stick.addEventListener('touchend', stickEnd); stick.addEventListener('touchcancel', stickEnd);
+canvas.addEventListener('touchstart', e => { e.preventDefault(); if (lookId !== null) return; const t = e.changedTouches[0]; lookId = t.identifier; lx = t.clientX; ly = t.clientY; }, { passive: false });
+canvas.addEventListener('touchmove', e => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === lookId) { look(t.clientX - lx, t.clientY - ly, .006); lx = t.clientX; ly = t.clientY; } }, { passive: false });
+const lookEnd = e => { for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null; };
+canvas.addEventListener('touchend', lookEnd); canvas.addEventListener('touchcancel', lookEnd);
+const tb = (id, fn) => $(id).addEventListener('pointerdown', e => { e.preventDefault(); audioOn(); if (running) fn($(id)); });
+tb('tFire', fire); tb('tReload', reload); tb('tDead', () => toggleDeadEye());
+tb('tGallop', b => { touchFlags.gallop = !touchFlags.gallop; b.classList.toggle('on', touchFlags.gallop); });
+
+// ===================== loop =====================
+let hudDpr = 1;
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2); hudDpr = dpr;
+  canvas.width = Math.floor(innerWidth * dpr); canvas.height = Math.floor(innerHeight * dpr);
+  hud.width = canvas.width; hud.height = canvas.height;
+}
+window.addEventListener('resize', resize);
+let last = performance.now();
+function frame(now) {
+  const rdt = Math.min(.05, (now - last) / 1000); last = now;
+  if (running && G) {
+    const dt = rdt * G.timeScale;
+    G.t += dt;
+    if (G.state === 'play') {
+      updatePlayer(dt, rdt);
+      G.spawnT -= dt;
+      const progress = clamp((14 - G.p.z) / 1000, 0, 1);
+      const posse = Math.min(9, 3 + Math.floor(progress * 5) + Math.floor(G.t / 70));
+      if (G.spawnT <= 0) { G.spawnT = rand(4, 7); if (G.sheriffs.filter(e => e.alive).length < posse) spawnSheriff(); }
+    } else {
+      G.p.speed *= Math.pow(.3, dt);
+      G.endT -= rdt; if (G.endT <= 0) { running = false; showMenu(G.state); }
+    }
+    for (const e of G.sheriffs) { const before = e.cd; updateSheriff(e, dt); if (e.cd > before) e.cdMax = e.cd; }
+    G.sheriffs = G.sheriffs.filter(e => e.alive ? Math.hypot(e.x - G.p.x, e.z - G.p.z) < 600 : e.deadT < 12);
+    for (const c of G.corpses) c.t += dt;
+    G.corpses = G.corpses.filter(c => c.t < 40 && Math.hypot(c.x - G.p.x, c.z - G.p.z) < 500);
+    for (const q of G.parts) { q.t += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; q.vy -= (q.s < .3 ? 6 : -.2) * dt; }
+    G.parts = G.parts.filter(q => q.t < q.life);
+    for (const t of G.tracers) t.t += dt; G.tracers = G.tracers.filter(t => t.t < t.life);
+    for (const f of G.flashes) f.t += dt; G.flashes = G.flashes.filter(f => f.t < .06);
+    G.hurt = Math.max(0, G.hurt - rdt * 1.6); G.shake = Math.max(0, G.shake - rdt); G.hitMark = Math.max(0, G.hitMark - rdt);
+    if (G.msgT > 0) { G.msgT -= rdt; if (G.msgT <= 0) $('msg').style.opacity = 0; }
+  }
+  if (G) { render(); drawHud(); }
+  requestAnimationFrame(frame);
+}
+
+// ===================== boot =====================
+if (!gl) { card.innerHTML = '<h1>No WebGL</h1><p class="lede">This browser cannot draw 3D graphics, which Rio Bravo Run needs.</p>'; return; }
+buildWorld(); uploadStatic(); buildTerrain(); resize();
+newGame(); G.t = 0; $('msg').style.opacity = 0; G.msgT = 0;
+showMenu('start');
+window.__rio = { get G() { return G; }, cam, fire, spawnSheriff };
+requestAnimationFrame(frame);
+})();
+</script>
+<!-- page:end -->
+</body>
+</html>
