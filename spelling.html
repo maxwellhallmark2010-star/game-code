@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spell It</title>
+<style>
+:root{--bg:#fff4d6;--card:#ffffff;--ink:#2b2350;--muted:#7a6f9b;--pri:#6c4cff;--pri2:#4a2fd6;--ok:#12a36b;--bad:#e5484d;--gold:#ffb703;--line:#e6dcf7}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{background:var(--bg);color:var(--ink);font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif;display:flex;justify-content:center;padding-block:20px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));-webkit-user-select:none;user-select:none}
+.app{width:100%;max-width:560px;display:flex;flex-direction:column;gap:16px}
+h1{margin:0;font-size:clamp(34px,8vw,52px);letter-spacing:.02em;text-align:center;color:var(--pri);text-shadow:0 3px 0 #ffd23f}
+.card{background:var(--card);border:3px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 6px 0 var(--line)}
+.stats{display:flex;justify-content:space-between;gap:8px;font-weight:700;flex-wrap:wrap}
+.stats span{background:var(--card);border:2px solid var(--line);border-radius:999px;padding:6px 14px}
+.bar{height:10px;background:var(--line);border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;width:0;background:var(--pri);transition:width .3s}
+.levels{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+button{font:inherit;font-weight:800;cursor:pointer;border:0;border-radius:14px;padding:12px 18px;color:#fff;background:var(--pri);box-shadow:0 4px 0 var(--pri2);transition:transform .08s}
+button:active{transform:translateY(3px);box-shadow:0 1px 0 var(--pri2)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+button.alt{background:#fff;color:var(--pri);border:2px solid var(--pri);box-shadow:0 4px 0 var(--line)}
+button.lv[aria-pressed="true"]{background:var(--gold);color:#4a2d00;box-shadow:0 4px 0 #c98600}
+button:disabled{opacity:.5;cursor:default}
+#say{width:150px;height:150px;border-radius:50%;font-size:64px;display:block;margin:4px auto 16px;padding:0;box-shadow:0 8px 0 var(--pri2)}
+#say.talk{animation:pulse .6s infinite alternate}
+@keyframes pulse{to{transform:scale(1.08)}}
+.row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+#boxes{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:18px 0 10px;min-height:54px}
+#boxes b{width:clamp(30px,9vw,44px);height:clamp(40px,11vw,54px);border-bottom:5px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:clamp(24px,7vw,34px);text-transform:uppercase}
+#boxes b.ok{color:var(--ok);border-color:var(--ok)}#boxes b.bad{color:var(--bad);border-color:var(--bad)}
+#inp{width:100%;font:inherit;font-size:26px;font-weight:700;text-align:center;padding:12px;border:3px solid var(--line);border-radius:14px;color:var(--ink);background:#fffdf7;-webkit-user-select:text;user-select:text;text-transform:lowercase}
+#msg{min-height:54px;text-align:center;font-size:19px;font-weight:700;display:flex;align-items:center;justify-content:center;padding-top:10px}
+#msg.ok{color:var(--ok)}#msg.bad{color:var(--bad)}
+#hint{text-align:center;color:var(--muted);min-height:24px;font-weight:600}
+.end{text-align:center}.end h2{margin:0 0 6px;font-size:34px}.end .big{font-size:60px;font-weight:900;color:var(--pri)}
+.miss{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px 0}.miss span{background:#ffeef0;border:2px solid #ffc9cd;border-radius:10px;padding:4px 10px;font-weight:700}
+.warn{background:#ffeef0;border:2px solid #ffc9cd;border-radius:12px;padding:10px;text-align:center;font-weight:700;color:var(--bad)}
+.hidden{display:none!important}
+@media (prefers-reduced-motion:reduce){#say.talk{animation:none}}
+</style>
+</head><body>
+<div class="app">
+  <h1>Spell It!</h1>
+  <div class="warn hidden" id="nospeech">Your browser can't speak words out loud, so the sound button won't work here. Try Chrome, Safari or Edge.</div>
+  <div class="levels" id="levels" role="group" aria-label="Level">
+    <button class="lv" data-l="0" aria-pressed="true">Easy</button>
+    <button class="lv" data-l="1" aria-pressed="false">Medium</button>
+    <button class="lv" data-l="2" aria-pressed="false">Hard</button>
+  </div>
+  <div class="stats"><span>Word <b id="n">1</b>/10</span><span>⭐ <b id="score">0</b></span><span>🔥 <b id="streak">0</b></span></div>
+  <div class="bar"><i id="prog"></i></div>
+
+  <div class="card" id="play">
+    <button id="say" aria-label="Hear the word">🔊</button>
+    <div class="row">
+      <button class="alt" id="slow">🐢 Slow</button>
+      <button class="alt" id="sent">💬 Use in a sentence</button>
+      <button class="alt" id="hbtn">💡 Hint (-3)</button>
+    </div>
+    <div id="boxes" aria-hidden="true"></div>
+    <input id="inp" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Type the word here" aria-label="Your spelling">
+    <div id="msg" aria-live="polite"></div>
+    <div id="hint"></div>
+    <div class="row" style="margin-top:10px"><button id="go">Check ✓</button><button class="alt hidden" id="next">Next word →</button></div>
+  </div>
+
+  <div class="card end hidden" id="end">
+    <h2 id="etitle">Great job!</h2>
+    <div class="big"><span id="escore">0</span> ⭐</div>
+    <div id="esub"></div>
+    <div class="miss" id="miss"></div>
+    <button id="again">Play again</button>
+  </div>
+</div>
+
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const W=[
+ [["cat","The cat sat on the mat."],["dog","My dog likes to run."],["sun","The sun is bright today."],["fish","A fish swims in the water."],["tree","A bird sits in the tree."],["book","I read a good book."],["jump","Frogs can jump high."],["milk","I drink milk with lunch."],["rain","The rain falls from the clouds."],["blue","The sky is blue."],["happy","She is happy today."],["green","Grass is green."],["apple","I ate a red apple."],["house","We live in a big house."],["water","Please drink some water."],["smile","Give me a big smile."],["table","Put the plate on the table."],["chair","Sit on the chair."],["night","The stars shine at night."],["friend","He is my best friend."]],
+ [["because","I stayed home because it rained."],["people","Many people came to the party."],["school","We walk to school together."],["around","They ran around the park."],["animal","A lion is a wild animal."],["picture","She drew a nice picture."],["morning","I wake up early in the morning."],["family","My family eats dinner together."],["garden","Flowers grow in the garden."],["number","Pick a number from one to ten."],["country","France is a country in Europe."],["pretty","What a pretty dress!"],["bridge","We crossed the bridge."],["laugh","The joke made us laugh."],["thought","I thought about it all day."],["island","They sailed to a small island."],["kitchen","Mom cooks in the kitchen."],["monkey","The monkey ate a banana."],["winter","Snow falls in winter."],["answer","Write your answer here."]],
+ [["necessary","Sleep is necessary for health."],["separate","Keep the colors separate."],["definitely","I will definitely be there."],["beautiful","What a beautiful sunset!"],["library","We borrowed books at the library."],["February","February is the shortest month."],["knowledge","Reading builds knowledge."],["restaurant","We ate at a new restaurant."],["rhythm","The drummer kept a steady rhythm."],["environment","We should protect the environment."],["calendar","Check the calendar for the date."],["government","The government makes laws."],["embarrass","Don't embarrass your brother."],["receive","I hope to receive a letter."],["tomorrow","See you tomorrow."],["Wednesday","The meeting is on Wednesday."],["vegetable","Eat a vegetable every day."],["neighbor","Our neighbor has a friendly cat."],["opportunity","This is a great opportunity."],["accommodate","The hotel can accommodate us."]]
+];
+const ROUNDS=10;
+let level=0,words=[],i=0,score=0,streak=0,tries=0,hintUsed=false,done=false,missed=[],voice=null,ptsLost=0;
+const synth=window.speechSynthesis;
+if(!synth||!window.SpeechSynthesisUtterance)$('nospeech').classList.remove('hidden');
+function pickVoice(){if(!synth)return;const v=synth.getVoices();voice=v.find(x=>/^en[-_]US/i.test(x.lang)&&/natural|samantha|google|aria|jenny/i.test(x.name))||v.find(x=>/^en/i.test(x.lang))||null}
+if(synth){pickVoice();synth.onvoiceschanged=pickVoice}
+function speak(text,rate=.85){
+  if(!synth)return;synth.cancel();
+  const u=new SpeechSynthesisUtterance(text);u.rate=rate;u.pitch=1.05;if(voice){u.voice=voice;u.lang=voice.lang}else u.lang='en-US';
+  const b=$('say');u.onstart=()=>b.classList.add('talk');u.onend=u.onerror=()=>b.classList.remove('talk');
+  synth.speak(u);
+}
+const cur=()=>words[i];
+function shuffle(a){a=a.slice();for(let k=a.length-1;k>0;k--){const j=Math.floor(Math.random()*(k+1));[a[k],a[j]]=[a[j],a[k]]}return a}
+function newGame(){
+  words=shuffle(W[level]).slice(0,ROUNDS);i=0;score=0;streak=0;missed=[];
+  $('end').classList.add('hidden');$('play').classList.remove('hidden');
+  load();
+}
+function load(){
+  tries=0;hintUsed=false;done=false;
+  $('n').textContent=i+1;$('score').textContent=score;$('streak').textContent=streak;
+  $('prog').style.width=(i/ROUNDS*100)+'%';
+  $('inp').value='';$('inp').disabled=false;$('msg').textContent='';$('msg').className='';$('hint').textContent='';
+  $('go').classList.remove('hidden');$('next').classList.add('hidden');
+  drawBoxes('');
+  $('inp').focus({preventScroll:true});
+  setTimeout(()=>speak(cur()[0]),250);
+}
+function drawBoxes(v,state){
+  const w=cur()[0],box=$('boxes');box.innerHTML='';
+  for(let k=0;k<w.length;k++){
+    const b=document.createElement('b'),ch=v[k]||'';b.textContent=ch;
+    if(state)b.className=ch.toLowerCase()===w[k].toLowerCase()?'ok':'bad';
+    box.appendChild(b);
+  }
+}
+function check(){
+  if(done)return;
+  const v=$('inp').value.trim();if(!v)return;
+  const w=cur()[0];
+  if(v.toLowerCase()===w.toLowerCase()){
+    const pts=Math.max(2,(tries?6:10)-(hintUsed?3:0));
+    score+=pts;streak++;done=true;
+    $('msg').textContent=`Correct! +${pts} ⭐`;$('msg').className='ok';
+    drawBoxes(w,true);finish();
+    speak(['Great job!','Nice spelling!','You got it!','Awesome!'][Math.floor(Math.random()*4)],1);
+  }else{
+    tries++;streak=0;$('streak').textContent=0;
+    if(tries<2){
+      $('msg').textContent='Not quite. Listen again and try once more.';$('msg').className='bad';
+      drawBoxes(v,true);$('inp').select();speak(w);
+    }else{
+      done=true;missed.push(w);
+      $('msg').innerHTML=`The word is <b>${w}</b>`;$('msg').className='bad';
+      drawBoxes(w,false);document.querySelectorAll('#boxes b').forEach(b=>b.className='ok');
+      finish();speak(w.split('').join(' ... ')+'. '+w,.7);
+    }
+  }
+  $('score').textContent=score;
+}
+function finish(){
+  $('inp').disabled=true;$('go').classList.add('hidden');
+  const nx=$('next');nx.classList.remove('hidden');nx.textContent=i===ROUNDS-1?'See results →':'Next word →';nx.focus({preventScroll:true});
+}
+function next(){
+  if(i===ROUNDS-1)return results();
+  i++;load();
+}
+function results(){
+  $('prog').style.width='100%';
+  $('play').classList.add('hidden');$('end').classList.remove('hidden');
+  const right=ROUNDS-missed.length;
+  $('escore').textContent=score;
+  $('etitle').textContent=right===ROUNDS?'Perfect spelling! 🏆':right>=7?'Great job! 🎉':right>=4?'Nice try! 👍':'Keep practicing! 💪';
+  $('esub').textContent=`${right} of ${ROUNDS} words correct`;
+  $('miss').innerHTML=missed.length?'<div style="width:100%;font-weight:700">Words to practice:</div>':'';
+  missed.forEach(w=>{const s=document.createElement('span');s.textContent=w;$('miss').appendChild(s)});
+  speak(right===ROUNDS?'Perfect score!':'Good work!',1);
+}
+$('say').addEventListener('click',()=>{speak(cur()[0]);$('inp').focus({preventScroll:true})});
+$('slow').addEventListener('click',()=>{speak(cur()[0],.45);$('inp').focus({preventScroll:true})});
+$('sent').addEventListener('click',()=>{speak(cur()[0]+'. '+cur()[1].replace(new RegExp(cur()[0],'i'),'$&')+'. '+cur()[0],.85);$('inp').focus({preventScroll:true})});
+$('hbtn').addEventListener('click',()=>{
+  if(done)return;hintUsed=true;const w=cur()[0];
+  $('hint').textContent=`Starts with "${w[0].toUpperCase()}" · ${w.length} letters`;
+  $('inp').focus({preventScroll:true});
+});
+$('go').addEventListener('click',check);
+$('next').addEventListener('click',next);
+$('again').addEventListener('click',newGame);
+$('inp').addEventListener('input',e=>{if(!done)drawBoxes(e.target.value.trim())});
+$('inp').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();check()}});
+addEventListener('keydown',e=>{if(e.key==='Enter'&&done&&document.activeElement!==$('next')){next()}if(e.key==='Tab'&&e.ctrlKey){}});
+document.querySelectorAll('.lv').forEach(b=>b.addEventListener('click',()=>{
+  level=+b.dataset.l;document.querySelectorAll('.lv').forEach(x=>x.setAttribute('aria-pressed',x===b?'true':'false'));newGame();
+}));
+newGame();
+})();
+</script>
+
+</body>
+</html>
