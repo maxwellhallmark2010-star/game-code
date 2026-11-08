@@ -3,79 +3,111 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>Maze</title>
+<title>3D Maze</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f1a; font-family: system-ui, sans-serif; color: #e8f0ff; }
-  canvas { display: block; position: fixed; inset: 0; }
-  #hud { position: fixed; top: 12px; left: 16px; right: 16px; display: flex; gap: 20px; font-size: 18px; letter-spacing: .05em;
+  canvas#view { display: block; touch-action: none; }
+  #hud { position: fixed; top: 12px; left: 16px; display: flex; gap: 20px; font-size: 18px; letter-spacing: .05em;
          text-shadow: 0 0 8px #000; pointer-events: none; flex-wrap: wrap; }
   #hud span { color: #7dffb2; font-weight: 700; }
-  #help { position: fixed; bottom: 10px; left: 16px; font-size: 13px; opacity: .6; }
+  #help { position: fixed; bottom: 10px; left: 16px; font-size: 13px; opacity: .65; text-shadow: 0 0 6px #000; }
+  #mini { position: fixed; top: 12px; right: 12px; width: 180px; height: 180px; border: 1px solid #345; border-radius: 8px;
+          background: rgba(8,12,22,.7); pointer-events: none; }
   #msg { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
          text-align: center; background: rgba(5,8,16,.7); font-size: 20px; cursor: pointer; }
   #msg h1 { font-size: 48px; margin: 0 0 8px; color: #7dffb2; }
   #msg p { margin: 4px 0; opacity: .85; }
   .hidden { display: none !important; }
   #pad { position: fixed; bottom: 16px; right: 16px; display: grid; grid-template-columns: repeat(3, 56px); gap: 6px; }
-  #pad button { height: 56px; font-size: 22px; border-radius: 12px; border: 1px solid #345; background: rgba(30,50,80,.6); color: #fff; touch-action: manipulation; }
+  #pad button { height: 56px; font-size: 22px; border-radius: 12px; border: 1px solid #345; background: rgba(30,50,80,.6); color: #fff; touch-action: none; user-select: none; }
   @media (hover: hover) { #pad { display: none; } }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
 <div id="hud">
   <div>Level <span id="lvl">1</span></div>
   <div>Time <span id="time">0.0</span>s</div>
   <div>Best <span id="best">-</span></div>
   <div>Mode <span id="mode">Normal</span></div>
 </div>
-<div id="help">Arrows / WASD move &middot; F fog of war &middot; H hint &middot; R new maze &middot; Space pause</div>
+<canvas id="mini" width="360" height="360"></canvas>
+<div id="help">W/&uarr; forward &middot; S/&darr; back &middot; A/D or &larr;/&rarr; turn (or drag) &middot; F fog &middot; H hint &middot; M minimap &middot; R new maze &middot; Space pause</div>
 <div id="msg">
-  <h1 id="title">MAZE</h1>
-  <p id="sub">Reach the red exit. Arrows / WASD to move, or swipe.</p>
+  <h1 id="title">3D MAZE</h1>
+  <p id="sub">Find the glowing red exit pillar.</p>
   <p>F: fog of war &middot; H: hint (costs +5s)</p>
   <p>Click or press Space to start</p>
 </div>
 <div id="pad">
-  <span></span><button data-d="0,-1">▲</button><span></span>
-  <button data-d="-1,0">◀</button><button data-d="0,1">▼</button><button data-d="1,0">▶</button>
+  <span></span><button data-k="f">▲</button><span></span>
+  <button data-k="l">◀</button><button data-k="b">▼</button><button data-k="r">▶</button>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (() => {
-  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
   const $ = id => document.getElementById(id);
-  const msg = $('msg');
+  const msg = $('msg'), mini = $('mini'), mctx = mini.getContext('2d');
 
-  let level = 1, cols, rows, grid, px, py, trail, hint = null;
-  let fog = false, state = 'menu', t0 = 0, elapsed = 0, penalty = 0;
-  let cell = 20, ox = 0, oy = 0, flash = 0;
-  const bestKey = l => 'maze.best.' + l + (fog ? '.fog' : '');
+  // ---------- three.js scene ----------
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.domElement.id = 'view';
+  document.body.prepend(renderer.domElement);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 200);
+  scene.add(camera);
+  const lamp = new THREE.PointLight(0xfff2d0, 1.1, 22);   // light carried by the player
+  camera.add(lamp);
+  scene.add(new THREE.AmbientLight(0x6070a0, 0.35));
+
+  function makeTex(base, line, size = 128) {
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const g = c.getContext('2d');
+    g.fillStyle = base; g.fillRect(0, 0, size, size);
+    for (let i = 0; i < 400; i++) { g.fillStyle = `rgba(0,0,0,${Math.random() * .12})`; g.fillRect(Math.random() * size, Math.random() * size, 3, 3); }
+    g.strokeStyle = line; g.lineWidth = 3; g.strokeRect(1, 1, size - 2, size - 2);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+  }
+  const wallTex = makeTex('#3a5a9a', '#27406f');
+  const floorTex = makeTex('#1c2638', '#2a3856');
+  const ceilTex = makeTex('#10151f', '#171e2c');
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: .85 });
+  const floorMat = new THREE.MeshStandardMaterial({ map: floorTex, roughness: 1 });
+  const ceilMat = new THREE.MeshStandardMaterial({ map: ceilTex, roughness: 1 });
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+
+  // ---------- game state ----------
+  const CELL = 4, THICK = 0.5, WALL_H = 3.4, EYE = 1.6, RADIUS = 0.8;
+  let level = 1, cols, rows, grid, trail, hint = null;
+  let fog = false, showMap = true, state = 'menu', t0 = 0, elapsed = 0, penalty = 0;
+  let pos = new THREE.Vector3(), yaw = 0, lastCell = 0;
+  let level_group = null, hintGroup = new THREE.Group(), exitGroup = null, walls = [];
+  scene.add(hintGroup);
+  const keys = {};
+
+  const bestKey = l => 'maze3d.best.' + l + (fog ? '.fog' : '');
   const getBest = l => { try { return +localStorage.getItem(bestKey(l)) || 0; } catch (e) { return 0; } };
   const setBest = (l, v) => { try { localStorage.setItem(bestKey(l), v); } catch (e) {} };
 
-  // Each cell: bitmask of open passages. 1=N 2=E 4=S 8=W
+  // cell bitmask of open passages: 1=N 2=E 4=S 8=W
   const DX = [0, 1, 0, -1], DY = [-1, 0, 1, 0], BIT = [1, 2, 4, 8], OPP = [4, 8, 1, 2];
 
   function generate(w, h) {
     const g = new Uint8Array(w * h), seen = new Uint8Array(w * h);
     const stack = [[0, 0]]; seen[0] = 1;
-    while (stack.length) {            // iterative recursive-backtracker
-      const [x, y] = stack[stack.length - 1];
-      const opts = [];
+    while (stack.length) {
+      const [x, y] = stack[stack.length - 1], opts = [];
       for (let d = 0; d < 4; d++) {
         const nx = x + DX[d], ny = y + DY[d];
         if (nx >= 0 && ny >= 0 && nx < w && ny < h && !seen[ny * w + nx]) opts.push(d);
       }
       if (!opts.length) { stack.pop(); continue; }
-      const d = opts[Math.random() * opts.length | 0];
-      const nx = x + DX[d], ny = y + DY[d];
+      const d = opts[Math.random() * opts.length | 0], nx = x + DX[d], ny = y + DY[d];
       g[y * w + x] |= BIT[d]; g[ny * w + nx] |= OPP[d];
       seen[ny * w + nx] = 1; stack.push([nx, ny]);
     }
-    // knock out a few walls on bigger levels so there are loops
-    const extra = Math.floor(w * h * 0.03);
-    for (let i = 0; i < extra; i++) {
+    for (let i = 0, extra = Math.floor(w * h * 0.03); i < extra; i++) {   // a few loops
       const x = Math.random() * w | 0, y = Math.random() * h | 0, d = Math.random() * 4 | 0;
       const nx = x + DX[d], ny = y + DY[d];
       if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
@@ -84,9 +116,9 @@
     return g;
   }
 
-  function solve() {                  // BFS from player to exit
-    const prev = new Int32Array(cols * rows).fill(-1), start = py * cols + px, goal = rows * cols - 1;
-    const q = [start]; prev[start] = start;
+  function solve(fromCell) {
+    const prev = new Int32Array(cols * rows).fill(-1), goal = rows * cols - 1, q = [fromCell];
+    prev[fromCell] = fromCell;
     for (let i = 0; i < q.length; i++) {
       const c = q[i]; if (c === goal) break;
       const x = c % cols, y = c / cols | 0;
@@ -96,157 +128,225 @@
         if (prev[n] < 0) { prev[n] = c; q.push(n); }
       }
     }
-    const path = []; for (let c = goal; c !== start; c = prev[c]) path.push(c);
+    const path = []; for (let c = goal; c !== fromCell; c = prev[c]) path.push(c);
     return path.reverse();
   }
 
+  const cellOf = () => Math.min(rows - 1, Math.max(0, Math.floor(pos.z / CELL))) * cols + Math.min(cols - 1, Math.max(0, Math.floor(pos.x / CELL)));
+  const cellCenter = c => [(c % cols + .5) * CELL, ((c / cols | 0) + .5) * CELL];
+
+  function buildWorld() {
+    if (level_group) { scene.remove(level_group); level_group.traverse(o => o.isInstancedMesh && o.dispose()); }
+    level_group = new THREE.Group(); scene.add(level_group);
+    // wall segments as [cx, cz, sx, sz]
+    const segs = [];
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const g = grid[y * cols + x], X = x * CELL, Z = y * CELL;
+      if (!(g & 1)) segs.push([X + CELL / 2, Z, CELL + THICK, THICK]);                    // north
+      if (!(g & 8)) segs.push([X, Z + CELL / 2, THICK, CELL + THICK]);                    // west
+      if (y === rows - 1 && !(g & 4)) segs.push([X + CELL / 2, Z + CELL, CELL + THICK, THICK]);
+      if (x === cols - 1 && !(g & 2)) segs.push([X + CELL, Z + CELL / 2, THICK, CELL + THICK]);
+    }
+    const inst = new THREE.InstancedMesh(boxGeo, wallMat, segs.length), m = new THREE.Matrix4();
+    walls = [];
+    segs.forEach(([cx, cz, sx, sz], i) => {
+      m.compose(new THREE.Vector3(cx, WALL_H / 2, cz), new THREE.Quaternion(), new THREE.Vector3(sx, WALL_H, sz));
+      inst.setMatrixAt(i, m);
+      walls.push({ x0: cx - sx / 2, x1: cx + sx / 2, z0: cz - sz / 2, z1: cz + sz / 2 });
+    });
+    level_group.add(inst);
+
+    const W = cols * CELL, H = rows * CELL;
+    floorTex.repeat.set(cols * 2, rows * 2); ceilTex.repeat.set(cols * 2, rows * 2);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, H), floorMat);
+    floor.rotation.x = -Math.PI / 2; floor.position.set(W / 2, 0, H / 2);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, H), ceilMat);
+    ceil.rotation.x = Math.PI / 2; ceil.position.set(W / 2, WALL_H, H / 2);
+    level_group.add(floor, ceil);
+
+    // exit pillar + beacon
+    exitGroup = new THREE.Group();
+    const [ex, ez] = cellCenter(rows * cols - 1);
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, WALL_H - .4, 16),
+      new THREE.MeshStandardMaterial({ color: 0xff4d5e, emissive: 0xff2030, emissiveIntensity: 1.2 }));
+    pillar.position.y = (WALL_H - .4) / 2 + .2;
+    const glow = new THREE.PointLight(0xff4050, 1.6, 14); glow.position.y = 1.6;
+    exitGroup.add(pillar, glow); exitGroup.position.set(ex, 0, ez);
+    level_group.add(exitGroup);
+  }
+
+  function setFogLook() {
+    const col = fog ? 0x04060c : 0x0b0f1a;
+    scene.background = new THREE.Color(col);
+    scene.fog = fog ? new THREE.Fog(col, 1, 11) : new THREE.Fog(col, 18, 60);
+    lamp.intensity = fog ? 1.3 : 1.1; lamp.distance = fog ? 12 : 26;
+    $('mode').textContent = fog ? 'Fog' : 'Normal';
+    $('best').textContent = getBest(level) ? getBest(level).toFixed(1) + 's' : '-';
+  }
+
+  function rebuildHint() {
+    hintGroup.clear();
+    if (!hint) return;
+    const geo = new THREE.SphereGeometry(.22, 10, 8), mat = new THREE.MeshBasicMaterial({ color: 0xffdc64 });
+    hint.forEach(c => { const [x, z] = cellCenter(c); const s = new THREE.Mesh(geo, mat); s.position.set(x, .35, z); hintGroup.add(s); });
+  }
+
   function newMaze() {
-    cols = 8 + level * 2; rows = 6 + level * 2;
-    cols = Math.min(cols, 60); rows = Math.min(rows, 40);
+    cols = Math.min(6 + level * 2, 36); rows = Math.min(5 + level * 2, 30);
     grid = generate(cols, rows);
-    px = 0; py = 0; trail = new Set([0]); hint = null;
+    pos.set(CELL / 2, EYE, CELL / 2);
+    // forward = (-sin yaw, 0, -cos yaw): face east if open, else south
+    yaw = (grid[0] & 2) ? -Math.PI / 2 : Math.PI;
+    trail = new Set([0]); lastCell = 0; hint = null; hintGroup.clear();
     elapsed = 0; penalty = 0; t0 = performance.now();
     $('lvl').textContent = level;
-    $('best').textContent = getBest(level) ? getBest(level).toFixed(1) + 's' : '-';
-    $('mode').textContent = fog ? 'Fog' : 'Normal';
-    layout();
+    buildWorld(); setFogLook();
   }
 
-  function layout() {
-    cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio;
-    cv.style.width = innerWidth + 'px'; cv.style.height = innerHeight + 'px';
-    if (!grid) return;
-    const topPad = 50, botPad = 30;
-    cell = Math.floor(Math.min((innerWidth - 24) / cols, (innerHeight - topPad - botPad) / rows));
-    ox = Math.floor((innerWidth - cell * cols) / 2);
-    oy = topPad + Math.floor((innerHeight - topPad - botPad - cell * rows) / 2);
+  // ---------- movement & collision ----------
+  function collide() {
+    const cx = Math.floor(pos.x / CELL), cz = Math.floor(pos.z / CELL);
+    for (let iter = 0; iter < 2; iter++)
+      for (const w of walls) {
+        if (w.x1 < pos.x - CELL || w.x0 > pos.x + CELL || w.z1 < pos.z - CELL || w.z0 > pos.z + CELL) continue;
+        const nx = Math.max(w.x0, Math.min(pos.x, w.x1)), nz = Math.max(w.z0, Math.min(pos.z, w.z1));
+        let dx = pos.x - nx, dz = pos.z - nz, d2 = dx * dx + dz * dz;
+        if (d2 >= RADIUS * RADIUS) continue;
+        if (d2 < 1e-8) {                    // centre inside the box: push out the short way
+          const l = pos.x - w.x0, r = w.x1 - pos.x, t = pos.z - w.z0, b = w.z1 - pos.z, m = Math.min(l, r, t, b);
+          if (m === l) pos.x = w.x0 - RADIUS; else if (m === r) pos.x = w.x1 + RADIUS;
+          else if (m === t) pos.z = w.z0 - RADIUS; else pos.z = w.z1 + RADIUS;
+        } else { const d = Math.sqrt(d2), push = (RADIUS - d) / d; pos.x += dx * push; pos.z += dz * push; }
+      }
   }
 
-  function move(dx, dy) {
-    if (state !== 'play') return;
-    const d = DX.findIndex((v, i) => v === dx && DY[i] === dy);
-    if (!(grid[py * cols + px] & BIT[d])) return;
-    px += dx; py += dy; trail.add(py * cols + px);
-    if (hint) { const i = hint.indexOf(py * cols + px); hint = i >= 0 ? hint.slice(i + 1) : null; }
-    if (px === cols - 1 && py === rows - 1) win();
+  function update(dt) {
+    const turn = (keys.left ? 1 : 0) - (keys.right ? 1 : 0);
+    yaw += turn * 2.4 * dt;
+    const go = (keys.fwd ? 1 : 0) - (keys.back ? 1 : 0);
+    if (go) {
+      const sp = 6 * dt * go;                       // small substeps keep us from tunnelling
+      const n = Math.max(1, Math.ceil(Math.abs(sp) / .3));
+      for (let i = 0; i < n; i++) { pos.x += -Math.sin(yaw) * sp / n; pos.z += -Math.cos(yaw) * sp / n; collide(); }
+    }
+    camera.position.copy(pos);
+    camera.position.y = EYE + Math.sin(performance.now() / 120) * (go ? .04 : 0);
+    camera.rotation.set(0, yaw, 0);
+
+    const c = cellOf();
+    if (c !== lastCell) {
+      lastCell = c; trail.add(c);
+      if (hint) { const i = hint.indexOf(c); hint = i >= 0 ? hint.slice(i + 1) : null; rebuildHint(); }
+    }
+    const [ex, ez] = cellCenter(rows * cols - 1);
+    if (Math.hypot(pos.x - ex, pos.z - ez) < 1.6) win();
   }
 
+  // ---------- states ----------
   function win() {
     state = 'won';
-    const t = elapsed;
-    const prevBest = getBest(level);
-    const record = !prevBest || t < prevBest;
+    const t = elapsed, prevBest = getBest(level), record = !prevBest || t < prevBest;
     if (record) setBest(level, t.toFixed(1));
     $('title').textContent = 'LEVEL ' + level + ' CLEARED';
     $('sub').textContent = 'Time: ' + t.toFixed(1) + 's' + (record ? '  —  new best!' : '  (best ' + prevBest.toFixed(1) + 's)');
     msg.querySelector('p:last-child').textContent = 'Click or press Space for the next level';
     msg.classList.remove('hidden');
   }
-
   function start() {
     if (state === 'won') { level++; newMaze(); }
     else if (state === 'menu') newMaze();
-    else if (state === 'paused') t0 = performance.now() - (elapsed - penalty) * 1000;  // resume
+    else if (state === 'paused') t0 = performance.now() - (elapsed - penalty) * 1000;
     state = 'play'; msg.classList.add('hidden');
   }
   function pause() {
     if (state !== 'play') return;
-    state = 'paused';
-    $('title').textContent = 'PAUSED';
-    $('sub').textContent = 'Take a breath.';
+    state = 'paused'; for (const k in keys) keys[k] = false;
+    $('title').textContent = 'PAUSED'; $('sub').textContent = 'Take a breath.';
     msg.querySelector('p:last-child').textContent = 'Click or press Space to resume';
     msg.classList.remove('hidden');
   }
+  function useHint() { if (state !== 'play') return; hint = solve(cellOf()); penalty += 5; rebuildHint(); }
 
-  function toggleFog() { fog = !fog; $('mode').textContent = fog ? 'Fog' : 'Normal'; $('best').textContent = getBest(level) ? getBest(level).toFixed(1) + 's' : '-'; }
-  function useHint() { if (state !== 'play') return; hint = solve(); penalty += 5; }
-
+  // ---------- input ----------
+  const KEYMAP = { arrowup: 'fwd', w: 'fwd', arrowdown: 'back', s: 'back', arrowleft: 'left', a: 'left', arrowright: 'right', d: 'right' };
   addEventListener('keydown', e => {
     const k = e.key.toLowerCase();
     if (k === ' ') { e.preventDefault(); state === 'play' ? pause() : start(); return; }
-    if (state === 'menu' || state === 'won') return;
-    const m = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] }[k];
-    if (m) { e.preventDefault(); move(m[0], m[1]); }
-    else if (k === 'f') toggleFog();
+    if (state !== 'play') return;
+    if (KEYMAP[k]) { e.preventDefault(); keys[KEYMAP[k]] = true; }
+    else if (k === 'f') { fog = !fog; setFogLook(); }
     else if (k === 'h') useHint();
-    else if (k === 'r' && state === 'play') newMaze();
+    else if (k === 'm') showMap = !showMap;
+    else if (k === 'r') newMaze();
   });
+  addEventListener('keyup', e => { const a = KEYMAP[e.key.toLowerCase()]; if (a) keys[a] = false; });
+  addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
   msg.addEventListener('click', start);
-  document.querySelectorAll('#pad button').forEach(b => b.addEventListener('click', () => {
-    const [x, y] = b.dataset.d.split(',').map(Number); move(x, y);
-  }));
-  let sx, sy;
-  addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
-  addEventListener('touchend', e => {
-    if (sx == null) return;
-    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = null;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
-    Math.abs(dx) > Math.abs(dy) ? move(Math.sign(dx), 0) : move(0, Math.sign(dy));
-  }, { passive: true });
-  addEventListener('resize', layout);
 
-  function draw() {
-    const s = devicePixelRatio; ctx.setTransform(s, 0, 0, s, 0, 0);
-    ctx.clearRect(0, 0, innerWidth, innerHeight);
-    if (!grid) return;
-    const cx = c => ox + (c % cols) * cell, cy = c => oy + (c / cols | 0) * cell;
-    const visible = c => {
-      if (!fog) return true;
-      const x = c % cols, y = c / cols | 0;
-      return Math.hypot(x - px, y - py) <= 3.2;
-    };
+  // touch / on-screen pad (hold to move)
+  const PADMAP = { f: 'fwd', b: 'back', l: 'left', r: 'right' };
+  document.querySelectorAll('#pad button').forEach(b => {
+    const a = PADMAP[b.dataset.k];
+    b.addEventListener('pointerdown', e => { e.preventDefault(); keys[a] = true; });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => keys[a] = false));
+  });
+  // drag on the view to look around
+  let drag = null;
+  renderer.domElement.addEventListener('pointerdown', e => { drag = e.clientX; });
+  addEventListener('pointerup', () => drag = null);
+  addEventListener('pointermove', e => { if (drag != null && state === 'play') { yaw -= (e.clientX - drag) * 0.006; drag = e.clientX; } });
 
-    // floor + trail
-    ctx.fillStyle = '#111a2c'; ctx.fillRect(ox, oy, cols * cell, rows * cell);
-    ctx.fillStyle = 'rgba(125,255,178,.12)';
-    trail.forEach(c => { if (visible(c) || !fog) ctx.fillRect(cx(c) + 1, cy(c) + 1, cell - 2, cell - 2); });
-    if (hint) {
-      ctx.fillStyle = 'rgba(255,220,100,.35)';
-      hint.forEach(c => { if (visible(c)) ctx.fillRect(cx(c) + cell * .3, cy(c) + cell * .3, cell * .4, cell * .4); });
-    }
+  function resize() {
+    renderer.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
 
-    // exit
-    const ex = ox + (cols - 1) * cell, ey = oy + (rows - 1) * cell;
-    ctx.fillStyle = '#ff4d5e'; ctx.shadowColor = '#ff4d5e'; ctx.shadowBlur = 14 + 6 * Math.sin(performance.now() / 250);
-    ctx.fillRect(ex + cell * .2, ey + cell * .2, cell * .6, cell * .6); ctx.shadowBlur = 0;
-
-    // walls
-    ctx.strokeStyle = '#6fa8ff'; ctx.lineWidth = Math.max(2, cell / 9); ctx.lineCap = 'round';
-    ctx.beginPath();
+  // ---------- minimap ----------
+  function drawMini() {
+    mini.style.display = showMap && grid && state !== 'menu' && !fog ? 'block' : 'none';
+    if (mini.style.display === 'none') return;
+    const S = mini.width, cs = Math.min((S - 16) / cols, (S - 16) / rows);
+    const ox = (S - cs * cols) / 2, oy = (S - cs * rows) / 2;
+    mctx.clearRect(0, 0, S, S);
+    mctx.fillStyle = 'rgba(125,255,178,.2)';
+    trail.forEach(c => mctx.fillRect(ox + (c % cols) * cs, oy + (c / cols | 0) * cs, cs, cs));
+    if (hint) { mctx.fillStyle = 'rgba(255,220,100,.6)'; hint.forEach(c => mctx.fillRect(ox + (c % cols + .35) * cs, oy + ((c / cols | 0) + .35) * cs, cs * .3, cs * .3)); }
+    mctx.fillStyle = '#ff4d5e'; mctx.fillRect(ox + (cols - 1 + .2) * cs, oy + (rows - 1 + .2) * cs, cs * .6, cs * .6);
+    mctx.strokeStyle = '#6fa8ff'; mctx.lineWidth = Math.max(1.5, cs / 8); mctx.beginPath();
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-      const c = y * cols + x;
-      if (fog && !visible(c)) continue;
-      const X = ox + x * cell, Y = oy + y * cell, g = grid[c];
-      if (!(g & 1)) { ctx.moveTo(X, Y); ctx.lineTo(X + cell, Y); }
-      if (!(g & 8)) { ctx.moveTo(X, Y); ctx.lineTo(X, Y + cell); }
-      if (y === rows - 1 && !(g & 4)) { ctx.moveTo(X, Y + cell); ctx.lineTo(X + cell, Y + cell); }
-      if (x === cols - 1 && !(g & 2)) { ctx.moveTo(X + cell, Y); ctx.lineTo(X + cell, Y + cell); }
-      if (!(g & 2) && x < cols - 1) { ctx.moveTo(X + cell, Y); ctx.lineTo(X + cell, Y + cell); }
-      if (!(g & 4) && y < rows - 1) { ctx.moveTo(X, Y + cell); ctx.lineTo(X + cell, Y + cell); }
+      const g = grid[y * cols + x], X = ox + x * cs, Y = oy + y * cs;
+      if (!(g & 1)) { mctx.moveTo(X, Y); mctx.lineTo(X + cs, Y); }
+      if (!(g & 8)) { mctx.moveTo(X, Y); mctx.lineTo(X, Y + cs); }
+      if (y === rows - 1 && !(g & 4)) { mctx.moveTo(X, Y + cs); mctx.lineTo(X + cs, Y + cs); }
+      if (x === cols - 1 && !(g & 2)) { mctx.moveTo(X + cs, Y); mctx.lineTo(X + cs, Y + cs); }
     }
-    ctx.stroke();
-
-    // fog overlay
-    if (fog) {
-      const gx = ox + (px + .5) * cell, gy = oy + (py + .5) * cell, r = cell * 3.4;
-      const grad = ctx.createRadialGradient(gx, gy, cell, gx, gy, r);
-      grad.addColorStop(0, 'rgba(11,15,26,0)'); grad.addColorStop(1, 'rgba(11,15,26,1)');
-      ctx.fillStyle = grad; ctx.fillRect(ox, oy, cols * cell, rows * cell);
-    }
-
-    // player
-    ctx.fillStyle = '#7dffb2'; ctx.shadowColor = '#7dffb2'; ctx.shadowBlur = 12;
-    ctx.beginPath(); ctx.arc(ox + (px + .5) * cell, oy + (py + .5) * cell, cell * .3, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+    mctx.stroke();
+    const px = ox + pos.x / CELL * cs, py = oy + pos.z / CELL * cs, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    mctx.fillStyle = '#7dffb2'; mctx.beginPath();
+    mctx.moveTo(px + fx * cs * .45, py + fz * cs * .45);
+    mctx.lineTo(px - fx * cs * .3 - fz * cs * .3, py - fz * cs * .3 + fx * cs * .3);
+    mctx.lineTo(px - fx * cs * .3 + fz * cs * .3, py - fz * cs * .3 - fx * cs * .3);
+    mctx.fill();
   }
 
-  function loop() {
+  // ---------- main loop ----------
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(.05, (now - last) / 1000); last = now;
     if (state === 'play') {
+      update(dt);
       elapsed = (performance.now() - t0) / 1000 + penalty;
       $('time').textContent = elapsed.toFixed(1);
     }
-    draw(); requestAnimationFrame(loop);
+    if (exitGroup) exitGroup.children[0].rotation.y += dt;
+    drawMini();
+    renderer.render(scene, camera);
+    requestAnimationFrame(loop);
   }
-  layout(); loop();
+  // idle backdrop behind the title screen
+  scene.background = new THREE.Color(0x0b0f1a);
+  requestAnimationFrame(loop);
 })();
 </script>
 </body>
