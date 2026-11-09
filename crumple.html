@@ -1,0 +1,1562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Crumple Zone</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #eef3f8; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; touch-action: none; }
+  .panel { position: fixed; background: rgba(12,16,22,.62); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.45; pointer-events: none; }
+  #help { top: 12px; left: 12px; width: 270px; }
+  #help h1 { margin: 0 0 6px; font-size: 17px; letter-spacing: .1em; color: #ffcf4a; }
+  #help .row { display: flex; justify-content: space-between; gap: 10px; }
+  #help .row span:first-child { opacity: .8; }
+  kbd { display: inline-block; min-width: 14px; padding: 0 5px; margin-left: 2px; border-radius: 4px; background: #2a3340; border: 1px solid #3c4756; font: 600 11px/17px ui-monospace, Menlo, monospace; text-align: center; color: #fff; }
+  #info { top: 12px; right: 12px; width: 200px; }
+  #info .k { opacity: .7; }
+  #info .bar { height: 6px; border-radius: 3px; background: #2a3340; overflow: hidden; margin: 3px 0 7px; }
+  #info .bar i { display: block; height: 100%; width: 0; border-radius: 3px; }
+  #dmgBar { background: linear-gradient(90deg, #46d37b, #ffcf4a 50%, #ff4d4d); }
+  #engBar { background: #46d37b; }
+  #dash { right: 12px; bottom: 12px; text-align: right; width: 180px; }
+  #spd { font: 700 46px/1 ui-monospace, Menlo, monospace; }
+  #spd small { font-size: 14px; opacity: .7; margin-left: 4px; }
+  #gear { font: 700 20px/1.2 ui-monospace, Menlo, monospace; color: #ffcf4a; }
+  #rpm { height: 8px; border-radius: 4px; background: #2a3340; overflow: hidden; margin-top: 8px; }
+  #rpm i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #3fa9ff 0%, #3fa9ff 72%, #ff4d4d 92%); }
+  #toast { position: fixed; top: 16%; left: 50%; transform: translateX(-50%); font-size: 22px; font-weight: 700; letter-spacing: .06em; text-shadow: 0 2px 10px #000; opacity: 0; transition: opacity .3s; pointer-events: none; text-align: center; white-space: nowrap; }
+  #start { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(10,14,20,.45), rgba(5,7,10,.88)); cursor: pointer; text-align: center; z-index: 5; padding: 20px; box-sizing: border-box; }
+  #start h1 { font-size: 58px; margin: 0; letter-spacing: .14em; color: #ffcf4a; text-shadow: 0 4px 24px rgba(255,180,0,.35); }
+  #start p { margin: 6px 0; opacity: .85; max-width: 560px; line-height: 1.5; }
+  #start .go { margin-top: 18px; font-size: 18px; font-weight: 700; letter-spacing: .1em; padding: 12px 28px; border-radius: 10px; background: #ffcf4a; color: #1a1300; }
+  .hidden { display: none !important; }
+  #touch { position: fixed; left: 0; right: 0; bottom: 0; height: 0; display: none; }
+  #touch button { position: fixed; width: 74px; height: 74px; border-radius: 16px; border: 1px solid rgba(255,255,255,.2); background: rgba(20,28,40,.55); color: #fff; font-size: 22px; font-weight: 700; touch-action: none; }
+  #touch .sm { width: 58px; height: 40px; font-size: 13px; border-radius: 10px; }
+  @media (hover: none) and (pointer: coarse) {
+    #touch { display: block; }
+    #help { display: none; }
+    #dash { right: auto; left: 50%; transform: translateX(-50%); bottom: auto; top: 10px; text-align: center; }
+    #info { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="help" class="panel">
+  <h1>CRUMPLE ZONE</h1>
+  <div class="row"><span>Throttle / brake, reverse</span><span><kbd>W</kbd><kbd>S</kbd></span></div>
+  <div class="row"><span>Steer</span><span><kbd>A</kbd><kbd>D</kbd></span></div>
+  <div class="row"><span>Handbrake</span><span><kbd>Space</kbd></span></div>
+  <div class="row"><span>Repair in place / respawn</span><span><kbd>R</kbd><kbd>Home</kbd></span></div>
+  <div class="row"><span>Camera / orbit / zoom</span><span><kbd>C</kbd> drag, wheel</span></div>
+  <div class="row"><span>Grab &amp; fling a car</span><span>right-drag</span></div>
+  <div class="row"><span>Slow motion / pause</span><span><kbd>T</kbd><kbd>P</kbd></span></div>
+  <div class="row"><span>Beam (node) view</span><span><kbd>B</kbd></span></div>
+  <div class="row"><span>Crash test (speed)</span><span><kbd>G</kbd><kbd>[</kbd><kbd>]</kbd></span></div>
+  <div class="row"><span>Spawn / switch / clear cars</span><span><kbd>F</kbd><kbd>Tab</kbd><kbd>X</kbd></span></div>
+  <div class="row"><span>Drivetrain / traction ctrl</span><span><kbd>V</kbd><kbd>K</kbd></span></div>
+  <div class="row"><span>Mute / hide help</span><span><kbd>M</kbd><kbd>H</kbd></span></div>
+</div>
+<div id="info" class="panel">
+  <div><span class="k">Car</span> <b id="iCar">1/1</b> &nbsp; <span class="k">Drive</span> <b id="iDrive">RWD</b></div>
+  <div class="k" style="margin-top:4px">Damage <b id="iDmg" style="float:right">0%</b></div>
+  <div class="bar"><i id="dmgBar"></i></div>
+  <div class="k">Engine <b id="iEng" style="float:right">OK</b></div>
+  <div class="bar"><i id="engBar"></i></div>
+  <div><span class="k">Time</span> <b id="iTime">1×</b> &nbsp; <span class="k">Crash test</span> <b id="iCrash">60</b> km/h</div>
+  <div><span class="k">Camera</span> <b id="iCam">Chase</b> &nbsp; <span class="k">FPS</span> <b id="iFps">-</b></div>
+</div>
+<div id="dash" class="panel">
+  <div id="spd">0<small>km/h</small></div>
+  <div id="gear">1</div>
+  <div id="rpm"><i></i></div>
+</div>
+<div id="toast"></div>
+<div id="touch">
+  <button id="tLeft" style="left:14px;bottom:18px">◀</button>
+  <button id="tRight" style="left:100px;bottom:18px">▶</button>
+  <button id="tBrake" style="right:100px;bottom:18px">BRK</button>
+  <button id="tGas" style="right:14px;bottom:18px">GAS</button>
+  <button id="tHand" class="sm" style="right:22px;bottom:104px">HAND</button>
+  <button id="tReset" class="sm" style="left:14px;top:12px">RESET</button>
+  <button id="tCam" class="sm" style="left:80px;top:12px">CAM</button>
+  <button id="tSlow" class="sm" style="right:80px;top:12px">SLOW</button>
+  <button id="tCrash" class="sm" style="right:14px;top:12px">CRASH</button>
+</div>
+<div id="start">
+  <h1>CRUMPLE ZONE</h1>
+  <p>A soft-body driving sandbox. Every car is a lattice of mass nodes joined by beams that flex, bend and snap, so the body deforms where you hit it.</p>
+  <p style="font-size:14px;opacity:.7">Jump the ramps, ram the wall, T-bone the parked cars, roll it down the hills. Press G for an instant crash test.</p>
+  <div class="go">CLICK TO DRIVE</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// =====================================================================
+//  Physics constants
+// =====================================================================
+const DT = 1 / 1000;          // physics substep (1 kHz)
+const MAX_STEPS = 45;         // per rendered frame; beyond this the sim slows down
+const GRAV = 9.81;
+
+// Body lattice: NX x NY x NZ nodes (x = width, y = height, z = length, +z is the front)
+const NX = 4, NY = 3, NZ = 8, NXY = NX * NY, NB = NX * NY * NZ;
+const LX = [-0.9, -0.3, 0.3, 0.9];
+const TOP_SCALE = 0.84;       // greenhouse tumblehome for the top layer
+const LZ = []; for (let k = 0; k < NZ; k++) LZ.push(-2.3 + k * 4.6 / (NZ - 1));
+const LY = [
+  [0.34, 0.31, 0.30, 0.30, 0.30, 0.30, 0.31, 0.34],   // floor
+  [0.62, 0.62, 0.62, 0.62, 0.62, 0.62, 0.62, 0.60],   // mid
+  [0.86, 0.97, 1.20, 1.42, 1.38, 1.00, 0.94, 0.80],   // top: trunk, rear glass, roof, windshield, hood
+];
+const latX = (i, j) => LX[i] * (j === 2 ? TOP_SCALE : 1);
+const latY = (j, k) => LY[j][k];
+const nid = (i, j, k) => (k * NY + j) * NX + i;
+
+const R_WHEEL = 0.33, I_WHEEL = 1.3, M_HUB = 25, HUB_Y = 0.33;
+const K_TIRE = 2.2e5, C_TIRE = 2500, C_BEAM = 600;
+const K_SUSP = 42000, C_SUSP = 3600, K_BUMP = 2.5e5;
+const K_PLANAR = 3.0e5, C_PLANAR = 2600, PLANAR_YIELD = 42000, WHEEL_TEAR = 0.22;
+const NODE_R = 0.07, K_GROUND = 3.0e5, C_GROUND = 1600;
+const K_CAR = 1.0e6, C_CAR = 5000, R_NODE_CAR = 0.24, R_HUB_CAR = 0.34;
+const GEARS = [-3.3, 0, 3.4, 2.15, 1.5, 1.15, 0.92, 0.76];  // index = gear + 1
+const FINAL = 3.6, IDLE = 850, REDLINE = 6900;
+const WHEEL_DEFS = [
+  { x: 0.78, z: 1.35, front: true }, { x: -0.78, z: 1.35, front: true },
+  { x: 0.78, z: -1.35, front: false }, { x: -0.78, z: -1.35, front: false },
+];
+const PAD = 125;              // half size of the flat asphalt test area
+const torqueCurve = (r) => { const x = (r - 4400) / 5200; return Math.max(120, 330 * (1 - x * x)); };
+
+// Invert the trilinear lattice mapping for a rest-space point -> (cell, fractions)
+function paramOf(x, y, z) {
+  const tz = (z - LZ[0]) / (LZ[1] - LZ[0]);
+  const k = clamp(Math.floor(tz), 0, NZ - 2), fz = tz - k;
+  const yl = (j) => latY(j, k) + (latY(j, k + 1) - latY(j, k)) * fz;
+  let j = 0; while (j < NY - 2 && y > yl(j + 1)) j++;
+  const fy = (y - yl(j)) / (yl(j + 1) - yl(j));
+  const xl = (i) => latX(i, j) + (latX(i, j + 1) - latX(i, j)) * fy;
+  let i = 0; while (i < NX - 2 && x > xl(i + 1)) i++;
+  const fx = (x - xl(i)) / (xl(i + 1) - xl(i));
+  return { base: nid(i, j, k), fx, fy, fz };
+}
+function cornerWeights(pr, idx, w) {
+  for (let c = 0; c < 8; c++) {
+    const a = c & 1, b = (c >> 1) & 1, d = (c >> 2) & 1;
+    idx[c] = pr.base + a + b * NX + d * NXY;
+    w[c] = (a ? pr.fx : 1 - pr.fx) * (b ? pr.fy : 1 - pr.fy) * (d ? pr.fz : 1 - pr.fz);
+  }
+}
+
+// =====================================================================
+//  Terrain + static world collision
+// =====================================================================
+function hills(x, z) {
+  return 7 * Math.sin(x * 0.017 + 0.5) * Math.cos(z * 0.019 + 0.2)
+       + 3.2 * Math.sin(x * 0.047 + 1.3) * Math.sin(z * 0.041 + 0.7)
+       + 1.1 * Math.sin(x * 0.11 + z * 0.09);
+}
+function terrainH(x, z) {
+  const r = Math.max(Math.abs(x), Math.abs(z));
+  if (r <= PAD) return 0;
+  let t = (r - PAD) / 55; if (t > 1) t = 1; t = t * t * (3 - 2 * t);
+  return t * (hills(x, z) + 3.5);
+}
+const groundAt = (x, z) => (Math.abs(x) < PAD && Math.abs(z) < PAD ? 0 : terrainH(x, z));
+
+const statics = [];
+// contact scratch buffers
+const CNX = new Float64Array(16), CNY = new Float64Array(16), CNZ = new Float64Array(16);
+const CD = new Float64Array(16), CMU = new Float64Array(16), CHARD = new Uint8Array(16);
+
+// Sphere (x,y,z,r) vs terrain and the given static boxes. Fills scratch buffers, returns count.
+function sphereContacts(x, y, z, r, boxes, skipTerrain) {
+  let c = 0;
+  if (!skipTerrain) {
+    if (Math.abs(x) < PAD && Math.abs(z) < PAD) {
+      if (y < r) { CNX[c] = 0; CNY[c] = 1; CNZ[c] = 0; CD[c] = r - y; CMU[c] = 1.0; CHARD[c] = 1; c++; }
+    } else {
+      const h = terrainH(x, z);
+      if (y - r < h + 0.4) {
+        const e = 0.3;
+        const hx = (terrainH(x + e, z) - terrainH(x - e, z)) / (2 * e);
+        const hz = (terrainH(x, z + e) - terrainH(x, z - e)) / (2 * e);
+        const il = 1 / Math.sqrt(hx * hx + 1 + hz * hz);
+        const ny = il, dist = (y - h) * ny;
+        if (dist < r) { CNX[c] = -hx * il; CNY[c] = ny; CNZ[c] = -hz * il; CD[c] = r - dist; CMU[c] = 0.75; CHARD[c] = 0; c++; }
+      }
+    }
+  }
+  for (let bi = 0; bi < boxes.length; bi++) {
+    const b = boxes[bi], a = b.a;
+    const dx = x - b.cx, dy = y - b.cy, dz = z - b.cz;
+    const lx = dx * a[0] + dy * a[1] + dz * a[2];
+    if (lx > b.hx + r || lx < -b.hx - r) continue;
+    const ly = dx * a[3] + dy * a[4] + dz * a[5];
+    if (ly > b.hy + r || ly < -b.hy - r) continue;
+    const lz = dx * a[6] + dy * a[7] + dz * a[8];
+    if (lz > b.hz + r || lz < -b.hz - r) continue;
+    const qx = clamp(lx, -b.hx, b.hx), qy = clamp(ly, -b.hy, b.hy), qz = clamp(lz, -b.hz, b.hz);
+    const ex = lx - qx, ey = ly - qy, ez = lz - qz, d2 = ex * ex + ey * ey + ez * ez;
+    let nx, ny, nz, depth;
+    if (d2 > 1e-12) {
+      if (d2 >= r * r) continue;
+      const d = Math.sqrt(d2); nx = ex / d; ny = ey / d; nz = ez / d; depth = r - d;
+    } else {
+      const px = b.hx - Math.abs(lx), py = b.hy - Math.abs(ly), pz = b.hz - Math.abs(lz);
+      nx = ny = nz = 0;
+      if (px < py && px < pz) { nx = lx < 0 ? -1 : 1; depth = px + r; }
+      else if (py < pz) { ny = ly < 0 ? -1 : 1; depth = py + r; }
+      else { nz = lz < 0 ? -1 : 1; depth = pz + r; }
+    }
+    CNX[c] = nx * a[0] + ny * a[3] + nz * a[6];
+    CNY[c] = nx * a[1] + ny * a[4] + nz * a[7];
+    CNZ[c] = nx * a[2] + ny * a[5] + nz * a[8];
+    CD[c] = depth; CMU[c] = b.mu; CHARD[c] = 1; c++;
+    if (c >= 15) break;
+  }
+  return c;
+}
+
+// =====================================================================
+//  Renderer / scene
+// =====================================================================
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+const canvas = renderer.domElement;
+
+const scene = new THREE.Scene();
+const SKY = 0xbcd3e6;
+scene.fog = new THREE.Fog(SKY, 160, 700);
+scene.background = new THREE.Color(SKY);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 2000);
+camera.position.set(-8, 4, -10);
+
+function makeSkyDome(radius) {
+  const g = new THREE.SphereGeometry(radius, 32, 16);
+  const col = [], P = g.attributes.position, top = new THREE.Color(0x4f86c9), hor = new THREE.Color(0xd5e4ef), gnd = new THREE.Color(0x5b6a46), c = new THREE.Color();
+  for (let i = 0; i < P.count; i++) {
+    const y = P.getY(i) / radius;
+    if (y >= 0) c.copy(hor).lerp(top, Math.pow(y, 0.6)); else c.copy(hor).lerp(gnd, Math.min(1, -y * 6));
+    col.push(c.r, c.g, c.b);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  return m;
+}
+const sky = makeSkyDome(1500); sky.renderOrder = -1; scene.add(sky);
+{ // environment map for paint reflections
+  const envScene = new THREE.Scene(); envScene.add(makeSkyDome(50));
+  const pm = new THREE.PMREMGenerator(renderer);
+  scene.environment = pm.fromScene(envScene, 0.02).texture;
+}
+
+scene.add(new THREE.HemisphereLight(0xe2efff, 0x56603e, 0.55));
+const sun = new THREE.DirectionalLight(0xfff1dc, 1.05);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 220 });
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+scene.add(sun, sun.target);
+const SUN_DIR = new THREE.Vector3(0.45, 0.8, 0.35).normalize();
+
+// ---------- textures ----------
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.anisotropy = renderer.capabilities.getMaxAnisotropy(); return t;
+}
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const rand = rng(1337);
+
+const padTex = canvasTex(2048, 2048, (g, W) => {
+  const s = W / (PAD * 2), toPx = (m) => (m + PAD) * s;
+  g.fillStyle = '#3d4044'; g.fillRect(0, 0, W, W);
+  for (let i = 0; i < 60000; i++) { const v = 52 + rand() * 22 | 0; g.fillStyle = `rgb(${v},${v + 2},${v + 5})`; g.fillRect(rand() * W, rand() * W, 2, 2); }
+  for (let i = 0; i < 40; i++) { g.fillStyle = 'rgba(20,20,22,.18)'; g.beginPath(); g.ellipse(rand() * W, rand() * W, 20 + rand() * 80, 10 + rand() * 40, rand() * 3, 0, 7); g.fill(); }
+  g.strokeStyle = 'rgba(230,230,220,.5)'; g.lineWidth = 2;
+  for (let m = -PAD + 25; m < PAD; m += 25) { g.beginPath(); g.moveTo(toPx(m), 0); g.lineTo(toPx(m), W); g.stroke(); g.beginPath(); g.moveTo(0, toPx(m)); g.lineTo(W, toPx(m)); g.stroke(); }
+  // crash test lane (x=-12, z 20..100)
+  g.strokeStyle = 'rgba(255,205,60,.85)'; g.lineWidth = 3; g.setLineDash([18, 12]);
+  for (const x of [-14.5, -9.5]) { g.beginPath(); g.moveTo(toPx(x), toPx(10)); g.lineTo(toPx(x), toPx(102)); g.stroke(); }
+  g.setLineDash([]);
+  g.fillStyle = 'rgba(255,205,60,.85)'; g.font = 'bold 28px sans-serif'; g.textAlign = 'center';
+  g.save(); g.translate(toPx(-12), toPx(30)); g.rotate(Math.PI); g.fillText('CRASH LANE', 0, 0); g.restore();
+  // spawn box
+  g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 3; g.strokeRect(toPx(-2), toPx(-3.5), 4 * s, 7 * s);
+});
+const stripeTex = canvasTex(256, 256, (g, W) => {
+  g.fillStyle = '#e8b81e'; g.fillRect(0, 0, W, W); g.fillStyle = '#1c1c1c';
+  for (let i = -W; i < W * 2; i += 64) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 32, 0); g.lineTo(i + 32 - W, W); g.lineTo(i - W, W); g.fill(); }
+});
+stripeTex.wrapS = stripeTex.wrapT = THREE.RepeatWrapping;
+const concreteTex = canvasTex(256, 256, (g, W) => {
+  g.fillStyle = '#9a9a96'; g.fillRect(0, 0, W, W);
+  for (let i = 0; i < 9000; i++) { const v = 130 + rand() * 50 | 0; g.fillStyle = `rgba(${v},${v},${v - 4},.5)`; g.fillRect(rand() * W, rand() * W, 2, 2); }
+});
+concreteTex.wrapS = concreteTex.wrapT = THREE.RepeatWrapping;
+
+// ---------- terrain ----------
+{
+  const SIZE = 960, SEG = 320;
+  const g = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG); g.rotateX(-Math.PI / 2);
+  const P = g.attributes.position, col = [], c = new THREE.Color();
+  const grassA = new THREE.Color(0x355a24), grassB = new THREE.Color(0x4d6c2b), dirt = new THREE.Color(0x7a6a4c), rock = new THREE.Color(0x7d7a70);
+  for (let i = 0; i < P.count; i++) {
+    const x = P.getX(i), z = P.getZ(i), h = terrainH(x, z); P.setY(i, h);
+    const r = Math.max(Math.abs(x), Math.abs(z));
+    const n = Math.sin(x * 0.23) * Math.sin(z * 0.19) * 0.5 + 0.5;
+    c.copy(grassA).lerp(grassB, n * 0.8 + clamp(h / 30, 0, 0.2));
+    if (r < PAD + 8) c.lerp(dirt, clamp(1 - (r - PAD) / 8, 0, 1) * 0.9);
+    if (r > 345) c.lerp(rock, clamp((r - 345) / 40, 0, 1) * 0.5);
+    col.push(c.r, c.g, c.b);
+  }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  const terrain = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }));
+  terrain.receiveShadow = true; scene.add(terrain);
+  const pad = new THREE.Mesh(new THREE.PlaneGeometry(PAD * 2, PAD * 2), new THREE.MeshStandardMaterial({ map: padTex, roughness: 0.92, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  pad.rotation.x = -Math.PI / 2; pad.position.y = 0.002; pad.receiveShadow = true; scene.add(pad);
+}
+
+// ---------- static boxes ----------
+const matConcrete = new THREE.MeshStandardMaterial({ map: concreteTex, roughness: 0.95 });
+const matStripe = new THREE.MeshStandardMaterial({ map: stripeTex, roughness: 0.7 });
+const matRamp = new THREE.MeshStandardMaterial({ color: 0x8c8f94, roughness: 0.85, map: concreteTex });
+function addBox(o) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(o.sx, o.sy, o.sz), o.mat || matConcrete);
+  mesh.position.set(o.x, o.y, o.z);
+  mesh.rotation.set(o.pitch || 0, o.yaw || 0, o.roll || 0, 'YXZ');
+  mesh.castShadow = mesh.receiveShadow = true;
+  mesh.updateMatrixWorld(true);
+  if (o.visible !== false) scene.add(mesh);
+  const e = mesh.matrixWorld.elements;
+  const box = { cx: o.x, cy: o.y, cz: o.z, hx: o.sx / 2, hy: o.sy / 2, hz: o.sz / 2,
+    a: [e[0], e[1], e[2], e[4], e[5], e[6], e[8], e[9], e[10]], mu: o.mu || 0.9, br: 0 };
+  box.br = Math.hypot(box.hx, box.hy, box.hz);
+  statics.push(box);
+  return mesh;
+}
+// Ramp: rises along its local +z (yaw 0 => towards +z). Low edge sits flush with the ground.
+function addRamp(x, z, yaw, width, length, deg, mat) {
+  const a = deg * Math.PI / 180, hz = length / 2;
+  const hy = Math.max(0.3, hz * Math.tan(a) + 0.15);
+  const cy = groundAt(x, z) + hz * Math.sin(a) - hy * Math.cos(a);
+  return addBox({ x, y: cy, z, sx: width, sy: hy * 2, sz: length, yaw, pitch: -a, mat: mat || matRamp });
+}
+// Banked wall: rises towards local -z
+function addBank(x, z, yaw, width, length, deg) {
+  const a = deg * Math.PI / 180, hz = length / 2, hy = Math.max(0.3, hz * Math.tan(a) + 0.15);
+  const cy = hz * Math.sin(a) - hy * Math.cos(a);
+  return addBox({ x, y: cy, z, sx: width, sy: hy * 2, sz: length, yaw, pitch: a, mat: matRamp });
+}
+
+// Crash wall + pole
+addBox({ x: 0, y: 2, z: 106, sx: 36, sy: 4, sz: 1.6, mu: 0.8 });
+addBox({ x: 30, y: 2.5, z: 100, sx: 0.5, sy: 5, sz: 0.5, mat: matStripe, mu: 0.8 });
+addBox({ x: 40, y: 2.5, z: 100, sx: 0.5, sy: 5, sz: 0.5, mat: matStripe, mu: 0.8 });
+// Kicker, big jump + landing, rollover ramp
+addRamp(45, 0, 0, 5, 7, 12, matStripe);
+addRamp(75, -30, 0, 7, 14, 18);
+addRamp(75, 26, Math.PI, 8, 20, 13);
+addRamp(-45, 10, 0, 1.3, 5, 22, matStripe);
+// Jersey barrier line
+for (let z = -60; z <= 60; z += 4) addBox({ x: -80, y: 0.45, z, sx: 0.6, sy: 0.9, sz: 3.6, mu: 0.7 });
+// Speed bumps
+for (let z = -40; z >= -96; z -= 8) addBox({ x: -20, y: 0.0, z, sx: 7, sy: 0.2, sz: 0.8, mat: matStripe });
+// Banked wall-ride
+addBank(0, -112, 0, 90, 10, 32);
+// Concrete block field
+for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) addBox({ x: 70 + i * 9, y: 0.75, z: 70 + j * 9, sx: 1.5, sy: 1.5, sz: 1.5, mu: 0.8 });
+
+// Invisible fence around the map
+for (const [x, z, sx, sz] of [[345, 0, 2, 692], [-345, 0, 2, 692], [0, 345, 692, 2], [0, -345, 692, 2]]) addBox({ x, y: 10, z, sx, sy: 60, sz, visible: false, mu: 0.6 });
+{ // visible terrain-following barrier ribbon along the fence
+  const pos = [], uv = [], idx = [], E = 344, STEP = 4, H = 2.4;
+  const sides = [[(t) => [E, t]], [(t) => [-E, -t]], [(t) => [-t, E]], [(t) => [t, -E]]];
+  for (const [fn] of sides) {
+    const base = pos.length / 3;
+    for (let t = -E, i = 0; t <= E; t += STEP, i++) {
+      const [x, z] = fn(t), h = terrainH(x, z) - 0.5;
+      pos.push(x, h, z, x, h + H + 0.5, z); uv.push(i * STEP / 4, 0, i * STEP / 4, 1);
+      if (i) { const a = base + (i - 1) * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  const wall = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: stripeTex, roughness: 0.8, side: THREE.DoubleSide }));
+  wall.receiveShadow = true; scene.add(wall);
+}
+
+// Trees on the hills (trunks collide)
+{
+  const N = 170, trunkGeo = new THREE.CylinderGeometry(0.18, 0.26, 4, 7), leafGeo = new THREE.ConeGeometry(1.8, 5.5, 8);
+  trunkGeo.translate(0, 2, 0); leafGeo.translate(0, 5.6, 0);
+  const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshStandardMaterial({ color: 0x5a3e28, roughness: 1 }), N);
+  const leaves = new THREE.InstancedMesh(leafGeo, new THREE.MeshStandardMaterial({ color: 0x2f5a2a, roughness: 1 }), N);
+  trunks.castShadow = leaves.castShadow = true;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
+  let n = 0;
+  while (n < N) {
+    const x = (rand() * 2 - 1) * 310, z = (rand() * 2 - 1) * 310;
+    if (Math.max(Math.abs(x), Math.abs(z)) < PAD + 20) continue;
+    const h = terrainH(x, z), sc = 0.8 + rand() * 0.6;
+    s.set(sc, sc, sc); p.set(x, h - 0.2, z); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand() * 6);
+    m.compose(p, q, s); trunks.setMatrixAt(n, m); leaves.setMatrixAt(n, m);
+    addBox({ x, y: h + 2, z, sx: 0.45 * sc, sy: 4, sz: 0.45 * sc, visible: false, mu: 0.7 });
+    n++;
+  }
+  scene.add(trunks, leaves);
+}
+
+// =====================================================================
+//  Particles (sparks additive, smoke/dust/glass normal)
+// =====================================================================
+class PSys {
+  constructor(max, additive) {
+    this.max = max; this.n = 0;
+    this.pos = new Float32Array(max * 3); this.vel = new Float32Array(max * 3); this.col = new Float32Array(max * 3);
+    this.size = new Float32Array(max); this.alpha = new Float32Array(max);
+    this.life = new Float32Array(max); this.maxLife = new Float32Array(max); this.grow = new Float32Array(max);
+    this.a0 = new Float32Array(max); this.drag = new Float32Array(max); this.grav = new Float32Array(max);
+    const g = new THREE.BufferGeometry();
+    const mk = (arr, n) => new THREE.BufferAttribute(arr, n).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('position', mk(this.pos, 3)); g.setAttribute('pcolor', mk(this.col, 3));
+    g.setAttribute('size', mk(this.size, 1)); g.setAttribute('alpha', mk(this.alpha, 1));
+    g.setDrawRange(0, 0);
+    this.geo = g;
+    this.mat = new THREE.ShaderMaterial({
+      uniforms: { uScale: { value: 500 }, uHard: { value: additive ? 1 : 0 } },
+      vertexShader: `attribute float size; attribute float alpha; attribute vec3 pcolor; uniform float uScale; varying float vA; varying vec3 vC;
+        void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv;
+          gl_PointSize = clamp(size * uScale / max(0.1, -mv.z), 1.0, 256.0); vA = alpha; vC = pcolor; }`,
+      fragmentShader: `uniform float uHard; varying float vA; varying vec3 vC;
+        void main(){ float d = length(gl_PointCoord - 0.5) * 2.0; if (d > 1.0) discard;
+          float a = uHard > 0.5 ? (1.0 - smoothstep(0.25, 1.0, d)) : pow(1.0 - d, 1.6);
+          gl_FragColor = vec4(vC, vA * a); }`,
+      transparent: true, depthWrite: false,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    });
+    this.points = new THREE.Points(g, this.mat); this.points.frustumCulled = false; scene.add(this.points);
+  }
+  emit(x, y, z, vx, vy, vz, r, g, b, size, life, grow, alpha, drag, grav) {
+    if (this.n >= this.max) return;
+    const i = this.n++, i3 = i * 3;
+    this.pos[i3] = x; this.pos[i3 + 1] = y; this.pos[i3 + 2] = z;
+    this.vel[i3] = vx; this.vel[i3 + 1] = vy; this.vel[i3 + 2] = vz;
+    this.col[i3] = r; this.col[i3 + 1] = g; this.col[i3 + 2] = b;
+    this.size[i] = size; this.life[i] = this.maxLife[i] = life; this.grow[i] = grow;
+    this.alpha[i] = this.a0[i] = alpha; this.drag[i] = drag; this.grav[i] = grav;
+  }
+  kill(i) {
+    const j = --this.n; if (i === j) return;
+    const i3 = i * 3, j3 = j * 3;
+    for (let k = 0; k < 3; k++) { this.pos[i3 + k] = this.pos[j3 + k]; this.vel[i3 + k] = this.vel[j3 + k]; this.col[i3 + k] = this.col[j3 + k]; }
+    this.size[i] = this.size[j]; this.life[i] = this.life[j]; this.maxLife[i] = this.maxLife[j]; this.grow[i] = this.grow[j];
+    this.alpha[i] = this.alpha[j]; this.a0[i] = this.a0[j]; this.drag[i] = this.drag[j]; this.grav[i] = this.grav[j];
+  }
+  update(dt) {
+    for (let i = 0; i < this.n; i++) {
+      this.life[i] -= dt;
+      if (this.life[i] <= 0) { this.kill(i); i--; continue; }
+      const i3 = i * 3, dr = Math.max(0, 1 - this.drag[i] * dt);
+      this.vel[i3] *= dr; this.vel[i3 + 1] = this.vel[i3 + 1] * dr - this.grav[i] * dt; this.vel[i3 + 2] *= dr;
+      this.pos[i3] += this.vel[i3] * dt; this.pos[i3 + 1] += this.vel[i3 + 1] * dt; this.pos[i3 + 2] += this.vel[i3 + 2] * dt;
+      if (this.grav[i] > 0) {
+        const gy = groundAt(this.pos[i3], this.pos[i3 + 2]) + 0.02;
+        if (this.pos[i3 + 1] < gy) { this.pos[i3 + 1] = gy; this.vel[i3 + 1] *= -0.35; this.vel[i3] *= 0.6; this.vel[i3 + 2] *= 0.6; }
+      }
+      this.size[i] += this.grow[i] * dt;
+      this.alpha[i] = this.a0[i] * Math.min(1, this.life[i] / this.maxLife[i] * 1.6);
+    }
+    this.geo.setDrawRange(0, this.n);
+    for (const k of ['position', 'pcolor', 'size', 'alpha']) this.geo.attributes[k].needsUpdate = true;
+  }
+}
+const sparks = new PSys(1500, true);
+const smoke = new PSys(1200, false);
+function updatePointScale() {
+  const h = renderer.getDrawingBufferSize(new THREE.Vector2()).y;
+  const s = h / (2 * Math.tan(camera.fov * Math.PI / 360));
+  sparks.mat.uniforms.uScale.value = smoke.mat.uniforms.uScale.value = s;
+}
+
+// =====================================================================
+//  Skid marks
+// =====================================================================
+const skid = (() => {
+  const MAX = 4000;
+  const pos = new Float32Array(MAX * 12), idx = [];
+  for (let i = 0; i < MAX; i++) { const b = i * 4; idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+  g.setIndex(idx);
+  const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x0a0a0a, transparent: true, opacity: 0.55, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }));
+  mesh.frustumCulled = false; scene.add(mesh);
+  let head = 0;
+  return {
+    add(ax, ay, az, bx, by, bz, nx, ny, nz) {
+      let dx = bx - ax, dy = by - ay, dz = bz - az;
+      let sx = dy * nz - dz * ny, sy = dz * nx - dx * nz, sz = dx * ny - dy * nx;
+      const sl = Math.hypot(sx, sy, sz); if (sl < 1e-6) return;
+      const w = 0.1 / sl; sx *= w; sy *= w; sz *= w;
+      const o = 0.025, i = (head % MAX) * 12;
+      const put = (k, x, y, z) => { pos[i + k] = x + nx * o; pos[i + k + 1] = y + ny * o; pos[i + k + 2] = z + nz * o; };
+      put(0, ax - sx, ay - sy, az - sz); put(3, ax + sx, ay + sy, az + sz);
+      put(6, bx - sx, by - sy, bz - sz); put(9, bx + sx, by + sy, bz + sz);
+      head++; g.attributes.position.needsUpdate = true;
+    },
+    clear() { pos.fill(0); head = 0; g.attributes.position.needsUpdate = true; },
+  };
+})();
+
+// =====================================================================
+//  Audio (synthesised)
+// =====================================================================
+const snd = { ctx: null, muted: false, lastCrash: 0 };
+function initAudio() {
+  if (snd.ctx) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)(); snd.ctx = ctx;
+    const master = ctx.createGain(); master.gain.value = 0.5; master.connect(ctx.destination); snd.master = master;
+    const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    snd.noise = buf;
+    const loopNoise = (type, f, q) => {
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const fl = ctx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; fl.Q.value = q;
+      const g = ctx.createGain(); g.gain.value = 0; src.connect(fl); fl.connect(g); g.connect(master); src.start();
+      return { g, fl };
+    };
+    // engine: saw + square sub, low-passed
+    const o1 = ctx.createOscillator(); o1.type = 'sawtooth';
+    const o2 = ctx.createOscillator(); o2.type = 'square';
+    const g2 = ctx.createGain(); g2.gain.value = 0.4;
+    const ef = ctx.createBiquadFilter(); ef.type = 'lowpass'; ef.Q.value = 3;
+    const eg = ctx.createGain(); eg.gain.value = 0;
+    o1.connect(ef); o2.connect(g2); g2.connect(ef); ef.connect(eg); eg.connect(master);
+    o1.start(); o2.start();
+    Object.assign(snd, { o1, o2, ef, eg, tire: loopNoise('bandpass', 1300, 7), scrape: loopNoise('highpass', 2600, 1), wind: loopNoise('lowpass', 380, 0.7) });
+  } catch (e) { snd.ctx = null; }
+}
+function updateAudio(car) {
+  const ctx = snd.ctx; if (!ctx) return;
+  const t = ctx.currentTime, on = !snd.muted && started && !paused;
+  const alive = car.engineHealth > 0;
+  const fr = Math.max(20, car.rpm / 60 * 2) * (timeScale < 1 ? 0.6 + 0.4 * timeScale : 1);
+  snd.o1.frequency.setTargetAtTime(fr, t, 0.03); snd.o2.frequency.setTargetAtTime(fr * 0.5, t, 0.03);
+  snd.ef.frequency.setTargetAtTime(220 + car.rpm * 0.22 + car.throttle * 1600, t, 0.05);
+  snd.eg.gain.setTargetAtTime(on && alive ? 0.09 + car.throttle * 0.12 : 0, t, 0.06);
+  snd.tire.g.gain.setTargetAtTime(on ? clamp((car.maxSlip - 2.5) / 9, 0, 1) * 0.22 : 0, t, 0.05);
+  snd.tire.fl.frequency.setTargetAtTime(1100 + Math.min(car.maxSlip, 20) * 25, t, 0.1);
+  snd.scrape.g.gain.setTargetAtTime(on ? clamp(car.scrape * 0.04, 0, 0.3) : 0, t, 0.05);
+  snd.wind.g.gain.setTargetAtTime(on ? clamp((car.speed - 8) / 60, 0, 0.35) : 0, t, 0.2);
+}
+function crashSound(intensity, dist) {
+  const ctx = snd.ctx; if (!ctx || snd.muted) return;
+  const now = ctx.currentTime; if (now - snd.lastCrash < 0.07) return; snd.lastCrash = now;
+  const vol = clamp(intensity, 0.05, 1) / (1 + dist * 0.04);
+  const src = ctx.createBufferSource(); src.buffer = snd.noise;
+  const fl = ctx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = 500 + intensity * 2500;
+  const g = ctx.createGain(); g.gain.setValueAtTime(0.9 * vol, now); g.gain.exponentialRampToValueAtTime(0.001, now + 0.25 + intensity * 0.4);
+  src.connect(fl); fl.connect(g); g.connect(snd.master); src.start(now, Math.random() * 1.5); src.stop(now + 0.8);
+  for (let i = 0; i < 3; i++) {
+    const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = 140 + Math.random() * 650;
+    const og = ctx.createGain(); og.gain.setValueAtTime(0.18 * vol, now); og.gain.exponentialRampToValueAtTime(0.001, now + 0.15 + Math.random() * 0.35);
+    o.connect(og); og.connect(snd.master); o.start(now); o.stop(now + 0.6);
+  }
+}
+
+// =====================================================================
+//  Geometry builder with lattice binding
+// =====================================================================
+const smoothProfile = (tbl) => { // monotone cubic interpolation
+  const n = tbl.length, xs = tbl.map((a) => a[0]), ys = tbl.map((a) => a[1]), d = [], m = new Array(n);
+  for (let i = 0; i < n - 1; i++) d[i] = (ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]);
+  m[0] = d[0]; m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; }
+    const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+    if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+  }
+  return (x) => {
+    if (x <= xs[0]) return ys[0]; if (x >= xs[n - 1]) return ys[n - 1];
+    let i = 0; while (x > xs[i + 1]) i++;
+    const h = xs[i + 1] - xs[i], t = (x - xs[i]) / h, t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * m[i + 1];
+  };
+};
+const sgnpow = (v, e) => (v < 0 ? -Math.pow(-v, e) : Math.pow(v, e));
+const P_TOP = smoothProfile([[-2.32, 0.84], [-2.16, 0.92], [-1.8, 0.965], [-1.3, 0.975], [0.98, 0.975], [1.5, 0.935], [2.0, 0.885], [2.24, 0.815], [2.34, 0.74]]);
+const P_BOT = smoothProfile([[-2.32, 0.44], [-2.1, 0.34], [2.05, 0.34], [2.34, 0.40]]);
+const P_W = smoothProfile([[-2.32, 0.72], [-2.22, 0.84], [-2.0, 0.895], [-1.5, 0.905], [1.5, 0.905], [2.0, 0.895], [2.22, 0.84], [2.34, 0.72]]);
+const P_ROOF = smoothProfile([[-1.3, 0.88], [-1.05, 1.1], [-0.72, 1.36], [-0.45, 1.425], [0.12, 1.43], [0.4, 1.33], [0.98, 0.95]]);
+
+function lowerSection(z) {
+  const yt = P_TOP(z), w = P_W(z);
+  let yb = P_BOT(z);
+  for (const d of WHEEL_DEFS) if (d.x > 0) { // wheel arches
+    const dz = z - d.z, R = 0.45;
+    if (Math.abs(dz) < R) yb = Math.max(yb, HUB_Y + Math.sqrt(R * R - dz * dz));
+  }
+  const yc = (yt + yb) / 2, hh = (yt - yb) / 2, pts = [], N = 32;
+  for (let i = 0; i < N; i++) {
+    const th = (i / N) * Math.PI * 2;
+    pts.push({ x: w * sgnpow(Math.cos(th), 0.4), y: yc + hh * sgnpow(Math.sin(th), 0.4) });
+  }
+  return pts;
+}
+function greenhouseSection(z) {
+  const yb = 0.88, yt = P_ROOF(z), H = Math.max(0, yt - yb), wb = 0.78, wt = 0.64, r = Math.min(0.12, H * 0.45);
+  const pts = [];
+  const side = (t, sgn) => ({ x: sgn * (wb + (wt - wb) * t), y: yb + (H - r) * t, role: 'side', t });
+  for (let i = 0; i <= 5; i++) pts.push(side(i / 5, 1));
+  for (let i = 1; i <= 4; i++) { const a = (i / 5) * Math.PI / 2; pts.push({ x: (wt - r) + r * Math.cos(a), y: (yb + H - r) + r * Math.sin(a), role: 'corner' }); }
+  for (let i = 0; i <= 6; i++) { const x = (wt - r) * (1 - 2 * i / 6); pts.push({ x, y: yb + H + 0.025 * (1 - (x / wt) ** 2) * Math.min(1, H * 4), role: 'top' }); }
+  for (let i = 1; i <= 4; i++) { const a = Math.PI / 2 + (i / 5) * Math.PI / 2; pts.push({ x: -(wt - r) + r * Math.cos(a), y: (yb + H - r) + r * Math.sin(a), role: 'corner' }); }
+  for (let i = 5; i >= 0; i--) pts.push(side(i / 5, -1));
+  return pts;
+}
+
+class GB {
+  constructor() { this.P = []; this.C = []; this.F = []; this.I = []; }
+  get count() { return this.P.length / 3; }
+  v(x, y, z, c, flag) { this.P.push(x, y, z); this.C.push(c.r, c.g, c.b); this.F.push(flag | 0); }
+  geom(g, color, flag, mat4) {
+    const base = this.count, pa = g.attributes.position, tmp = new THREE.Vector3();
+    for (let i = 0; i < pa.count; i++) { tmp.fromBufferAttribute(pa, i); if (mat4) tmp.applyMatrix4(mat4); this.v(tmp.x, tmp.y, tmp.z, color, flag); }
+    if (g.index) for (let i = 0; i < g.index.count; i++) this.I.push(base + g.index.array[i]);
+    else for (let i = 0; i < pa.count; i++) this.I.push(base + i);
+  }
+  box(cx, cy, cz, sx, sy, sz, color, flag) { const g = new THREE.BoxGeometry(sx, sy, sz); g.translate(cx, cy, cz); this.geom(g, color, flag); g.dispose(); }
+  // zs: slice positions; sec(z) -> CCW points (viewed from +z); col(pt,z) -> [Color, flag]
+  loft(zs, sec, col, caps) {
+    const base = this.count; let M = 0; const first = [], last = [];
+    zs.forEach((z, si) => {
+      const pts = sec(z); M = pts.length;
+      for (const p of pts) { const [c, f] = col(p, z); this.v(p.x, p.y, z, c, f); }
+      if (si === 0) first.push(...pts.map((p) => [p, z])); if (si === zs.length - 1) last.push(...pts.map((p) => [p, z]));
+    });
+    for (let s = 0; s < zs.length - 1; s++) for (let i = 0; i < M; i++) {
+      const a = base + s * M + i, a1 = base + s * M + (i + 1) % M, b = a + M, b1 = a1 + M;
+      this.I.push(a, a1, b, a1, b1, b);
+    }
+    if (caps) for (const [ring, dir] of [[first, -1], [last, 1]]) {
+      const cb = this.count; let cx = 0, cy = 0;
+      for (const [p, z] of ring) { const [c, f] = col(p, z); this.v(p.x, p.y, z, c, f); cx += p.x; cy += p.y; }
+      const ctr = this.count; this.v(cx / M, cy / M, ring[0][1], col({ x: 0, y: cy / M }, ring[0][1])[0], 0);
+      for (let i = 0; i < M; i++) { const i1 = (i + 1) % M; if (dir > 0) this.I.push(ctr, cb + i, cb + i1); else this.I.push(ctr, cb + i1, cb + i); }
+    }
+  }
+  build() {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.P), 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.C), 3));
+    g.setIndex(this.I); g.computeVertexNormals();
+    return g;
+  }
+}
+function bindToLattice(gb) {
+  const geom = gb.build(), n = gb.count, base = new Int32Array(n), fr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const pr = paramOf(gb.P[i * 3], gb.P[i * 3 + 1], gb.P[i * 3 + 2]);
+    base[i] = pr.base; fr[i * 3] = pr.fx; fr[i * 3 + 1] = pr.fy; fr[i * 3 + 2] = pr.fz;
+  }
+  return { geom, base, fr, count: n, flags: new Uint8Array(gb.F), rest: new Float32Array(gb.C) };
+}
+
+// Shared wheel geometry (axle along X, outward face +X)
+const tireGeo = (() => {
+  const ri = 0.215, ro = R_WHEEL, hw = 0.11, rr = 0.055, pts = [new THREE.Vector2(ri, -hw)];
+  for (let i = 0; i <= 5; i++) { const a = -Math.PI / 2 + (i / 5) * Math.PI / 2; pts.push(new THREE.Vector2(ro - rr + rr * Math.cos(a), -hw + rr + rr * Math.sin(a))); }
+  for (let i = 0; i <= 5; i++) { const a = (i / 5) * Math.PI / 2; pts.push(new THREE.Vector2(ro - rr + rr * Math.cos(a), hw - rr + rr * Math.sin(a))); }
+  pts.push(new THREE.Vector2(ri, hw));
+  const g = new THREE.LatheGeometry(pts, 30); g.rotateZ(-Math.PI / 2); g.computeVertexNormals(); return g;
+})();
+const rimGeo = (() => {
+  const gb = new GB(), barrel = new THREE.CylinderGeometry(0.215, 0.215, 0.17, 24, 1, true); barrel.rotateZ(Math.PI / 2);
+  gb.geom(barrel, new THREE.Color(0x4a4e54));
+  const face = new THREE.CircleGeometry(0.2, 24); face.rotateY(Math.PI / 2); face.translate(0.03, 0, 0);
+  gb.geom(face, new THREE.Color(0x26292d));
+  const m = new THREE.Matrix4();
+  for (let i = 0; i < 5; i++) {
+    const s = new THREE.BoxGeometry(0.035, 0.055, 0.2); s.translate(0.07, 0, 0.1);
+    m.makeRotationX(i * Math.PI * 2 / 5); gb.geom(s, new THREE.Color(0xc9ccd0), 0, m);
+  }
+  const ring = new THREE.TorusGeometry(0.2, 0.014, 6, 24); ring.rotateY(Math.PI / 2); ring.translate(0.075, 0, 0);
+  gb.geom(ring, new THREE.Color(0xc9ccd0));
+  const cap = new THREE.CylinderGeometry(0.055, 0.055, 0.04, 12); cap.rotateZ(Math.PI / 2); cap.translate(0.085, 0, 0);
+  gb.geom(cap, new THREE.Color(0x9aa0a6));
+  const g = gb.build(); return g;
+})();
+const matTire = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9, side: THREE.DoubleSide });
+const matRim = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.7, roughness: 0.3, side: THREE.DoubleSide });
+const matBody = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.35, roughness: 0.32, envMapIntensity: 0.9 });
+const matLights = new THREE.MeshBasicMaterial({ vertexColors: true });
+const matLines = new THREE.LineBasicMaterial({ vertexColors: true, depthTest: false, transparent: true });
+const matNodes = new THREE.PointsMaterial({ color: 0xffe14a, size: 0.09, depthTest: false });
+
+// =====================================================================
+//  Vehicle (soft-body node/beam lattice)
+// =====================================================================
+const FRAME_REAR = [], FRAME_FRONT = [];
+for (const j of [0, 1]) for (const i of [0, 3]) { FRAME_REAR.push(nid(i, j, 2)); FRAME_FRONT.push(nid(i, j, 5)); }
+const FRAME_LOCAL_Y = (LY[0][2] + LY[1][2] + LY[0][5] + LY[1][5]) / 4, FRAME_LOCAL_Z = (LZ[2] + LZ[5]) / 2;
+const COLORS = [0xc8302a, 0x2a66c8, 0xe8b31a, 0x2b9d55, 0xe6e6e6, 0x7d3fcf, 0xf07a1a, 0x23272c];
+let colorIdx = 0;
+
+class Vehicle {
+  constructor(color, x, z, yaw) {
+    this.color = new THREE.Color(color);
+    const n = NB + 4; this.n = n;
+    this.loc = new Float64Array(n * 3);
+    this.p = new Float64Array(n * 3); this.v = new Float64Array(n * 3); this.f = new Float64Array(n * 3);
+    this.m = new Float64Array(n); this.im = new Float64Array(n);
+    for (let k = 0; k < NZ; k++) for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+      const id = nid(i, j, k);
+      this.loc[id * 3] = latX(i, j); this.loc[id * 3 + 1] = latY(j, k); this.loc[id * 3 + 2] = LZ[k];
+      this.m[id] = 11.5;
+    }
+    for (const k of [6, 7]) for (const j of [0, 1]) for (const i of [1, 2]) this.m[nid(i, j, k)] += 18; // engine block
+    let M = 0, cz = 0; for (let i = 0; i < NB; i++) { M += this.m[i]; cz += this.m[i] * this.loc[i * 3 + 2]; }
+    cz /= M; this.bodyMass = M;
+    const frontShare = (cz + 1.35) / 2.7;
+    this.wheels = WHEEL_DEFS.map((d, wi) => {
+      const id = NB + wi;
+      this.loc[id * 3] = d.x; this.loc[id * 3 + 1] = HUB_Y; this.loc[id * 3 + 2] = d.z; this.m[id] = M_HUB;
+      const corners = new Int32Array(8), wts = new Float64Array(8);
+      cornerWeights(paramOf(d.x, HUB_Y, d.z), corners, wts);
+      const load = M * GRAV * (d.front ? frontShare : 1 - frontShare) / 2;
+      return { node: id, corners, wts, side: d.x > 0 ? 1 : -1, front: d.front, dFree: -load / K_SUSP,
+        bend: [0, 0, 0], omega: 0, spin: 0, toe: 0, camber: 0, detached: false, driveT: 0, brakeT: 0,
+        contact: false, slip: 0, lockSlip: 0, lslip: 0, tcs: 1, hard: 1, cpx: 0, cpy: 0, cpz: 0, cnx: 0, cny: 1, cnz: 0,
+        mark: null, axle: [1, 0, 0], q: new THREE.Quaternion(), group: null };
+    });
+    for (let i = 0; i < n; i++) this.im[i] = 1 / this.m[i];
+    this.buildBeams();
+    this.buildVisual();
+    // frame & state
+    this.u = [0, 1, 0]; this.fw = [0, 0, 1]; this.sv = [1, 0, 0]; this.org = [0, 0, 0];
+    this.cpos = [0, 0, 0]; this.cvel = [0, 0, 0]; this.aero = [0, 0, 0];
+    this.bmin = [0, 0, 0]; this.bmax = [0, 0, 0];
+    this.near = []; this.groundHint = 0;
+    this.spawn = { x, z, yaw };
+    this.parked = true; this.drive = 'RWD';
+    this.reset(x, z, yaw);
+  }
+
+  buildBeams() {
+    const A = [], B = [], L = [], K = [], FY = [], Z = [];
+    const lp = this.loc;
+    for (let k = 0; k < NZ; k++) for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++)
+      for (let dk = 0; dk <= 1; dk++) for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        if (dk === 0 && (dj < 0 || (dj === 0 && di <= 0))) continue;
+        const ni = i + di, nj = j + dj, nk = k + dk;
+        if (ni < 0 || ni >= NX || nj < 0 || nj >= NY || nk >= NZ) continue;
+        const a = nid(i, j, k), b = nid(ni, nj, nk);
+        const l = Math.hypot(lp[b * 3] - lp[a * 3], lp[b * 3 + 1] - lp[a * 3 + 1], lp[b * 3 + 2] - lp[a * 3 + 2]);
+        const kmin = Math.min(k, nk), kmax = Math.max(k, nk), jmin = Math.min(j, nj), jmax = Math.max(j, nj);
+        let fy = 11000, zone = 0;                              // passenger cell
+        if (kmin >= 5) { fy = 5000; zone = 1; }                 // front crumple zone
+        else if (kmax <= 2) { fy = 5500; zone = 2; }            // rear crumple zone
+        else if (jmin >= 1 && jmax === 2) { fy = 7000; zone = 3; } // pillars + roof
+        if (jmax === 0) fy *= 1.5;                              // floor pan
+        A.push(a); B.push(b); L.push(l); K.push(5.2e5 * 0.6 / l); FY.push(fy); Z.push(zone);
+      }
+    this.nBeams = A.length;
+    this.bA = Int32Array.from(A); this.bB = Int32Array.from(B);
+    this.bL0 = Float64Array.from(L); this.bRest = Float64Array.from(L); this.bK = Float64Array.from(K);
+    this.bLim = Float64Array.from(FY.map((f, i) => f / K[i]));
+    this.bZone = Uint8Array.from(Z); this.bBroken = new Uint8Array(A.length);
+  }
+
+  buildVisual() {
+    const body = new GB(), lights = new GB();
+    const paint = this.color, glass = new THREE.Color(0x0d151c), dark = new THREE.Color(0x1c1f23), black = new THREE.Color(0x0b0b0c), white = new THREE.Color(0xeeeeee);
+    const zs = []; for (let i = 0; i <= 118; i++) zs.push(-2.32 + 4.66 * i / 118);
+    body.loft(zs, lowerSection, (p) => [p.y < 0.43 ? dark : paint, 0], true);
+    const gz = []; for (let i = 0; i <= 64; i++) gz.push(-1.3 + 2.28 * i / 64);
+    body.loft(gz, greenhouseSection, (p, z) => {
+      let isPaint;
+      if (p.role === 'corner') isPaint = true;
+      else if (p.role === 'top') isPaint = z > -0.64 && z < 0.18;
+      else isPaint = p.t < 0.2 || (z > -0.44 && z < -0.3) || z < -1.0 || z > 0.74;
+      return isPaint ? [paint, 0] : [glass, 1];
+    }, false);
+    body.box(0, 0.45, 2.30, 1.5, 0.18, 0.16, dark);       // front bumper
+    body.box(0, 0.47, -2.30, 1.5, 0.18, 0.16, dark);      // rear bumper
+    body.box(0, 0.58, 2.33, 0.72, 0.13, 0.04, black);     // grille
+    body.box(0, 0.45, 2.385, 0.5, 0.11, 0.02, white);     // plates
+    body.box(0, 0.47, -2.385, 0.5, 0.11, 0.02, white);
+    body.box(0, 0.56, 1.35, 1.12, 0.48, 0.9, black);      // inner wheel wells / engine bay
+    body.box(0, 0.56, -1.35, 1.12, 0.48, 0.9, black);
+    body.box(0.94, 1.0, 0.8, 0.12, 0.09, 0.16, paint);    // mirrors
+    body.box(-0.94, 1.0, 0.8, 0.12, 0.09, 0.16, paint);
+    body.box(0.5, 0.38, -2.36, 0.09, 0.09, 0.12, new THREE.Color(0x777777)); // exhaust
+    for (const s of [1, -1]) {
+      lights.box(0.52 * s, 0.69, 2.315, 0.34, 0.09, 0.06, new THREE.Color(0xfff4d6), 2);
+      lights.box(0.55 * s, 0.77, -2.32, 0.34, 0.1, 0.06, new THREE.Color(0xff1a1a), 3);
+      lights.box(0.78 * s, 0.69, 2.27, 0.08, 0.06, 0.06, new THREE.Color(0xffa020), 2);
+    }
+    this.bodyD = bindToLattice(body);
+    this.lightD = bindToLattice(lights);
+    this.bodyMesh = new THREE.Mesh(this.bodyD.geom, matBody);
+    this.lightMesh = new THREE.Mesh(this.lightD.geom, matLights);
+    for (const m of [this.bodyMesh, this.lightMesh]) { m.frustumCulled = false; m.castShadow = true; m.receiveShadow = true; scene.add(m); }
+    this.lightMesh.castShadow = false;
+    for (const w of this.wheels) {
+      const g = new THREE.Group(), inner = new THREE.Group();
+      inner.scale.x = w.side;
+      const t = new THREE.Mesh(tireGeo, matTire), r = new THREE.Mesh(rimGeo, matRim);
+      t.castShadow = r.castShadow = true; inner.add(t, r); g.add(inner); scene.add(g); w.group = g;
+    }
+    // debug: beams + nodes
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.nBeams * 6), 3).setUsage(THREE.DynamicDrawUsage));
+    lg.setAttribute('color', new THREE.BufferAttribute(new Float32Array(this.nBeams * 6), 3).setUsage(THREE.DynamicDrawUsage));
+    this.lines = new THREE.LineSegments(lg, matLines); this.lines.frustumCulled = false; this.lines.visible = false; this.lines.renderOrder = 5;
+    const ng = new THREE.BufferGeometry();
+    ng.setAttribute('position', new THREE.BufferAttribute(new Float32Array(this.n * 3), 3).setUsage(THREE.DynamicDrawUsage));
+    this.nodePts = new THREE.Points(ng, matNodes); this.nodePts.frustumCulled = false; this.nodePts.visible = false; this.nodePts.renderOrder = 6;
+    scene.add(this.lines, this.nodePts);
+  }
+
+  dispose() {
+    for (const m of [this.bodyMesh, this.lightMesh, this.lines, this.nodePts]) { scene.remove(m); m.geometry.dispose(); }
+    for (const w of this.wheels) scene.remove(w.group);
+  }
+
+  reset(x, z, yaw) {
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    let gy = -1e9;
+    for (const [lx, lz] of [[0, 0], [1, 2.3], [-1, 2.3], [1, -2.3], [-1, -2.3]]) gy = Math.max(gy, groundAt(x + lx * c + lz * s, z - lx * s + lz * c));
+    gy += 0.03;
+    const p = this.p, L = this.loc;
+    for (let i = 0; i < this.n; i++) {
+      const lx = L[i * 3], ly = L[i * 3 + 1], lz = L[i * 3 + 2];
+      p[i * 3] = x + lx * c + lz * s; p[i * 3 + 1] = gy + ly; p[i * 3 + 2] = z - lx * s + lz * c;
+    }
+    this.v.fill(0); this.f.fill(0);
+    this.bRest.set(this.bL0); this.bBroken.fill(0);
+    for (const w of this.wheels) {
+      w.omega = 0; w.spin = 0; w.bend[0] = w.bend[1] = w.bend[2] = 0; w.toe = w.camber = 0;
+      w.detached = false; w.mark = null; w.contact = false; w.slip = 0; w.lockSlip = 0; w.lslip = 0; w.tcs = 1;
+    }
+    this.gear = 1; this.steer = 0; this.steerAngle = 0; this.throttle = 0; this.brake = 0; this.hand = 0;
+    this.rpm = IDLE; this.shiftT = 0; this.plastic = 0; this.damage = 0; this.engineHealth = 1;
+    this.frontDef = 0; this.rearDef = 0; this.cabinDef = 0; this.brokenCount = 0;
+    this.glassBroken = false; this.headBroken = false; this.tailBroken = false;
+    this.maxSlip = 0; this.scrape = 0; this.scrapeAcc = 0; this.speed = 0; this.speedFwd = 0;
+    this.bodyD.geom.attributes.color.array.set(this.bodyD.rest); this.bodyD.geom.attributes.color.needsUpdate = true;
+    this.lightD.geom.attributes.color.array.set(this.lightD.rest); this.lightD.geom.attributes.color.needsUpdate = true;
+    this.computeFrame(); this.updateCentroid();
+  }
+  recover() {
+    const f = this.fw, yaw = Math.atan2(f[0], f[2]);
+    this.reset(this.cpos[0], this.cpos[2], isFinite(yaw) ? yaw : 0);
+  }
+
+  computeFrame() {
+    const p = this.p;
+    let rx = 0, ry = 0, rz = 0, fx = 0, fy = 0, fz = 0, lx = 0, ly = 0, lz = 0, qx = 0, qy = 0, qz = 0;
+    for (let n = 0; n < 4; n++) {
+      const a = FRAME_REAR[n] * 3, b = FRAME_FRONT[n] * 3;
+      rx += p[a]; ry += p[a + 1]; rz += p[a + 2]; fx += p[b]; fy += p[b + 1]; fz += p[b + 2];
+      if (n & 1) { lx += p[a] + p[b]; ly += p[a + 1] + p[b + 1]; lz += p[a + 2] + p[b + 2]; } // i = 3 (left, +x)
+      else { qx += p[a] + p[b]; qy += p[a + 1] + p[b + 1]; qz += p[a + 2] + p[b + 2]; }
+    }
+    let Fx = fx - rx, Fy = fy - ry, Fz = fz - rz; let l = Math.hypot(Fx, Fy, Fz) || 1; Fx /= l; Fy /= l; Fz /= l;
+    const Sx = lx - qx, Sy = ly - qy, Sz = lz - qz;
+    let Ux = Fy * Sz - Fz * Sy, Uy = Fz * Sx - Fx * Sz, Uz = Fx * Sy - Fy * Sx; l = Math.hypot(Ux, Uy, Uz) || 1; Ux /= l; Uy /= l; Uz /= l;
+    const sx = Uy * Fz - Uz * Fy, sy = Uz * Fx - Ux * Fz, sz = Ux * Fy - Uy * Fx;
+    this.fw[0] = Fx; this.fw[1] = Fy; this.fw[2] = Fz; this.u[0] = Ux; this.u[1] = Uy; this.u[2] = Uz;
+    this.sv[0] = sx; this.sv[1] = sy; this.sv[2] = sz;
+    const ox = (rx + fx) / 8, oy = (ry + fy) / 8, oz = (rz + fz) / 8;
+    this.org[0] = ox - Ux * FRAME_LOCAL_Y - Fx * FRAME_LOCAL_Z;
+    this.org[1] = oy - Uy * FRAME_LOCAL_Y - Fy * FRAME_LOCAL_Z;
+    this.org[2] = oz - Uz * FRAME_LOCAL_Y - Fz * FRAME_LOCAL_Z;
+  }
+  toWorld(lx, ly, lz, out) {
+    const s = this.sv, u = this.u, f = this.fw, o = this.org;
+    out.set(o[0] + s[0] * lx + u[0] * ly + f[0] * lz, o[1] + s[1] * lx + u[1] * ly + f[1] * lz, o[2] + s[2] * lx + u[2] * ly + f[2] * lz);
+    return out;
+  }
+  updateCentroid() {
+    const p = this.p, v = this.v, m = this.m; let M = 0, x = 0, y = 0, z = 0, a = 0, b = 0, c = 0;
+    for (let i = 0; i < NB; i++) { const w = m[i]; M += w; x += p[i * 3] * w; y += p[i * 3 + 1] * w; z += p[i * 3 + 2] * w; a += v[i * 3] * w; b += v[i * 3 + 1] * w; c += v[i * 3 + 2] * w; }
+    this.cpos[0] = x / M; this.cpos[1] = y / M; this.cpos[2] = z / M;
+    this.cvel[0] = a / M; this.cvel[1] = b / M; this.cvel[2] = c / M;
+    this.speed = Math.hypot(this.cvel[0], this.cvel[1], this.cvel[2]);
+    this.speedFwd = this.cvel[0] * this.fw[0] + this.cvel[1] * this.fw[1] + this.cvel[2] * this.fw[2];
+  }
+
+  // ---------------- per rendered frame: controls, engine, broadphase ----------------
+  frameUpdate(dt, inp) {
+    this.updateCentroid();
+    const cx = this.cpos[0], cz = this.cpos[2];
+    this.groundHint = groundAt(cx, cz);
+    const R = 3.6 + this.speed * Math.max(dt, 1 / 30) * 1.5;
+    this.near.length = 0;
+    for (const b of statics) { const dx = b.cx - cx, dy = b.cy - this.cpos[1], dz = b.cz - cz, rr = R + b.br; if (dx * dx + dy * dy + dz * dz < rr * rr) this.near.push(b); }
+    const ak = -0.36 * this.speed / this.bodyMass;
+    this.aero[0] = ak * this.cvel[0]; this.aero[1] = ak * this.cvel[1]; this.aero[2] = ak * this.cvel[2];
+
+    const vf = this.speedFwd;
+    if (inp) {
+      const target = clamp((inp.left ? 1 : 0) - (inp.right ? 1 : 0), -1, 1);
+      const rate = (target === 0 || Math.sign(target) !== Math.sign(this.steer)) ? 5 : 2.4;
+      this.steer += clamp(target - this.steer, -rate * dt, rate * dt);
+      const up = inp.up ? 1 : 0, dn = inp.down ? 1 : 0;
+      if (this.gear > 0 && dn && !up && vf < 0.6) this.gear = -1;
+      else if (this.gear < 0 && up && !dn && vf > -0.6) this.gear = 1;
+      else if (this.gear === 0) this.gear = 1;
+      const thr = this.gear < 0 ? dn : up, brk = this.gear < 0 ? up : dn;
+      this.throttle += clamp(thr - this.throttle, -8 * dt, 5 * dt);
+      this.brake += clamp(brk - this.brake, -10 * dt, 6 * dt);
+      this.hand = inp.hand ? 1 : 0;
+    } else {
+      this.steer += clamp(-this.steer, -3 * dt, 3 * dt);
+      this.throttle = 0; this.brake = this.parked ? 1 : 0; this.hand = this.parked ? 1 : 0;
+    }
+    this.steerAngle = this.steer * 0.6 / (1 + Math.abs(vf) / 22);
+
+    // engine + automatic gearbox
+    let wsum = 0, cnt = 0;
+    for (const w of this.wheels) { w.driven = this.drive === 'AWD' || (this.drive === 'RWD') !== w.front; if (w.driven && !w.detached) { wsum += w.omega; cnt++; } }
+    const ratio = GEARS[this.gear + 1] * FINAL, wAvg = cnt ? wsum / cnt : 0;
+    const rpmW = Math.abs(wAvg * ratio) * 9.5493;
+    if (this.shiftT > 0) this.shiftT -= dt;
+    // shift on road speed, so a burnout doesn't make the box hunt between gears
+    const rpmRoad = Math.abs(vf / R_WHEEL * ratio) * 9.5493;
+    if (this.gear > 0 && this.shiftT <= 0) {
+      if (rpmW > 6200 && rpmRoad > 5200 && this.gear < 6) { this.gear++; this.shiftT = 0.22; }
+      else if (rpmRoad < 2300 && rpmW < 4500 && this.gear > 1) { this.gear--; this.shiftT = 0.18; }
+    }
+    const alive = this.engineHealth > 0;
+    let T = 0;
+    if (alive && this.shiftT <= 0 && rpmW < REDLINE) T = this.throttle * torqueCurve(Math.max(rpmW, 1500)) * (0.35 + 0.65 * this.engineHealth);
+    const eb = alive && this.throttle < 0.05 ? -Math.sign(wAvg) * Math.min(45, rpmW * 0.012) : 0;
+    const perWheel = cnt ? (T * ratio * 0.9 + eb * Math.abs(ratio)) / cnt : 0;
+    const rpmTarget = alive ? Math.max(IDLE, rpmW, rpmW < 2600 ? IDLE + this.throttle * 2200 : 0) : 0;
+    this.rpm += (Math.min(rpmTarget, REDLINE + 150) - this.rpm) * Math.min(1, dt * 12);
+    for (const w of this.wheels) {
+      // traction control: back off a driven wheel that spins faster than the road
+      const spin = -w.lslip * Math.sign(perWheel);
+      if (tcsOn && inp && w.contact && spin > 1.6) w.tcs = Math.max(0.2, w.tcs - dt * 6);
+      else w.tcs = Math.min(1, w.tcs + dt * 2.5);
+      w.driveT = w.driven ? perWheel * (eb === 0 ? w.tcs : 1) : 0;
+      let bt = this.brake * (w.front ? 2600 : 1500);
+      if (w.lockSlip > 3 && this.hand === 0 && inp) bt *= 0.45; // ABS
+      w.brakeT = bt + (!w.front ? this.hand * 3800 : 0);
+      w.toe = clamp(w.bend[2] * w.side * 1.8, -0.45, 0.45);
+      w.camber = clamp(w.bend[0] * w.side * 2.5, -0.6, 0.6);
+    }
+  }
+
+  // ---------------- physics substep ----------------
+  substep() {
+    const p = this.p, v = this.v, f = this.f, m = this.m, n = this.n;
+    // forces: gravity + aero
+    const ax = this.aero[0], ay = this.aero[1] - GRAV, az = this.aero[2];
+    for (let i = 0; i < NB; i++) { const w = m[i]; f[i * 3] = w * ax; f[i * 3 + 1] = w * ay; f[i * 3 + 2] = w * az; }
+    for (let i = NB; i < n; i++) { f[i * 3] = 0; f[i * 3 + 1] = -m[i] * GRAV; f[i * 3 + 2] = 0; }
+    // bounds for car-car broadphase
+    let x0 = 1e9, y0 = 1e9, z0 = 1e9, x1 = -1e9, y1 = -1e9, z1 = -1e9;
+    for (let i = 0; i < n; i++) {
+      const x = p[i * 3], y = p[i * 3 + 1], z = p[i * 3 + 2];
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z;
+    }
+    this.bmin[0] = x0; this.bmin[1] = y0; this.bmin[2] = z0; this.bmax[0] = x1; this.bmax[1] = y1; this.bmax[2] = z1;
+    this.computeFrame();
+    this.stepBeams();
+    this.stepSuspension();
+    this.stepWheels();
+    this.stepNodeContacts();
+    if (grab.veh === this) {
+      const i3 = grab.node * 3;
+      let gx = (grab.tx - p[i3]) * 16000 - v[i3] * 900, gy = (grab.ty - p[i3 + 1]) * 16000 - v[i3 + 1] * 900, gz = (grab.tz - p[i3 + 2]) * 16000 - v[i3 + 2] * 900;
+      const gm = Math.hypot(gx, gy, gz); if (gm > 40000) { const s = 40000 / gm; gx *= s; gy *= s; gz *= s; }
+      f[i3] += gx; f[i3 + 1] += gy; f[i3 + 2] += gz;
+    }
+  }
+
+  stepBeams() {
+    const p = this.p, v = this.v, f = this.f, A = this.bA, B = this.bB, rest = this.bRest, L0 = this.bL0, K = this.bK, lim = this.bLim, broken = this.bBroken;
+    let plastic = 0;
+    for (let b = 0, nb = this.nBeams; b < nb; b++) {
+      if (broken[b]) continue;
+      const a3 = A[b] * 3, c3 = B[b] * 3;
+      const dx = p[c3] - p[a3], dy = p[c3 + 1] - p[a3 + 1], dz = p[c3 + 2] - p[a3 + 2];
+      const L = Math.sqrt(dx * dx + dy * dy + dz * dz); if (L < 1e-6) continue;
+      const inv = 1 / L, nx = dx * inv, ny = dy * inv, nz = dz * inv;
+      let ext = L - rest[b];
+      const yl = lim[b];
+      if (ext > yl) { // stretch past yield: permanent elongation, tear when too long
+        const d = ext - yl; rest[b] += d; plastic += d; ext = yl;
+        if (rest[b] > 1.45 * L0[b]) { broken[b] = 1; this.brokenCount++; continue; }
+      } else if (ext < -yl) { // crush past yield: permanent shortening (bottoms out at 22%)
+        const d = -yl - ext;
+        if (rest[b] - d > 0.22 * L0[b]) { rest[b] -= d; plastic += d; ext = -yl; }
+      }
+      const rv = (v[c3] - v[a3]) * nx + (v[c3 + 1] - v[a3 + 1]) * ny + (v[c3 + 2] - v[a3 + 2]) * nz;
+      const F = K[b] * ext + C_BEAM * rv;
+      const fx = F * nx, fy = F * ny, fz = F * nz;
+      f[a3] += fx; f[a3 + 1] += fy; f[a3 + 2] += fz; f[c3] -= fx; f[c3 + 1] -= fy; f[c3 + 2] -= fz;
+    }
+    this.plastic += plastic;
+  }
+
+  stepSuspension() {
+    const p = this.p, v = this.v, f = this.f, u = this.u, S = this.sv, Fw = this.fw;
+    for (const w of this.wheels) {
+      if (w.detached) continue;
+      let ax = 0, ay = 0, az = 0, avx = 0, avy = 0, avz = 0;
+      for (let c = 0; c < 8; c++) { const i3 = w.corners[c] * 3, wt = w.wts[c]; ax += wt * p[i3]; ay += wt * p[i3 + 1]; az += wt * p[i3 + 2]; avx += wt * v[i3]; avy += wt * v[i3 + 1]; avz += wt * v[i3 + 2]; }
+      const h = w.node * 3;
+      const rx = p[h] - ax, ry = p[h + 1] - ay, rz = p[h + 2] - az, rvx = v[h] - avx, rvy = v[h + 1] - avy, rvz = v[h + 2] - avz;
+      const d = rx * u[0] + ry * u[1] + rz * u[2], dv = rvx * u[0] + rvy * u[1] + rvz * u[2];
+      const comp = d - w.dFree;
+      let Fs = -K_SUSP * comp - C_SUSP * dv;
+      if (comp > 0.17) Fs -= K_BUMP * (comp - 0.17) + 3000 * Math.max(0, dv);
+      if (comp < -0.09) Fs -= K_BUMP * (comp + 0.09);
+      const b = w.bend;
+      const px = rx - d * u[0] - (S[0] * b[0] + Fw[0] * b[2]), py = ry - d * u[1] - (S[1] * b[0] + Fw[1] * b[2]), pz = rz - d * u[2] - (S[2] * b[0] + Fw[2] * b[2]);
+      const pvx = rvx - dv * u[0], pvy = rvy - dv * u[1], pvz = rvz - dv * u[2];
+      const pm = Math.sqrt(px * px + py * py + pz * pz);
+      if (K_PLANAR * pm > PLANAR_YIELD) { // suspension bends permanently; tears off if bent too far
+        const sc = (pm - PLANAR_YIELD / K_PLANAR) / pm;
+        b[0] += (px * S[0] + py * S[1] + pz * S[2]) * sc; b[2] += (px * Fw[0] + py * Fw[1] + pz * Fw[2]) * sc;
+        this.plastic += pm * sc;
+        if (b[0] * b[0] + b[2] * b[2] > WHEEL_TEAR * WHEEL_TEAR) { this.detachWheel(w); continue; }
+      }
+      const Fx = Fs * u[0] - K_PLANAR * px - C_PLANAR * pvx, Fy = Fs * u[1] - K_PLANAR * py - C_PLANAR * pvy, Fz = Fs * u[2] - K_PLANAR * pz - C_PLANAR * pvz;
+      f[h] += Fx; f[h + 1] += Fy; f[h + 2] += Fz;
+      for (let c = 0; c < 8; c++) { const i3 = w.corners[c] * 3, wt = w.wts[c]; f[i3] -= wt * Fx; f[i3 + 1] -= wt * Fy; f[i3 + 2] -= wt * Fz; }
+    }
+  }
+  detachWheel(w) {
+    if (w.detached) return;
+    w.detached = true;
+    const u = this.u, f = this.fw;
+    w.axle = [u[1] * f[2] - u[2] * f[1], u[2] * f[0] - u[0] * f[2], u[0] * f[1] - u[1] * f[0]];
+    w.q.copy(w.group.quaternion);
+    const h = w.node * 3;
+    for (let i = 0; i < 14; i++) smoke.emit(this.p[h], this.p[h + 1], this.p[h + 2], (Math.random() - 0.5) * 6, Math.random() * 4, (Math.random() - 0.5) * 6, 0.25, 0.24, 0.22, 0.06, 1.5, 0, 1, 0.5, 9.8);
+    this.crashPending = Math.max(this.crashPending || 0, 0.7);
+  }
+
+  stepWheels() {
+    const p = this.p, v = this.v, f = this.f, u = this.u, F = this.fw, S = this.sv;
+    const skipT = false;
+    for (const w of this.wheels) {
+      const h = w.node * 3;
+      const cnt = sphereContacts(p[h], p[h + 1], p[h + 2], R_WHEEL, this.near, skipT);
+      let axx, axy, axz;
+      if (w.detached) { axx = w.axle[0]; axy = w.axle[1]; axz = w.axle[2]; }
+      else {
+        const ang = (w.front ? this.steerAngle : 0) + w.toe, ca = Math.cos(ang), sa = Math.sin(ang);
+        const fx = F[0] * ca + S[0] * sa, fy = F[1] * ca + S[1] * sa, fz = F[2] * ca + S[2] * sa;
+        axx = u[1] * fz - u[2] * fy; axy = u[2] * fx - u[0] * fz; axz = u[0] * fy - u[1] * fx;
+      }
+      let FxSum = 0; w.contact = false; let slip = 0, lock = 0, lslip = 0;
+      for (let k = 0; k < cnt; k++) {
+        const nx = CNX[k], ny = CNY[k], nz = CNZ[k];
+        const vx = v[h], vy = v[h + 1], vz = v[h + 2], vn = vx * nx + vy * ny + vz * nz;
+        let Fn = K_TIRE * CD[k] - C_TIRE * vn; if (Fn <= 0) continue;
+        if (Fn > 60000) Fn = 60000;
+        let fx = Fn * nx, fy = Fn * ny, fz = Fn * nz;
+        // rolling direction in the contact plane = axle x normal
+        let tx = axy * nz - axz * ny, ty = axz * nx - axx * nz, tz = axx * ny - axy * nx;
+        const tl = Math.hypot(tx, ty, tz);
+        if (tl > 0.3) {
+          tx /= tl; ty /= tl; tz /= tl;
+          const sx = ny * tz - nz * ty, sy = nz * tx - nx * tz, sz = nx * ty - ny * tx;
+          const vL = vx * tx + vy * ty + vz * tz, vS = vx * sx + vy * sy + vz * sz;
+          const slipL = vL - w.omega * R_WHEEL; lslip = slipL;
+          const Fmax = CMU[k] * Fn;
+          const v0 = Math.max(0.6, 0.1 * Math.abs(vL), 2.5 * Fmax * R_WHEEL * R_WHEEL * DT / I_WHEEL, 2.5 * Fmax * DT / M_HUB);
+          const sxn = slipL / v0, syn = vS / (v0 * 1.15), sn = Math.hypot(sxn, syn);
+          if (sn > 1e-9) {
+            const g = sn < 1 ? sn : Math.max(0.75, 1 - 0.1 * (sn - 1));
+            const Fm = Fmax * g / sn, FL = -Fm * sxn, FS = -Fm * syn;
+            fx += tx * FL + sx * FS; fy += ty * FL + sy * FS; fz += tz * FL + sz * FS;
+            FxSum += FL;
+            if (sn > 1) { slip = Math.max(slip, Math.hypot(slipL, vS)); lock = Math.max(lock, Math.abs(slipL)); }
+          }
+        }
+        f[h] += fx; f[h + 1] += fy; f[h + 2] += fz;
+        w.contact = true; w.hard = CHARD[k];
+        w.cnx = nx; w.cny = ny; w.cnz = nz;
+        w.cpx = p[h] - nx * R_WHEEL; w.cpy = p[h + 1] - ny * R_WHEEL; w.cpz = p[h + 2] - nz * R_WHEEL;
+      }
+      w.slip = slip; w.lockSlip = lock; w.lslip = lslip;
+      let om = w.omega + ((w.detached ? 0 : w.driveT) - FxSum * R_WHEEL) * DT / I_WHEEL;
+      const bt = (w.detached ? 2 : w.brakeT + 8) * DT / I_WHEEL;
+      if (Math.abs(om) <= bt) om = 0; else om -= Math.sign(om) * bt;
+      w.omega = om;
+    }
+  }
+
+  stepNodeContacts() {
+    const p = this.p, v = this.v, f = this.f, m = this.m, near = this.near, hint = this.groundHint;
+    let scrape = 0;
+    for (let i = 0; i < NB; i++) {
+      const i3 = i * 3, y = p[i3 + 1];
+      const skipT = y > hint + 4;
+      if (skipT && near.length === 0) continue;
+      const cnt = sphereContacts(p[i3], y, p[i3 + 2], NODE_R, near, skipT);
+      for (let k = 0; k < cnt; k++) {
+        const nx = CNX[k], ny = CNY[k], nz = CNZ[k];
+        const vx = v[i3], vy = v[i3 + 1], vz = v[i3 + 2], vn = vx * nx + vy * ny + vz * nz;
+        const Fn = K_GROUND * CD[k] - C_GROUND * vn; if (Fn <= 0) continue;
+        f[i3] += Fn * nx; f[i3 + 1] += Fn * ny; f[i3 + 2] += Fn * nz;
+        const tvx = vx - vn * nx, tvy = vy - vn * ny, tvz = vz - vn * nz, tv = Math.sqrt(tvx * tvx + tvy * tvy + tvz * tvz);
+        if (tv > 1e-6) {
+          const Ft = Math.min(CMU[k] * 0.6 * Fn, m[i] * tv / DT * 0.5) / tv;
+          f[i3] -= tvx * Ft; f[i3 + 1] -= tvy * Ft; f[i3 + 2] -= tvz * Ft;
+          if (tv > 3 && Fn > 300) {
+            scrape += tv;
+            if (CHARD[k] && Math.random() < 0.025) {
+              const s = 0.4 + Math.random() * 0.6;
+              sparks.emit(p[i3] - nx * NODE_R, p[i3 + 1] - ny * NODE_R + 0.03, p[i3 + 2] - nz * NODE_R,
+                vx * s + (Math.random() - 0.5) * 4 + nx * 2, vy * s + Math.random() * 3 + ny * 2, vz * s + (Math.random() - 0.5) * 4 + nz * 2,
+                1.0, 0.55 + Math.random() * 0.35, 0.15, 0.05 + Math.random() * 0.04, 0.25 + Math.random() * 0.4, 0, 1, 1.2, 9.8);
+            } else if (!CHARD[k] && Math.random() < 0.01) {
+              smoke.emit(p[i3], p[i3 + 1], p[i3 + 2], vx * 0.2, 0.6, vz * 0.2, 0.45, 0.38, 0.27, 0.6, 1.4, 1.6, 0.35, 1.5, 0);
+            }
+          }
+        }
+      }
+    }
+    this.scrapeAcc += scrape;
+  }
+
+  integrate() {
+    const p = this.p, v = this.v, f = this.f, im = this.im;
+    for (let i = 0, n = this.n; i < n; i++) {
+      const i3 = i * 3, k = im[i] * DT;
+      v[i3] += f[i3] * k; v[i3 + 1] += f[i3 + 1] * k; v[i3 + 2] += f[i3 + 2] * k;
+      p[i3] += v[i3] * DT; p[i3 + 1] += v[i3 + 1] * DT; p[i3 + 2] += v[i3 + 2] * DT;
+    }
+  }
+
+  // ---------------- after the frame's substeps: damage, effects ----------------
+  postFrame(dt, steps) {
+    const p = this.p;
+    if (!(isFinite(p[0]) && isFinite(p[NB * 3 - 1]) && Math.abs(p[1]) < 5000)) { this.reset(this.spawn.x, this.spawn.z, this.spawn.yaw); return; }
+    this.updateCentroid();
+    // damage metrics
+    let total = 0, front = 0, rear = 0, cabin = 0;
+    const rest = this.bRest, L0 = this.bL0, Z = this.bZone, br = this.bBroken;
+    for (let b = 0; b < this.nBeams; b++) {
+      const d = br[b] ? 0.6 : Math.abs(rest[b] - L0[b]) / L0[b];
+      total += d;
+      const z = Z[b]; if (z === 1) front += d; else if (z === 2) rear += d; else cabin += d;
+    }
+    for (const w of this.wheels) total += w.detached ? 4 : Math.hypot(w.bend[0], w.bend[2]) * 6;
+    this.damage = 1 - Math.exp(-total / 35);
+    this.frontDef = front; this.rearDef = rear; this.cabinDef = cabin;
+    this.engineHealth = clamp(1 - front / 34, 0, 1);
+    if (!this.glassBroken && (cabin > 1.6 || front > 24 || rear > 24)) this.breakGlass();
+    if (!this.headBroken && front > 2.5) this.breakLights(2);
+    if (!this.tailBroken && rear > 2.5) this.breakLights(3);
+    // crash sound from plastic deformation this frame
+    const pl = this.plastic; this.plastic = 0;
+    const intensity = Math.max(pl * 2.2, this.crashPending || 0); this.crashPending = 0;
+    if (intensity > 0.03) crashSound(Math.min(1, intensity), camera.position.distanceTo(_v1.set(this.cpos[0], this.cpos[1], this.cpos[2])));
+    this.scrape = steps ? this.scrapeAcc / steps : 0; this.scrapeAcc = 0;
+    // engine smoke / steam
+    if (this.engineHealth < 0.6 && Math.random() < dt * (this.engineHealth > 0.25 ? 14 : 30)) {
+      this.toWorld((Math.random() - 0.5) * 0.6, 0.95, 1.6, _v1);
+      const dead = this.engineHealth <= 0.25;
+      const c = dead ? 0.12 : 0.85;
+      smoke.emit(_v1.x, _v1.y, _v1.z, this.cvel[0] * 0.5 + (Math.random() - 0.5), 1.4 + Math.random(), this.cvel[2] * 0.5 + (Math.random() - 0.5), c, c, c * 1.02, 0.5, 2.2, 1.8, dead ? 0.55 : 0.35, 0.8, -0.4);
+    }
+    // tire smoke + skid marks
+    this.maxSlip = 0;
+    for (const w of this.wheels) {
+      if (w.contact && w.slip > 0) this.maxSlip = Math.max(this.maxSlip, w.slip);
+      if (w.contact && w.slip > 3) {
+        if (w.hard && Math.random() < dt * w.slip * 3) smoke.emit(w.cpx, w.cpy + 0.15, w.cpz, (Math.random() - 0.5), 0.6 + Math.random() * 0.6, (Math.random() - 0.5), 0.86, 0.86, 0.86, 0.5, 1.8, 2.2, 0.3, 1.2, -0.2);
+        if (!w.hard && Math.random() < dt * w.slip * 3) smoke.emit(w.cpx, w.cpy + 0.1, w.cpz, (Math.random() - 0.5), 0.8, (Math.random() - 0.5), 0.5, 0.42, 0.3, 0.5, 1.4, 1.8, 0.4, 1.2, 0);
+        if (w.mark) {
+          const dx = w.cpx - w.mark[0], dy = w.cpy - w.mark[1], dz = w.cpz - w.mark[2], d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 > 0.04 && d2 < 4) { skid.add(w.mark[0], w.mark[1], w.mark[2], w.cpx, w.cpy, w.cpz, w.cnx, w.cny, w.cnz); w.mark = [w.cpx, w.cpy, w.cpz]; }
+          else if (d2 >= 4) w.mark = [w.cpx, w.cpy, w.cpz];
+        } else w.mark = [w.cpx, w.cpy, w.cpz];
+      } else w.mark = null;
+    }
+  }
+  breakGlass() {
+    this.glassBroken = true;
+    const D = this.bodyD, col = D.geom.attributes.color.array, fr = new THREE.Color(0x9fb3bf);
+    for (let i = 0; i < D.count; i++) if (D.flags[i] === 1) { const g = 0.75 + Math.random() * 0.25; col[i * 3] = fr.r * g; col[i * 3 + 1] = fr.g * g; col[i * 3 + 2] = fr.b * g; }
+    D.geom.attributes.color.needsUpdate = true;
+    for (let i = 0; i < 70; i++) {
+      this.toWorld((Math.random() - 0.5) * 1.4, 1.0 + Math.random() * 0.4, (Math.random() - 0.5) * 2, _v1);
+      smoke.emit(_v1.x, _v1.y, _v1.z, this.cvel[0] * 0.7 + (Math.random() - 0.5) * 5, Math.random() * 3, this.cvel[2] * 0.7 + (Math.random() - 0.5) * 5, 0.75, 0.88, 0.95, 0.035, 1.8 + Math.random(), 0, 0.9, 0.3, 9.8);
+    }
+  }
+  breakLights(flag) {
+    if (flag === 2) this.headBroken = true; else this.tailBroken = true;
+    const D = this.lightD, col = D.geom.attributes.color.array;
+    for (let i = 0; i < D.count; i++) if (D.flags[i] === flag) { col[i * 3] = 0.12; col[i * 3 + 1] = 0.12; col[i * 3 + 2] = 0.13; }
+    D.geom.attributes.color.needsUpdate = true;
+  }
+
+  // ---------------- visuals ----------------
+  deform(D) {
+    const P = this.p, pos = D.geom.attributes.position.array, base = D.base, fr = D.fr;
+    for (let vi = 0, n = D.count; vi < n; vi++) {
+      const b = base[vi], fx = fr[vi * 3], fy = fr[vi * 3 + 1], fz = fr[vi * 3 + 2], gx = 1 - fx, gy = 1 - fy, gz = 1 - fz;
+      const i0 = b * 3, i1 = i0 + 3, i2 = i0 + NX * 3, i3 = i2 + 3, i4 = i0 + NXY * 3, i5 = i4 + 3, i6 = i4 + NX * 3, i7 = i6 + 3;
+      const w0 = gx * gy * gz, w1 = fx * gy * gz, w2 = gx * fy * gz, w3 = fx * fy * gz, w4 = gx * gy * fz, w5 = fx * gy * fz, w6 = gx * fy * fz, w7 = fx * fy * fz;
+      for (let c = 0; c < 3; c++)
+        pos[vi * 3 + c] = w0 * P[i0 + c] + w1 * P[i1 + c] + w2 * P[i2 + c] + w3 * P[i3 + c] + w4 * P[i4 + c] + w5 * P[i5 + c] + w6 * P[i6 + c] + w7 * P[i7 + c];
+    }
+    D.geom.attributes.position.needsUpdate = true;
+    D.geom.computeVertexNormals();
+  }
+  updateVisual(dt) {
+    this.computeFrame();
+    this.deform(this.bodyD); this.deform(this.lightD);
+    const u = this.u, F = this.fw, S = this.sv, p = this.p;
+    for (const w of this.wheels) {
+      const h = w.node * 3, g = w.group;
+      g.position.set(p[h], p[h + 1], p[h + 2]);
+      if (w.detached) {
+        _q.setFromAxisAngle(_X, w.omega * dt); w.q.multiply(_q); g.quaternion.copy(w.q);
+      } else {
+        const ang = (w.front ? this.steerAngle : 0) + w.toe, ca = Math.cos(ang), sa = Math.sin(ang);
+        _f.set(F[0] * ca + S[0] * sa, F[1] * ca + S[1] * sa, F[2] * ca + S[2] * sa);
+        _u.set(u[0], u[1], u[2]);
+        _a.crossVectors(_u, _f);
+        _m.makeBasis(_a, _u, _f); g.quaternion.setFromRotationMatrix(_m);
+        if (w.camber) { _q.setFromAxisAngle(_Z, w.camber); g.quaternion.multiply(_q); }
+        w.spin = (w.spin + w.omega * dt) % (Math.PI * 2);
+        _q.setFromAxisAngle(_X, w.spin); g.quaternion.multiply(_q);
+      }
+    }
+    if (this.lines.visible) {
+      const lp = this.lines.geometry.attributes.position.array, lc = this.lines.geometry.attributes.color.array;
+      for (let b = 0; b < this.nBeams; b++) {
+        const a3 = this.bA[b] * 3, c3 = this.bB[b] * 3, o = b * 6;
+        if (this.bBroken[b]) { for (let k = 0; k < 6; k++) lp[o + k] = p[a3 + (k % 3)]; continue; }
+        lp[o] = p[a3]; lp[o + 1] = p[a3 + 1]; lp[o + 2] = p[a3 + 2]; lp[o + 3] = p[c3]; lp[o + 4] = p[c3 + 1]; lp[o + 5] = p[c3 + 2];
+        const L = Math.hypot(p[c3] - p[a3], p[c3 + 1] - p[a3 + 1], p[c3 + 2] - p[a3 + 2]);
+        const strain = (L - this.bRest[b]) / this.bLim[b]; // -1..1 = yield
+        const def = Math.abs(this.bRest[b] - this.bL0[b]) / this.bL0[b];
+        let r = 0.2 + Math.max(0, strain) * 0.8, g = 0.85 - Math.abs(strain) * 0.5, bl = 0.2 + Math.max(0, -strain) * 0.8;
+        if (def > 0.02) { r = 1; g = 0.25 + 0.4 * (1 - Math.min(1, def * 4)); bl = 0.1; }
+        lc[o] = lc[o + 3] = r; lc[o + 1] = lc[o + 4] = g; lc[o + 2] = lc[o + 5] = bl;
+      }
+      this.lines.geometry.attributes.position.needsUpdate = true; this.lines.geometry.attributes.color.needsUpdate = true;
+      const np = this.nodePts.geometry.attributes.position.array; np.set(p); this.nodePts.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+  setDebug(on) { this.lines.visible = this.nodePts.visible = on; }
+}
+const _v1 = new THREE.Vector3(), _f = new THREE.Vector3(), _u = new THREE.Vector3(), _a = new THREE.Vector3();
+const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _X = new THREE.Vector3(1, 0, 0), _Z = new THREE.Vector3(0, 0, 1);
+
+// Car vs car: node spheres
+function collidePair(A, B) {
+  const a0 = A.bmin, a1 = A.bmax, b0 = B.bmin, b1 = B.bmax, M = 0.7;
+  if (a0[0] > b1[0] + M || b0[0] > a1[0] + M || a0[1] > b1[1] + M || b0[1] > a1[1] + M || a0[2] > b1[2] + M || b0[2] > a1[2] + M) return;
+  const pa = A.p, pb = B.p, va = A.v, vb = B.v, fa = A.f, fb = B.f;
+  let hit = 0;
+  for (let i = 0; i < A.n; i++) {
+    const i3 = i * 3, x = pa[i3], y = pa[i3 + 1], z = pa[i3 + 2], ra = i >= NB ? R_HUB_CAR : R_NODE_CAR;
+    if (x < b0[0] - M || x > b1[0] + M || y < b0[1] - M || y > b1[1] + M || z < b0[2] - M || z > b1[2] + M) continue;
+    for (let j = 0; j < B.n; j++) {
+      const j3 = j * 3, rr = ra + (j >= NB ? R_HUB_CAR : R_NODE_CAR);
+      const dx = x - pb[j3]; if (dx > rr || dx < -rr) continue;
+      const dy = y - pb[j3 + 1]; if (dy > rr || dy < -rr) continue;
+      const dz = z - pb[j3 + 2]; if (dz > rr || dz < -rr) continue;
+      const d2 = dx * dx + dy * dy + dz * dz; if (d2 >= rr * rr || d2 < 1e-10) continue;
+      const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, nz = dz / d;
+      const rvx = va[i3] - vb[j3], rvy = va[i3 + 1] - vb[j3 + 1], rvz = va[i3 + 2] - vb[j3 + 2];
+      const vn = rvx * nx + rvy * ny + rvz * nz;
+      let Fn = K_CAR * (rr - d) - C_CAR * vn; if (Fn <= 0) continue;
+      let fx = Fn * nx, fy = Fn * ny, fz = Fn * nz;
+      const tvx = rvx - vn * nx, tvy = rvy - vn * ny, tvz = rvz - vn * nz, tv = Math.sqrt(tvx * tvx + tvy * tvy + tvz * tvz);
+      if (tv > 1e-6) { const Ft = Math.min(0.5 * Fn, 500 * tv) / tv; fx -= tvx * Ft; fy -= tvy * Ft; fz -= tvz * Ft; }
+      fa[i3] += fx; fa[i3 + 1] += fy; fa[i3 + 2] += fz; fb[j3] -= fx; fb[j3 + 1] -= fy; fb[j3 + 2] -= fz;
+      if (tv > 4 && Math.random() < 0.01) hit++;
+    }
+  }
+  for (let h = 0; h < hit; h++) {
+    const x = (Math.max(a0[0], b0[0]) + Math.min(a1[0], b1[0])) / 2, y = (Math.max(a0[1], b0[1]) + Math.min(a1[1], b1[1])) / 2, z = (Math.max(a0[2], b0[2]) + Math.min(a1[2], b1[2])) / 2;
+    sparks.emit(x, y, z, (Math.random() - 0.5) * 8, Math.random() * 4, (Math.random() - 0.5) * 8, 1, 0.7, 0.2, 0.06, 0.4, 0, 1, 1, 9.8);
+  }
+}
+
+// =====================================================================
+//  Game state
+// =====================================================================
+const vehicles = [];
+let tcsOn = true;
+let player = null, started = false, paused = false, timeScale = 1, debugView = false, crashSpeed = 60, camMode = 0, helpOn = true;
+const TIME_SCALES = [1, 0.5, 0.25, 0.1];
+const CAM_NAMES = ['Chase', 'Orbit', 'Hood'];
+const grab = { veh: null, node: 0, tx: 0, ty: 0, tz: 0, dist: 0, line: null };
+
+function spawnCar(x, z, yaw, parked = true) {
+  const v = new Vehicle(COLORS[colorIdx++ % COLORS.length], x, z, yaw);
+  v.parked = parked; vehicles.push(v); if (debugView) v.setDebug(true); v.updateVisual(0);
+  return v;
+}
+player = spawnCar(0, 0, 0, false);
+spawnCar(0, 99, Math.PI / 2);
+spawnCar(-24, 62, 0.25);
+
+let toastTimer = 0;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.opacity = 1; clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.style.opacity = 0), 1600); }
+
+function setPlayer(v) { if (player) player.parked = true; player = v; v.parked = false; v.gear = 1; }
+function crashTest() {
+  const v = player, sp = crashSpeed / 3.6;
+  v.reset(-12, 30, 0);
+  for (let i = 0; i < v.n; i++) v.v[i * 3 + 2] = sp;
+  for (const w of v.wheels) w.omega = sp / R_WHEEL;
+  v.parked = false; v.gear = 3;
+  toast(`CRASH TEST · ${crashSpeed} km/h`);
+}
+function spawnInFront() {
+  if (vehicles.length >= 5) { const old = vehicles.find((v) => v !== player); if (old) { old.dispose(); vehicles.splice(vehicles.indexOf(old), 1); } }
+  const f = player.fw, l = Math.hypot(f[0], f[2]) || 1, hx = f[0] / l, hz = f[2] / l;
+  const v = spawnCar(player.cpos[0] + hx * 16, player.cpos[2] + hz * 16, Math.atan2(hx, hz) + Math.PI / 2);
+  toast('Car spawned');
+  return v;
+}
+function clearCars() { for (const v of vehicles.slice()) if (v !== player) { v.dispose(); vehicles.splice(vehicles.indexOf(v), 1); } skid.clear(); toast('Cleared'); }
+
+// =====================================================================
+//  Input
+// =====================================================================
+const keys = {}, touch = {};
+const input = () => ({
+  up: keys.KeyW || keys.ArrowUp || touch.gas, down: keys.KeyS || keys.ArrowDown || touch.brake,
+  left: keys.KeyA || keys.ArrowLeft || touch.left, right: keys.KeyD || keys.ArrowRight || touch.right,
+  hand: keys.Space || touch.hand,
+});
+function onPress(code, e) {
+  switch (code) {
+    case 'KeyR': if (e && e.shiftKey) { player.reset(player.spawn.x, player.spawn.z, player.spawn.yaw); toast('Respawned'); } else { player.recover(); toast('Repaired'); } releaseGrab(); break;
+    case 'Home': player.reset(player.spawn.x, player.spawn.z, player.spawn.yaw); releaseGrab(); toast('Respawned'); break;
+    case 'KeyC': camMode = (camMode + 1) % 3; cam.dragYaw = 0; toast(CAM_NAMES[camMode] + ' camera'); break;
+    case 'KeyT': timeScale = TIME_SCALES[(TIME_SCALES.indexOf(timeScale) + 1) % TIME_SCALES.length]; toast(timeScale === 1 ? 'Real time' : `Slow motion ${timeScale}×`); break;
+    case 'KeyP': paused = !paused; toast(paused ? 'Paused' : 'Resumed'); break;
+    case 'KeyB': debugView = !debugView; vehicles.forEach((v) => v.setDebug(debugView)); matBody.transparent = debugView; matBody.opacity = debugView ? 0.18 : 1; matBody.depthWrite = !debugView; matBody.needsUpdate = true; toast(debugView ? 'Beam view' : 'Normal view'); break;
+    case 'KeyG': crashTest(); break;
+    case 'BracketLeft': crashSpeed = Math.max(10, crashSpeed - 10); toast(`Crash test ${crashSpeed} km/h`); break;
+    case 'BracketRight': crashSpeed = Math.min(250, crashSpeed + 10); toast(`Crash test ${crashSpeed} km/h`); break;
+    case 'KeyF': spawnInFront(); break;
+    case 'KeyX': clearCars(); break;
+    case 'Tab': { const i = vehicles.indexOf(player); setPlayer(vehicles[(i + 1) % vehicles.length]); toast(`Driving car ${vehicles.indexOf(player) + 1}`); break; }
+    case 'KeyV': { const ms = ['RWD', 'AWD', 'FWD']; player.drive = ms[(ms.indexOf(player.drive) + 1) % 3]; toast(player.drive); break; }
+    case 'KeyK': tcsOn = !tcsOn; toast(tcsOn ? 'Traction control ON' : 'Traction control OFF (burnouts!)'); break;
+    case 'KeyM': snd.muted = !snd.muted; toast(snd.muted ? 'Muted' : 'Sound on'); break;
+    case 'KeyH': helpOn = !helpOn; $('help').classList.toggle('hidden', !helpOn); $('info').classList.toggle('hidden', !helpOn); break;
+  }
+}
+addEventListener('keydown', (e) => {
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
+  if (!started) return;
+  if (!keys[e.code]) onPress(e.code, e);
+  keys[e.code] = true;
+});
+addEventListener('keyup', (e) => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+// touch buttons
+const bindHold = (id, k) => {
+  const el = $(id);
+  el.addEventListener('pointerdown', (e) => { e.preventDefault(); touch[k] = true; el.setPointerCapture(e.pointerId); });
+  const up = () => { touch[k] = false; };
+  el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+};
+bindHold('tLeft', 'left'); bindHold('tRight', 'right'); bindHold('tGas', 'gas'); bindHold('tBrake', 'brake'); bindHold('tHand', 'hand');
+const bindTap = (id, code) => $(id).addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); if (started) onPress(code); });
+bindTap('tReset', 'KeyR'); bindTap('tCam', 'KeyC'); bindTap('tSlow', 'KeyT'); bindTap('tCrash', 'KeyG');
+
+// camera orbit + node grabbing
+const cam = { yaw: 0, pitch: 0.32, dist: 7.5, dragYaw: 0, dragPitch: 0, heading: 0, dragging: false, lastDrag: 0, px: 0, py: 0 };
+const ndc = new THREE.Vector2(), rayO = new THREE.Vector3(), rayD = new THREE.Vector3();
+function setRay(e) {
+  ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  rayO.copy(camera.position); rayD.set(ndc.x, ndc.y, 0.5).unproject(camera).sub(rayO).normalize();
+}
+function tryGrab(e) {
+  setRay(e);
+  let best = null, bd = 0.7, bt = 0;
+  for (const v of vehicles) for (let i = 0; i < v.n; i++) {
+    const dx = v.p[i * 3] - rayO.x, dy = v.p[i * 3 + 1] - rayO.y, dz = v.p[i * 3 + 2] - rayO.z;
+    const t = dx * rayD.x + dy * rayD.y + dz * rayD.z; if (t < 0.5) continue;
+    const ex = dx - rayD.x * t, ey = dy - rayD.y * t, ez = dz - rayD.z * t, d = Math.sqrt(ex * ex + ey * ey + ez * ez);
+    const score = d - t * 0.004;
+    if (score < bd) { bd = score; best = [v, i]; bt = t; }
+  }
+  if (!best) return false;
+  grab.veh = best[0]; grab.node = best[1]; grab.dist = bt;
+  grab.tx = rayO.x + rayD.x * bt; grab.ty = rayO.y + rayD.y * bt; grab.tz = rayO.z + rayD.z * bt;
+  grab.line.visible = true;
+  return true;
+}
+function releaseGrab() { grab.veh = null; if (grab.line) grab.line.visible = false; }
+{
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  grab.line = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffe14a, depthTest: false })); grab.line.visible = false; grab.line.renderOrder = 10; grab.line.frustumCulled = false;
+  scene.add(grab.line);
+}
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('pointerdown', (e) => {
+  if (!started) return;
+  canvas.setPointerCapture(e.pointerId);
+  if ((e.button === 2 || e.ctrlKey || e.metaKey) && tryGrab(e)) return;
+  cam.dragging = true; cam.px = e.clientX; cam.py = e.clientY;
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (grab.veh) {
+    setRay(e);
+    grab.tx = rayO.x + rayD.x * grab.dist; grab.ty = rayO.y + rayD.y * grab.dist; grab.tz = rayO.z + rayD.z * grab.dist;
+    return;
+  }
+  if (!cam.dragging) return;
+  const dx = e.clientX - cam.px, dy = e.clientY - cam.py; cam.px = e.clientX; cam.py = e.clientY;
+  if (camMode === 1) { cam.yaw -= dx * 0.006; cam.pitch = clamp(cam.pitch + dy * 0.005, -0.2, 1.45); }
+  else { cam.dragYaw -= dx * 0.006; cam.dragPitch = clamp(cam.dragPitch + dy * 0.005, -0.3, 1.1); }
+  cam.lastDrag = performance.now();
+});
+const endDrag = () => { cam.dragging = false; releaseGrab(); };
+canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', (e) => { cam.dist = clamp(cam.dist * (1 + Math.sign(e.deltaY) * 0.1), 3.5, 40); e.preventDefault(); }, { passive: false });
+
+$('start').addEventListener('click', () => {
+  $('start').classList.add('hidden'); started = true; initAudio();
+  if (snd.ctx && snd.ctx.state === 'suspended') snd.ctx.resume();
+  cam.heading = Math.atan2(player.fw[0], player.fw[2]);
+});
+
+// =====================================================================
+//  Camera
+// =====================================================================
+const camTarget = new THREE.Vector3(), camDesired = new THREE.Vector3();
+function updateCamera(dt) {
+  const v = player, c = v.cpos;
+  camTarget.set(c[0], c[1] + 0.6, c[2]);
+  camera.up.set(0, 1, 0);
+  if (!started) { // slow attract orbit
+    const t = performance.now() * 0.00012;
+    camera.position.set(c[0] + Math.sin(t) * 9, c[1] + 3, c[2] + Math.cos(t) * 9); camera.lookAt(camTarget); return;
+  }
+  if (camMode === 2) {
+    v.toWorld(0, 1.17, 1.05, camera.position);
+    const u = v.u, f = v.fw;
+    camera.up.set(u[0], u[1], u[2]);
+    camera.lookAt(camera.position.x + f[0] * 10, camera.position.y + f[1] * 10, camera.position.z + f[2] * 10);
+    return;
+  }
+  let yaw, pitch;
+  if (camMode === 0) {
+    const f = v.fw, hl = Math.hypot(f[0], f[2]);
+    if (hl > 0.25) {
+      const h = Math.atan2(f[0], f[2]); let d = h - cam.heading;
+      d = Math.atan2(Math.sin(d), Math.cos(d)); cam.heading += d * Math.min(1, dt * 4.5);
+    }
+    if (!cam.dragging && performance.now() - cam.lastDrag > 1200) { cam.dragYaw *= Math.exp(-dt * 2.5); cam.dragPitch *= Math.exp(-dt * 2.5); }
+    yaw = cam.heading + Math.PI + cam.dragYaw; pitch = 0.22 + cam.dragPitch;
+  } else { yaw = cam.yaw; pitch = cam.pitch; }
+  const dist = cam.dist;
+  camDesired.set(camTarget.x + Math.sin(yaw) * Math.cos(pitch) * dist, camTarget.y + Math.sin(pitch) * dist + 0.5, camTarget.z + Math.cos(yaw) * Math.cos(pitch) * dist);
+  if (camMode === 0) camera.position.lerp(camDesired, 1 - Math.exp(-dt * 9)); else camera.position.copy(camDesired);
+  const gy = groundAt(camera.position.x, camera.position.z) + 0.4;
+  if (camera.position.y < gy) camera.position.y = gy;
+  camera.lookAt(camTarget);
+}
+
+// =====================================================================
+//  HUD
+// =====================================================================
+let hudT = 0, fpsAcc = 0, fpsN = 0;
+function updateHUD(dt) {
+  fpsAcc += dt; fpsN++;
+  if ((hudT += dt) < 0.08) return; hudT = 0;
+  const v = player;
+  $('spd').innerHTML = `${Math.round(Math.abs(v.speedFwd) * 3.6)}<small>km/h</small>`;
+  $('gear').innerHTML = (v.engineHealth <= 0 ? '<span style="font-size:12px;color:#ff6b6b;letter-spacing:.08em">ENGINE DEAD&nbsp;</span>' : '') + (v.gear < 0 ? 'R' : v.gear === 0 ? 'N' : v.gear) + (v.hand ? ' · HB' : '');
+  $('rpm').firstElementChild.style.width = `${clamp(v.rpm / 7200, 0, 1) * 100}%`;
+  $('iCar').textContent = `${vehicles.indexOf(v) + 1}/${vehicles.length}`;
+  $('iDrive').textContent = v.drive + (tcsOn ? ' · TC' : '');
+  $('iDmg').textContent = `${Math.round(v.damage * 100)}%`;
+  $('dmgBar').style.width = `${v.damage * 100}%`;
+  const eh = v.engineHealth;
+  $('iEng').textContent = eh <= 0 ? 'DEAD' : eh < 0.6 ? 'Smoking' : eh < 0.95 ? 'Damaged' : 'OK';
+  $('engBar').style.width = `${eh * 100}%`; $('engBar').style.background = eh < 0.3 ? '#ff4d4d' : eh < 0.7 ? '#ffcf4a' : '#46d37b';
+  $('iTime').textContent = paused ? 'Paused' : `${timeScale}×`;
+  $('iCrash').textContent = crashSpeed;
+  $('iCam').textContent = CAM_NAMES[camMode];
+  if (fpsAcc > 0.5) { $('iFps').textContent = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; }
+}
+
+// =====================================================================
+//  Main loop
+// =====================================================================
+function physicsStep() {
+  for (const v of vehicles) v.substep();
+  for (let i = 0; i < vehicles.length; i++) for (let j = i + 1; j < vehicles.length; j++) collidePair(vehicles[i], vehicles[j]);
+  for (const v of vehicles) v.integrate();
+}
+let last = performance.now(), acc = 0;
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dtR = (now - last) / 1000; last = now;
+  if (!(dtR > 0)) dtR = 0; if (dtR > 0.1) dtR = 0.1;
+  if (started && !paused) {
+    const simDt = dtR * timeScale;
+    for (const v of vehicles) v.frameUpdate(simDt, v === player ? input() : null);
+    acc += simDt; let steps = 0;
+    while (acc >= DT && steps < MAX_STEPS) { physicsStep(); acc -= DT; steps++; }
+    if (steps >= MAX_STEPS) acc = 0;
+    for (const v of vehicles) v.postFrame(simDt, steps);
+    sparks.update(simDt); smoke.update(simDt);
+  }
+  for (const v of vehicles) v.updateVisual(started && !paused ? dtR * timeScale : 0);
+  if (grab.veh) {
+    const a = grab.line.geometry.attributes.position.array, i3 = grab.node * 3, P = grab.veh.p;
+    a[0] = P[i3]; a[1] = P[i3 + 1]; a[2] = P[i3 + 2]; a[3] = grab.tx; a[4] = grab.ty; a[5] = grab.tz;
+    grab.line.geometry.attributes.position.needsUpdate = true;
+  }
+  updateCamera(dtR);
+  const c = player.cpos;
+  sun.target.position.set(c[0], c[1], c[2]); sun.position.set(c[0] + SUN_DIR.x * 100, c[1] + SUN_DIR.y * 100, c[2] + SUN_DIR.z * 100);
+  sky.position.copy(camera.position);
+  updateHUD(dtR);
+  updateAudio(player);
+  renderer.render(scene, camera);
+}
+function onResize() {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); updatePointScale();
+}
+addEventListener('resize', onResize); onResize();
+requestAnimationFrame(frame);
+
+// handle for automated testing / tinkering from the console
+window.__crumple = { scene, camera, sky, renderer, vehicles, get player() { return player; }, crashTest, spawnInFront, keys, physicsStep, setPlayer, statics, get crashSpeed() { return crashSpeed; }, set crashSpeed(v) { crashSpeed = v; } };
+})();
+</script>
+</body>
+</html>
