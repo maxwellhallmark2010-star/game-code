@@ -58,6 +58,21 @@
   #toast.show { animation: pop 1.3s ease-out forwards; }
   @keyframes pop { 0% { opacity: 0; transform: translateX(-50%) scale(.85); } 12% { opacity: 1; transform: translateX(-50%) scale(1.04); } 25% { transform: translateX(-50%) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { #toast.show { animation: fade 1.3s linear forwards; } @keyframes fade { 0%, 75% { opacity: 1; } 100% { opacity: 0; } } }
+  /* ---------- Touch controls ---------- */
+  #touch { position: fixed; inset: 0; --b: 1; -webkit-touch-callout: none; user-select: none; }
+  #lookZone { position: absolute; inset: 0; touch-action: none; }
+  #stickZone { position: absolute; left: 0; bottom: 0; width: 46%; height: 58%; touch-action: none; }
+  #stickBase { position: absolute; width: calc(120px * var(--b)); height: calc(120px * var(--b)); margin: calc(-60px * var(--b)) 0 0 calc(-60px * var(--b)); border-radius: 50%; background: rgba(18, 14, 11, 0.35); border: 2px solid rgba(244, 236, 225, 0.35); pointer-events: none; left: calc(96px * var(--b) + env(safe-area-inset-left, 0px)); top: calc(100% - 110px * var(--b) - env(safe-area-inset-bottom, 0px)); }
+  #stickKnob { position: absolute; left: 50%; top: 50%; width: calc(54px * var(--b)); height: calc(54px * var(--b)); margin: calc(-27px * var(--b)) 0 0 calc(-27px * var(--b)); border-radius: 50%; background: rgba(244, 236, 225, 0.55); box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  .tb { position: absolute; border-radius: 50%; border: 2px solid rgba(244, 236, 225, 0.4); background: rgba(18, 14, 11, 0.45); color: var(--ink); font-family: var(--f-display); font-weight: 800; letter-spacing: .08em; touch-action: none; width: calc(64px * var(--b)); height: calc(64px * var(--b)); font-size: calc(13px * var(--b)); padding: 0; }
+  .tb.on { background: rgba(236, 122, 45, 0.75); border-color: var(--ball); color: var(--ball-ink); }
+  #tShoot { width: calc(96px * var(--b)); height: calc(96px * var(--b)); font-size: calc(17px * var(--b)); right: calc(22px + env(safe-area-inset-right, 0px)); bottom: calc(26px + env(safe-area-inset-bottom, 0px)); border-color: var(--ball); background: rgba(236, 122, 45, 0.35); }
+  #tJump { right: calc(130px * var(--b) + 22px + env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); }
+  #tCross { right: calc(40px * var(--b) + 22px + env(safe-area-inset-right, 0px)); bottom: calc(118px * var(--b) + 26px + env(safe-area-inset-bottom, 0px)); }
+  #tSprint { right: calc(120px * var(--b) + 22px + env(safe-area-inset-right, 0px)); bottom: calc(96px * var(--b) + 26px + env(safe-area-inset-bottom, 0px)); }
+  .ttop { position: absolute; right: calc(12px + env(safe-area-inset-right, 0px)); top: calc(56px + env(safe-area-inset-top, 0px)); display: flex; gap: 6px; }
+  .ttop button { border: 1px solid rgba(244, 236, 225, 0.3); background: rgba(18, 14, 11, 0.6); color: var(--ink); border-radius: 8px; padding: calc(7px * var(--b)) calc(10px * var(--b)); font-family: var(--f-display); font-weight: 700; font-size: calc(13px * var(--b)); letter-spacing: .08em; touch-action: none; }
+  @media (max-width: 720px) { .ttop { top: calc(52px + env(safe-area-inset-top, 0px)); } }
   #paused { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(12, 9, 7, 0.45); cursor: pointer; }
   #paused div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 26px; text-align: center; font-family: var(--f-display); font-size: 22px; font-weight: 700; letter-spacing: .06em; }
   #paused small { display: block; font-family: var(--f-body); font-weight: 400; font-size: 14px; letter-spacing: 0; color: var(--muted); margin-top: 4px; }
@@ -139,6 +154,15 @@
 <div id="crosshair" class="cross"><i></i><i></i><i></i><i></i><b></b></div>
 <div id="meter" hidden><div class="grade"></div><div class="track"><div class="win"></div><div class="fill"></div></div></div>
 <div id="toast"></div>
+<div id="touch" hidden>
+  <div id="lookZone"></div>
+  <div id="stickZone"><div id="stickBase"><div id="stickKnob"></div></div></div>
+  <button id="tShoot" class="tb" type="button">SHOOT</button>
+  <button id="tJump" class="tb" type="button">JUMP</button>
+  <button id="tCross" class="tb" type="button">CROSS</button>
+  <button id="tSprint" class="tb" type="button">SPRINT</button>
+  <div class="ttop"><button type="button" data-k="KeyV">CAM</button><button type="button" data-k="KeyR">RACK</button><button type="button" data-k="KeyG">DROP</button><button type="button" data-k="KeyM">MENU</button></div>
+</div>
 <div id="paused" hidden><div>Click to keep shooting<small>Press M for the menu</small></div></div>
 <div id="menu">
   <header><div class="brand">GYM RAT</div><div class="brand-sub">Your player · your gym</div></header>
@@ -212,7 +236,7 @@ const DEFAULT_CFG = {
   settings: {
     camera: 'third', crosshair: true, chStyle: 'cross', chColor: '#ffffff', chSize: 1, hideChShooting: true,
     aimTP: 'crosshair', aimFP: 'crosshair', meter: true, meterPos: 'player', sens: 1, invertY: false, fov: 70,
-    shadows: true, quality: 'high', volume: 0.8, hints: true,
+    shadows: true, quality: 'high', volume: 0.8, hints: true, touch: 'auto', touchSize: 1,
   },
 };
 const STORE_KEY = 'gym-rat-v1';
@@ -1027,16 +1051,19 @@ addEventListener('keydown', (e) => {
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) { keys[e.code] = true; return; }
   keys[e.code] = true;
-  if (e.code === 'KeyM' || (e.code === 'Escape' && menuOpen)) { toggleMenu(); return; }
-  if (menuOpen) return;
-  if (e.code === 'KeyV') { cfg.settings.camera = cfg.settings.camera === 'third' ? 'first' : 'third'; save(); setFirstPersonVisibility(); updateModeline(); }
-  if (e.code === 'KeyQ') crossover();
-  if (e.code === 'Space') jump();
-  if (e.code === 'KeyE') startShot();
-  if (e.code === 'KeyG') dropBall();
-  if (e.code === 'KeyR') returnBalls();
-  if (e.code === 'KeyH') { cfg.settings.hints = !cfg.settings.hints; save(); updateHints(); }
+  pressAction(e.code);
 });
+function pressAction(code) {
+  if (code === 'KeyM' || (code === 'Escape' && menuOpen)) { toggleMenu(); return; }
+  if (menuOpen) return;
+  if (code === 'KeyV') { cfg.settings.camera = cfg.settings.camera === 'third' ? 'first' : 'third'; save(); setFirstPersonVisibility(); updateModeline(); }
+  if (code === 'KeyQ') crossover();
+  if (code === 'Space') jump();
+  if (code === 'KeyE') startShot();
+  if (code === 'KeyG') dropBall();
+  if (code === 'KeyR') returnBalls();
+  if (code === 'KeyH') { cfg.settings.hints = !cfg.settings.hints; save(); updateHints(); }
+}
 addEventListener('keyup', (e) => { keys[e.code] = false; if (e.code === 'KeyE') releaseShot(); });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; if (pl.state === 'shoot') releaseShot(); });
 
@@ -1068,7 +1095,7 @@ function requestLock() {
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === canvas;
   if (locked) { showPaused(false); }
-  else if (!menuOpen && !lookFallback) showPaused(true);
+  else if (!menuOpen && !lookFallback && !touchOn()) showPaused(true);
 });
 $('#paused').addEventListener('click', () => { showPaused(false); requestLock(); });
 function showPaused(on) { $('#paused').hidden = !on; }
@@ -1119,9 +1146,9 @@ function updatePlayer(dt) {
   const s = pl.scale, S = cfg.settings;
   // movement
   const { f, r } = moveBasis();
-  let mf = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0), mr = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  let mf = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0) - stick.y, mr = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0) + stick.x;
   const wish = new V3().addScaledVector(f, mf).addScaledVector(r, mr); if (wish.lengthSq() > 1) wish.normalize();
-  const sprint = (keys.ShiftLeft || keys.ShiftRight) && mf > 0;
+  const sprint = (keys.ShiftLeft || keys.ShiftRight || touchSprint) && mf > 0;
   const spd = rating('speed');
   let maxSp = (2.3 + 0.017 * spd) * (sprint ? 1.55 : 1) * (pl.ball ? 0.93 : 1) * (pl.state === 'shoot' ? 0.22 : 1);
   if (menuOpen) { wish.set(0, 0, 0); }
@@ -1491,7 +1518,7 @@ function updateModeline() {
   $('#modeline').innerHTML = `<span>${S.camera === 'third' ? 'Third person' : 'First person'}</span><b style="font-size:14px">${aim}</b>`;
 }
 function updateHints() {
-  const h = $('#hints'); h.hidden = !cfg.settings.hints || menuOpen;
+  const h = $('#hints'); h.hidden = !cfg.settings.hints || menuOpen || touchOn();
   h.innerHTML = [['WASD', 'move'], ['Shift', 'sprint'], ['Hold LMB / E', 'shoot, release at the top'], ['Q', 'crossover'], ['Space', 'jump'], ['V', 'first / third person'], ['G', 'drop ball'], ['R', 'rack the balls'], ['M', 'menu'], ['H', 'hide tips']].map(([k, t]) => `<div><kbd>${k}</kbd>${t}</div>`).join('');
 }
 function updateCrosshair() {
@@ -1608,6 +1635,10 @@ const SCHEMA = {
       { k: 'settings.meter', t: 'toggle', label: 'Show shot meter', ap: 'settings' },
       { k: 'settings.meterPos', t: 'seg', label: 'Position', opts: [['player', 'By player'], ['bottom', 'Bottom']], ap: 'settings' },
     ]],
+    ['Touch controls', [
+      { k: 'settings.touch', t: 'seg', label: 'On-screen controls', opts: [['auto', 'Auto'], ['on', 'On'], ['off', 'Off']], ap: 'settings' },
+      { k: 'settings.touchSize', t: 'range', label: 'Button size', min: 0.75, max: 1.4, step: 0.05, fmt: (v) => `${Math.round(v * 100)}%`, ap: 'settings' },
+    ]],
     ['Graphics & sound', [
       { k: 'settings.shadows', t: 'toggle', label: 'Shadows', ap: 'gfx' },
       { k: 'settings.quality', t: 'seg', label: 'Resolution', opts: [['high', 'Sharp'], ['medium', 'Fast']], ap: 'gfx' },
@@ -1627,7 +1658,7 @@ function apply(kind) {
     model: () => buildPlayer(),
     jersey: () => { ensureFont(cfg.player.font, (FONTS.find((f) => f[0] === cfg.player.font) || FONTS[0])[2]).then(drawJersey); drawJersey(); },
     court: () => { buildGym(); drawScoreboard(); },
-    settings: () => { if (master) master.gain.value = cfg.settings.volume; updateModeline(); updateHints(); setFirstPersonVisibility(); },
+    settings: () => { if (master) master.gain.value = cfg.settings.volume; updateModeline(); updateHints(); setFirstPersonVisibility(); updateTouchUI(); },
     gfx: () => applyGfx(),
   }[kind];
   clearTimeout(applyTimers[kind]); applyTimers[kind] = setTimeout(run, kind === 'court' ? 220 : kind === 'model' ? 60 : 0);
@@ -1760,14 +1791,65 @@ function toggleMenu(force) {
   menuOpen = force !== undefined ? force : !menuOpen;
   $('#menu').hidden = !menuOpen;
   if (menuOpen) { if (document.exitPointerLock && locked) document.exitPointerLock(); showPaused(false); if (pl.state === 'shoot') releaseShot(); renderTab(); }
-  else { initAudio(); if (!lookFallback) requestLock(); camYaw = pl.yaw; }
+  else { initAudio(); if (!lookFallback && !touchOn()) requestLock(); camYaw = pl.yaw; }
   setFirstPersonVisibility(); updateCrosshair();
   for (const id of ['#statline', '#modeline']) $(id).hidden = menuOpen;
-  updateHints();
+  updateHints(); updateTouchUI();
   $('#playBtn').textContent = 'Back to the court';
 }
 $('#playBtn').onclick = () => toggleMenu(false);
 $('#spinBtn').onclick = () => { previewYaw += Math.PI / 2; };
+
+// =====================================================================
+//  Touch controls: stick on the left, drag anywhere else to look, buttons on the right
+// =====================================================================
+const stick = { x: 0, y: 0, id: null, ox: 0, oy: 0 };
+let touchSprint = false;
+const coarse = (window.matchMedia && matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+function touchOn() { const t = cfg.settings.touch; return t === 'on' || (t === 'auto' && coarse); }
+function updateTouchUI() {
+  const el = $('#touch'); el.hidden = menuOpen || !touchOn(); el.style.setProperty('--b', cfg.settings.touchSize);
+  if (el.hidden) { stick.x = stick.y = 0; stick.id = null; resetKnob(); if (pl.state === 'shoot') releaseShot(); }
+  else { showPaused(false); if (locked && document.exitPointerLock) document.exitPointerLock(); }
+}
+const stickBase = $('#stickBase'), stickKnob = $('#stickKnob');
+function resetKnob() { stickBase.style.left = ''; stickBase.style.top = ''; stickKnob.style.transform = ''; }
+$('#stickZone').addEventListener('pointerdown', (e) => {
+  e.preventDefault(); initAudio(); if (stick.id !== null) return;
+  stick.id = e.pointerId; e.currentTarget.setPointerCapture(e.pointerId);
+  const r = e.currentTarget.getBoundingClientRect(); stick.ox = e.clientX; stick.oy = e.clientY;
+  stickBase.style.left = `${e.clientX - r.left}px`; stickBase.style.top = `${e.clientY - r.top}px`;
+});
+$('#stickZone').addEventListener('pointermove', (e) => {
+  if (e.pointerId !== stick.id) return;
+  const R = 50 * cfg.settings.touchSize; let dx = e.clientX - stick.ox, dy = e.clientY - stick.oy; const d = Math.hypot(dx, dy);
+  if (d > R) { dx *= R / d; dy *= R / d; }
+  stick.x = dx / R; stick.y = dy / R; stickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+});
+const stickEnd = (e) => { if (e.pointerId !== stick.id) return; stick.id = null; stick.x = stick.y = 0; resetKnob(); };
+$('#stickZone').addEventListener('pointerup', stickEnd); $('#stickZone').addEventListener('pointercancel', stickEnd);
+const looks = new Map();
+$('#lookZone').addEventListener('pointerdown', (e) => { e.preventDefault(); initAudio(); e.currentTarget.setPointerCapture(e.pointerId); looks.set(e.pointerId, [e.clientX, e.clientY]); });
+$('#lookZone').addEventListener('pointermove', (e) => {
+  const last = looks.get(e.pointerId); if (!last) return;
+  const k = 0.0045 * cfg.settings.sens;
+  camYaw -= (e.clientX - last[0]) * k;
+  camPitch = clamp(camPitch - (e.clientY - last[1]) * k * (cfg.settings.invertY ? -1 : 1), -1.25, 1.25);
+  looks.set(e.pointerId, [e.clientX, e.clientY]);
+});
+for (const ev of ['pointerup', 'pointercancel']) $('#lookZone').addEventListener(ev, (e) => looks.delete(e.pointerId));
+const holdBtn = (id, down, up) => {
+  const b = $(id);
+  b.addEventListener('pointerdown', (e) => { e.preventDefault(); initAudio(); b.setPointerCapture(e.pointerId); b.classList.add('on'); down(); });
+  for (const ev of ['pointerup', 'pointercancel']) b.addEventListener(ev, () => { b.classList.remove('on'); if (up) up(); });
+  b.addEventListener('contextmenu', (e) => e.preventDefault());
+};
+holdBtn('#tShoot', startShot, releaseShot);
+holdBtn('#tJump', jump);
+holdBtn('#tCross', crossover);
+$('#tSprint').addEventListener('pointerdown', (e) => { e.preventDefault(); touchSprint = !touchSprint; $('#tSprint').classList.toggle('on', touchSprint); });
+document.querySelectorAll('.ttop button').forEach((b) => b.addEventListener('pointerdown', (e) => { e.preventDefault(); initAudio(); pressAction(b.dataset.k); }));
+$('#touch').addEventListener('contextmenu', (e) => e.preventDefault());
 
 // =====================================================================
 //  Boot + main loop
@@ -1778,7 +1860,7 @@ addEventListener('resize', onResize);
 buildPlayer();
 buildGym();
 applyGfx();
-drawScoreboard(); refreshStats(); updateModeline(); updateHints(); renderTab();
+drawScoreboard(); refreshStats(); updateModeline(); updateHints(); updateTouchUI(); renderTab();
 // redraw text textures once web fonts arrive
 Promise.all([...FONTS.map((f) => ensureFont(f[0], f[2])), ensureFont('Barlow Condensed', 700)]).then(() => { drawJersey(); drawMarkings(); drawScoreboard(); buildGym(); });
 
@@ -1807,7 +1889,7 @@ function update(dt) {
 }
 for (const id of ['#statline', '#modeline']) $(id).hidden = menuOpen;
 requestAnimationFrame(frame);
-window.__gym = { update, takeBall, scene, camera, renderer, pl, balls, cfg, stats, world, startShot, releaseShot, toggleMenu, apply, buildGym, buildPlayer, set camYaw(v) { camYaw = v; }, get camYaw() { return camYaw; }, set camPitch(v) { camPitch = v; }, keys, solveLaunch, isThree, renderTab, setTab(t) { activeTab = t; renderTab(); } };
+window.__gym = { stick, touchOn, updateTouchUI, update, takeBall, scene, camera, renderer, pl, balls, cfg, stats, world, startShot, releaseShot, toggleMenu, apply, buildGym, buildPlayer, set camYaw(v) { camYaw = v; }, get camYaw() { return camYaw; }, set camPitch(v) { camPitch = v; }, keys, solveLaunch, isThree, renderTab, setTab(t) { activeTab = t; renderTab(); } };
 })();
 </script>
 </body>
