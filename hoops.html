@@ -236,7 +236,7 @@ const DEFAULT_CFG = {
   settings: {
     camera: 'third', crosshair: true, chStyle: 'cross', chColor: '#ffffff', chSize: 1, hideChShooting: true,
     aimTP: 'crosshair', aimFP: 'crosshair', meter: true, meterPos: 'player', sens: 1, invertY: false, fov: 70,
-    shadows: true, quality: 'high', volume: 0.8, hints: true, touch: 'auto', touchSize: 1,
+    shadows: true, quality: 'high', volume: 0.8, hints: true, touch: 'auto', touchSize: 1, aimAssist: true,
   },
 };
 const STORE_KEY = 'gym-rat-v1';
@@ -524,7 +524,7 @@ function buildGym() {
   for (const zz of [W / 2 - 3, -(W / 2 - 3)]) { const d = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 2.3), doorMat); d.position.set(-L / 2 + 0.02, 1.15, zz); d.rotation.y = Math.PI / 2; gym.add(d); const bar = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 1.5), chrome); bar.position.set(-L / 2 + 0.07, 1.05, zz); gym.add(bar); }
 
   const ceil = new THREE.Mesh(new THREE.PlaneGeometry(L, W), own(new THREE.MeshStandardMaterial({ color: LIN('#3d4146'), roughness: 0.95 })));
-  ceil.rotation.x = Math.PI / 2; ceil.position.y = H; gym.add(ceil);
+  ceil.rotation.x = Math.PI / 2; ceil.position.y = H; gym.add(ceil); world.rayTargets.push(ceil);
   const trussMat = own(new THREE.MeshStandardMaterial({ color: LIN('#2c2f33'), roughness: 0.6, metalness: 0.5 }));
   for (let x = -L / 2 + 3; x < L / 2; x += 6) { box(0.25, 0.35, W, trussMat, x, H - 0.25, 0).castShadow = false; box(0.12, 0.12, W, trussMat, x, H - 1.25, 0).castShadow = false; }
   // light fixtures
@@ -1258,20 +1258,33 @@ function shotWindow(hoop) {
 }
 
 const ray = new THREE.Raycaster();
+// Which hoop the crosshair is "on": the camera ray passes within ~4 degrees (at least 75 cm) of the rim centre.
+function hoopUnderCrosshair(o, d) {
+  let best = null, bd = 1;
+  for (const r of world.rims) {
+    const vx = r.x - o.x, vy = r.y - o.y, vz = r.z - o.z, t = vx * d.x + vy * d.y + vz * d.z;
+    if (t <= 0) continue;
+    const miss = Math.hypot(vx - d.x * t, vy - d.y * t, vz - d.z * t), tol = Math.max(0.75, t * 0.075);
+    if (miss / tol < bd) { bd = miss / tol; best = r; }
+  }
+  return best;
+}
+function rimEntry(r) { // the ball centre crosses the rim plane here; 3 cm toward the shooter is the clean entry point
+  const dx = pl.pos.x - r.x, dz = pl.pos.z - r.z, dl = Math.hypot(dx, dz) || 1;
+  return new V3(r.x + dx / dl * 0.03, r.y, r.z + dz / dl * 0.03);
+}
 function crosshairTarget() {
   camera.getWorldPosition(_v1); camera.getWorldDirection(_v2);
+  if (cfg.settings.aimAssist) { const r = hoopUnderCrosshair(_v1, _v2); if (r) return { p: rimEntry(r), hoop: r, locked: true }; }
   for (const r of world.rims) { // aiming into a hoop opening lands the ball there
     if (Math.abs(_v2.y) < 1e-4) continue;
     const t = (r.y - _v1.y) / _v2.y; if (t <= 0) continue;
     const x = _v1.x + _v2.x * t, z = _v1.z + _v2.z * t;
-    if (Math.hypot(x - r.x, z - r.z) < RIM_R + 0.05) { // centre of the ball crosses here; 3 cm toward the shooter is the clean entry point
-      const dx = pl.pos.x - r.x, dz = pl.pos.z - r.z, dl = Math.hypot(dx, dz) || 1;
-      return { p: new V3(x + dx / dl * 0.03, r.y, z + dz / dl * 0.03), hoop: r };
-    }
+    if (Math.hypot(x - r.x, z - r.z) < RIM_R + 0.05) { const e = rimEntry(r); return { p: new V3(x + e.x - r.x, r.y, z + e.z - r.z), hoop: r, locked: true }; }
   }
   ray.set(_v1, _v2); ray.far = 200;
   const hit = ray.intersectObjects(world.rayTargets, false)[0];
-  return { p: hit ? hit.point.clone() : _v1.clone().addScaledVector(_v2, 25), hoop: null };
+  return { p: hit ? hit.point.clone() : _v1.clone().addScaledVector(_v2, 25), hoop: null, locked: false };
 }
 
 // Launch velocity that carries the ball from R through P (drag + Magnus included).
@@ -1310,9 +1323,9 @@ function releaseShot() {
   const grade = ae <= w ? 'perfect' : ae <= 2.4 * w ? 'good' : ae <= 4.5 * w ? 'ok' : 'bad';
   const label = grade === 'perfect' ? 'PERFECT' : `${grade === 'good' ? 'SLIGHTLY ' : grade === 'bad' ? 'VERY ' : ''}${e < 0 ? 'EARLY' : 'LATE'}`;
   const aimMode = S.camera === 'third' ? S.aimTP : S.aimFP;
-  let P, aimHoop = hoop;
+  let P, aimHoop = hoop, offTarget = false;
   if (aimMode === 'auto') P = new V3(hoop.x - hoop.s * 0.025, hoop.y, hoop.z);
-  else { const t = crosshairTarget(); P = t.p; if (t.hoop) aimHoop = t.hoop; }
+  else { const t = crosshairTarget(); P = t.p; if (t.hoop) aimHoop = t.hoop; offTarget = !t.locked; }
   const R = b.pos.clone();
   const dir = new V3(P.x - R.x, 0, P.z - R.z); const D = Math.max(0.1, dir.length()); dir.divideScalar(D);
   const side = new V3(-dir.z, 0, dir.x);
@@ -1324,11 +1337,11 @@ function releaseShot() {
   const spin = new V3().crossVectors(dir, new V3(0, 1, 0)).multiplyScalar(15);
   b.vel.copy(solveLaunch(R, P, spin)); b.w.copy(spin);
   b.state = 'loose';
-  b.shot = { hoop: aimHoop, made: false, done: false, rim: false, board: false, net: false, t: 0, grade, x: pl.pos.x, z: pl.pos.z, three: win.three && !win.ft, ft: win.ft, cat: win.cat };
+  b.shot = { label: e < 0 ? 'early' : 'late', hoop: aimHoop, offTarget, made: false, done: false, rim: false, board: false, net: false, t: 0, grade, x: pl.pos.x, z: pl.pos.z, three: win.three && !win.ft, ft: win.ft, cat: win.cat };
   pl.ball = null; pl.state = 'follow'; pl.followT = 0; pl.grabCD = 0.45;
   stats.att += win.ft ? 0 : 1; if (win.ft) stats.ftAtt++; if (b.shot.three) stats.threeAtt++; if (grade === 'perfect') stats.perfect++;
   meterEl.className = grade === 'perfect' ? 'flash-good' : grade === 'good' ? 'flash-ok' : 'flash-bad';
-  meterGrade.textContent = label; meterGrade.style.color = grade === 'perfect' ? 'var(--good)' : grade === 'good' ? 'var(--warn)' : 'var(--bad)';
+  meterGrade.textContent = offTarget ? `${label} · OFF TARGET` : label; meterGrade.style.color = grade === 'perfect' ? 'var(--good)' : grade === 'good' ? 'var(--warn)' : 'var(--bad)';
   meterHideT = 1.1;
   sfx.release(R);
   refreshStats();
@@ -1346,7 +1359,7 @@ function resolveShot(b, made) {
     sfx.swish(clean ? 1 : 0.6, b.pos);
   } else {
     stats.streak = 0;
-    toast('MISS', sh.grade === 'perfect' ? 'Off target' : meterGrade.textContent ? `${meterGrade.textContent.toLowerCase()} release` : '', 'var(--bad)');
+    toast('MISS', sh.offTarget ? 'Crosshair was not on the hoop' : sh.grade === 'perfect' ? 'Rimmed out' : `${sh.grade === 'good' ? 'slightly ' : sh.grade === 'bad' ? 'very ' : ''}${sh.label} release`, 'var(--bad)');
   }
   stats.shots.push({ x: sh.x, z: sh.z, made, three: sh.three });
   if (stats.shots.length > 400) stats.shots.shift();
@@ -1524,7 +1537,9 @@ function updateHints() {
 function updateCrosshair() {
   const S = cfg.settings, ch = $('#crosshair');
   const hide = !S.crosshair || menuOpen || (S.camera === 'third' && S.hideChShooting && pl.state === 'shoot');
-  ch.hidden = hide; ch.className = S.chStyle; ch.style.setProperty('--c', S.chColor); ch.style.setProperty('--s', S.chSize);
+  let lock = false;
+  if (!hide && (S.camera === 'third' ? S.aimTP : S.aimFP) === 'crosshair' && S.aimAssist) { camera.getWorldPosition(_v1); camera.getWorldDirection(_v2); lock = !!hoopUnderCrosshair(_v1, _v2); }
+  ch.hidden = hide; ch.className = S.chStyle; ch.style.setProperty('--c', lock ? '#5bd68f' : S.chColor); ch.style.setProperty('--s', S.chSize);
 }
 function updateMeter(dt) {
   if (pl.state === 'shoot') {
@@ -1620,6 +1635,7 @@ const SCHEMA = {
       { k: 'settings.camera', t: 'seg', label: 'Camera', opts: [['third', 'Third person'], ['first', 'First person']], ap: 'settings' },
       { k: 'settings.aimTP', t: 'seg', label: '3rd-person aim', opts: [['crosshair', 'Crosshair'], ['auto', 'Auto-aim']], ap: 'settings' },
       { k: 'settings.aimFP', t: 'seg', label: '1st-person aim', opts: [['crosshair', 'Crosshair'], ['auto', 'Auto-aim']], ap: 'settings' },
+      { k: 'settings.aimAssist', t: 'toggle', label: 'Lock onto rim', ap: 'settings' },
       { k: 'settings.sens', t: 'range', label: 'Mouse speed', min: 0.3, max: 2.5, step: 0.05, fmt: (v) => `${v.toFixed(2)}×`, ap: 'settings' },
       { k: 'settings.invertY', t: 'toggle', label: 'Invert look', ap: 'settings' },
       { k: 'settings.fov', t: 'range', label: 'Field of view', min: 55, max: 100, step: 1, fmt: (v) => `${v}°`, ap: 'settings' },
@@ -1715,7 +1731,7 @@ function renderTab() {
       const g = document.createElement('section'); g.className = 'group'; const h = document.createElement('h3'); h.textContent = title; g.appendChild(h);
       defs.forEach((d) => g.appendChild(field(d))); body.appendChild(g);
     }
-    if (activeTab === 'settings') { const n = document.createElement('p'); n.className = 'note'; n.textContent = 'Crosshair aim sends the shot to the exact spot under the crosshair (aim inside the rim). Auto-aim ignores the crosshair and shoots at the nearest rim; only your release timing matters.'; body.appendChild(n); }
+    if (activeTab === 'settings') { const n = document.createElement('p'); n.className = 'note'; n.textContent = 'Crosshair aim sends the shot where the crosshair points. With Lock onto rim on, the crosshair turns green when it is near a hoop and the shot goes to that rim; anywhere else, the ball goes to the exact spot. Auto-aim ignores the crosshair and shoots at the nearest rim; only your release timing matters.'; body.appendChild(n); }
   } else if (activeTab === 'position') renderPosition();
   else renderStats();
 }
