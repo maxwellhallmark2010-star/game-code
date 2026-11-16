@@ -1,0 +1,44 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>iPhone 7</title>
+<style>
+body{margin:0;height:100vh;background:#111;display:grid;place-items:center;perspective:1200px;overflow:hidden;font:14px -apple-system,sans-serif;touch-action:none;user-select:none;-webkit-user-select:none;color:#fff}
+#p{width:260px;height:530px;position:relative;transform-style:preserve-3d}
+#p>div{position:absolute;inset:0;border-radius:38px;background:#3a3a3c}
+#p>#f{transform:translateZ(8px);background:#000}
+#p>#b{transform:translateZ(-8px) rotateY(180deg);background:#1c1c1e;color:#555;text-align:center;line-height:900px}
+#b i{position:absolute;top:16px;left:16px;width:30px;height:30px;border-radius:50%;background:#000;border:3px solid #444}
+#s{position:absolute;inset:62px 14px;background:linear-gradient(#1e3c72,#2a5298);overflow:hidden;text-align:center;font-size:12px;line-height:20px}
+#h{position:absolute;bottom:8px;left:50%;margin-left:-22px;width:40px;height:40px;border-radius:50%;border:2px solid #444;cursor:pointer}
+#v{position:absolute;inset:20px 0 0;line-height:1.2}
+.i{display:inline-block;width:25%;margin-top:14px;font-size:11px;cursor:pointer}
+.i b{display:block;width:44px;height:44px;margin:0 auto 4px;border-radius:11px;background:#fff;font-size:28px;line-height:44px}
+h1{font-weight:200;font-size:40px;margin:30px 8px;overflow:hidden}
+button{width:25%;height:56px;font-size:22px;border:1px solid #000;background:#333;color:#fff}
+#g{display:block;width:50px;height:50px;border-radius:50%;background:#f33}
+textarea{display:block;width:100%;height:100%;box-sizing:border-box;border:0;padding:10px;background:#fffbe6;font:16px sans-serif;user-select:text;-webkit-user-select:text}
+p{position:fixed;bottom:0;width:100%;text-align:center;color:#777}
+</style>
+<div id=p>
+ <div id=f><div id=s>9:41 AM<div id=v></div></div><div id=h></div></div>
+ <div id=b><i></i>iPhone</div>
+</div>
+<p>Drag outside the screen to spin · round button = home</p>
+<script>
+const P=document.getElementById('p'),V=document.getElementById('v');
+let rx=-10,ry=25,d,lx,ly,iv;
+const R=()=>P.style.transform=`rotateX(${rx}deg) rotateY(${ry}deg)`;R();
+for(let i=-7;i<8;i++)P.insertAdjacentHTML('beforeend',`<div style="transform:translateZ(${i}px)"></div>`);
+onpointerdown=e=>{d=!e.target.closest('#s,#h');lx=e.clientX;ly=e.clientY};
+onpointermove=e=>{if(d){ry+=(e.clientX-lx)/2;rx-=(e.clientY-ly)/2;lx=e.clientX;ly=e.clientY;R()}};
+onpointerup=()=>d=0;
+const A={
+ Clock:['🕐',()=>{const f=()=>V.innerHTML='<h1>'+new Date().toLocaleTimeString()+'</h1>';f();iv=setInterval(f,1e3)}],
+ Calc:['🧮',()=>{V.innerHTML='<h1 id=o>0</h1>'+[...'789/456*123-C0=+'].map(c=>`<button>${c}</button>`).join('');let x='';
+  V.onclick=e=>{const c=e.target.tagName=='BUTTON'&&e.target.textContent;if(!c)return;
+   if(c=='C')x='';else if(c=='='){try{x=''+eval(x)}catch{x=''}}else x+=c;o.textContent=x||0}}],
+ Notes:['📝',()=>{V.innerHTML='<textarea placeholder="Type a note…"></textarea>';const t=V.firstChild;try{t.value=localStorage.n||'';t.oninput=()=>localStorage.n=t.value}catch{}}],
+ Game:['🎯',()=>{let n=0;V.innerHTML='<h1>0</h1><button id=g></button>';g.onclick=()=>{V.firstChild.textContent=++n;g.style.margin=Math.random()*200+'px 0 0 '+Math.random()*170+'px'}}]
+};
+const home=()=>{clearInterval(iv);V.onclick=null;V.innerHTML='';for(const k in A){const e=document.createElement('div');e.className='i';e.innerHTML=`<b>${A[k][0]}</b>${k}`;e.onclick=v=>{v.stopPropagation();A[k][1]()};V.append(e)}};
+h.onclick=home;home();
+</script>
