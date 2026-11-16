@@ -16,19 +16,23 @@ h1{font-weight:200;font-size:40px;margin:30px 8px;overflow:hidden}
 button{width:25%;height:56px;font-size:22px;border:1px solid #000;background:#333;color:#fff}
 #g{display:block;width:50px;height:50px;border-radius:50%;background:#f33}
 textarea{display:block;width:100%;height:100%;box-sizing:border-box;border:0;padding:10px;background:#fffbe6;font:16px sans-serif;user-select:text;-webkit-user-select:text}
+#k{position:absolute;inset:0;background:inherit;padding-top:60px}
+#w{position:absolute;right:-6px;top:110px;width:6px;height:50px;background:#555;border-radius:0 3px 3px 0;cursor:pointer}
+#w:after{content:'';position:absolute;inset:-12px}
+canvas{display:block;background:#fff}
 p{position:fixed;bottom:0;width:100%;text-align:center;color:#777}
 </style>
 <div id=p>
- <div id=f><div id=s>9:41 AM<div id=v></div></div><div id=h></div></div>
+ <div id=f><div id=s><span id=t></span><div id=v></div><div id=k></div></div><div id=h></div><div id=w></div></div>
  <div id=b><i></i>iPhone</div>
 </div>
-<p>Drag outside the screen to spin · round button = home</p>
+<p>Drag outside the screen to spin · round button = wake / unlock / home · side button = power</p>
 <script>
 const P=document.getElementById('p'),V=document.getElementById('v');
 let rx=-10,ry=25,d,lx,ly,iv;
 const R=()=>P.style.transform=`rotateX(${rx}deg) rotateY(${ry}deg)`;R();
 for(let i=-7;i<8;i++)P.insertAdjacentHTML('beforeend',`<div style="transform:translateZ(${i}px)"></div>`);
-onpointerdown=e=>{d=!e.target.closest('#s,#h');lx=e.clientX;ly=e.clientY};
+onpointerdown=e=>{W();d=!e.target.closest('#s,#h');lx=e.clientX;ly=e.clientY};
 onpointermove=e=>{if(d){ry+=(e.clientX-lx)/2;rx-=(e.clientY-ly)/2;lx=e.clientX;ly=e.clientY;R()}};
 onpointerup=()=>d=0;
 const A={
@@ -37,8 +41,17 @@ const A={
   V.onclick=e=>{const c=e.target.tagName=='BUTTON'&&e.target.textContent;if(!c)return;
    if(c=='C')x='';else if(c=='='){try{x=''+eval(x)}catch{x=''}}else x+=c;o.textContent=x||0}}],
  Notes:['📝',()=>{V.innerHTML='<textarea placeholder="Type a note…"></textarea>';const t=V.firstChild;try{t.value=localStorage.n||'';t.oninput=()=>localStorage.n=t.value}catch{}}],
- Game:['🎯',()=>{let n=0;V.innerHTML='<h1>0</h1><button id=g></button>';g.onclick=()=>{V.firstChild.textContent=++n;g.style.margin=Math.random()*200+'px 0 0 '+Math.random()*170+'px'}}]
+ Game:['🎯',()=>{let n=0;V.innerHTML='<h1>0</h1><button id=g></button>';g.onclick=()=>{V.firstChild.textContent=++n;g.style.margin=Math.random()*200+'px 0 0 '+Math.random()*170+'px'}}],
+ Paint:['🎨',()=>{V.innerHTML='<canvas width=232 height=386>';const c=V.firstChild.getContext('2d');V.firstChild.onpointermove=e=>e.buttons&&c.fillRect(e.offsetX-2,e.offsetY-2,5,5)}],
+ Light:['🔦',()=>V.innerHTML='<div style="height:100%;background:#fff">'],
+ Dice:['🎲',()=>{V.innerHTML='<h1>Tap to roll</h1>';V.onclick=()=>V.firstChild.textContent='⚀⚁⚂⚃⚄⚅'[Math.random()*6|0]}],
+ Timer:['⏱️',()=>{let s=0;const f=()=>V.innerHTML='<h1>'+s+++'s</h1>';f();iv=setInterval(f,1e3)}]
 };
+let st,af;
+const T=()=>new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}),
+ W=()=>{clearTimeout(af);af=setTimeout(()=>S(0),3e4)},
+ S=n=>{st=n;k.style.display=n>1?'none':'';k.style.background=n?'':'#000';k.innerHTML=n?`<h1>${T()}</h1>Press home to unlock`:'';n>1&&home()};
+setInterval(()=>{t.textContent=T();st==1&&S(1)},1e3);
 const home=()=>{clearInterval(iv);V.onclick=null;V.innerHTML='';for(const k in A){const e=document.createElement('div');e.className='i';e.innerHTML=`<b>${A[k][0]}</b>${k}`;e.onclick=v=>{v.stopPropagation();A[k][1]()};V.append(e)}};
-h.onclick=home;home();
+h.onclick=()=>S(st<2?st+1:2);w.onclick=()=>S(st?0:1);t.textContent=T();S(1);W();
 </script>
